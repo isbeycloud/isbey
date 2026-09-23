@@ -12,4 +12,8 @@ if (process.env.ISBEY_DATA_DIR) {
   config({ path: process.env.DOTENV_CONFIG_PATH, quiet: true });
 }
 register();
-await import('./tools/start-production.mjs');
+// LiteSpeed loads this entry through require(); keep its ESM graph synchronous.
+import('./tools/start-production.mjs').catch(error => {
+  console.error('Production startup failed:', error);
+  process.exitCode = 1;
+});
