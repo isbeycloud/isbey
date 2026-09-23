@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 fs.mkdirSync('.verify-tmp', { recursive: true });
 const directory = fs.mkdtempSync(path.resolve('.verify-tmp/local-'));
 const suites = [
-  'productionTenantTest.ts', 'membershipIsolationTest.ts', 'credentialVaultRegressionTest.ts', 'credentialMaskRegressionTest.ts',
+  'productionProvisioningTest.ts', 'productionTenantTest.ts', 'membershipIsolationTest.ts', 'credentialVaultRegressionTest.ts', 'credentialMaskRegressionTest.ts',
   'faz252bPermissionRegistryTest.mjs', 'faz252dFrontendMatrixAlignmentTest.mjs',
   'faz27EnvironmentConfigTest.ts', 'phase19GuidFindUnitTest.ts',
   'faz29UatScenarioSuite.ts', 'phase32CreditLifecycleTest.ts', 'productionReadinessTest.ts', 'storageWriteFailureTest.ts',

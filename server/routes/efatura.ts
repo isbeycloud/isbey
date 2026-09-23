@@ -3,6 +3,7 @@ import { storage } from '../db/storage';
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { requireAuth, requireRole } from '../middleware/authGuards';
+import { getDataDirectory } from '../config/environment';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get('/templates/content', async (req: Request, res: Response) => {
       ? `hizli_e_arsiv_${code}.xslt`
       : `hizli_e_fatura_${code}.xslt`;
       
-    const filePath = path.join(process.cwd(), 'data', 'templates', fileName);
+    const filePath = path.join(getDataDirectory(), 'templates', fileName);
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8');
       res.setHeader('Content-Type', 'application/xml; charset=utf-8');
@@ -1687,7 +1688,7 @@ router.post('/hizli/import-xslt', async (req: Request, res: Response) => {
       ? ['E_FATURA', 'E_ARSIV'] 
       : [serviceType];
 
-    const templateDir = path.join(process.cwd(), 'data', 'templates');
+    const templateDir = path.join(getDataDirectory(), 'templates');
     if (!fs.existsSync(templateDir)) {
       fs.mkdirSync(templateDir, { recursive: true });
     }

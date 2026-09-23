@@ -5,14 +5,16 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { DatabaseState, AuditLog } from './schema';
-import { initialDatabaseState } from './seed';
+import { initialDatabaseState as developmentSeed } from './seed';
+import { createProductionDefaults } from './productionDefaults';
 import { XsltEngineService } from '../services/xsltEngineService';
 // FAZ 25.3-E (B-2): permission/rol kataloğu TEK KAYNAK'tan (security registry) türetilir
 import { PERMISSION_CATALOG, ROLE_DEFINITIONS, ROLE_PERMISSIONS } from '../security';
-import { getDatabasePath } from '../config/environment';
+import { getDatabasePath, getDataDirectory, isProduction } from '../config/environment';
 import { replaceFileWithRetry } from './atomicWrite';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const initialDatabaseState = isProduction() ? createProductionDefaults() : developmentSeed;
+const DATA_DIR = getDataDirectory();
 const DATA_FILE = getDatabasePath();
 
 class StorageManager {
@@ -92,7 +94,7 @@ class StorageManager {
           signatureHeight: 60,
           showQrCode: true,
           showBarcode: true,
-          bankAccounts: [
+          bankAccounts: isProduction() ? [] : [
             { bankName: 'Garanti BBVA', currency: 'TRY', iban: 'TR33 0006 2000 0001 2345 6789 01' },
             { bankName: 'İş Bankası', currency: 'USD', iban: 'TR66 0006 4000 0009 8765 4321 02' },
           ],
@@ -529,7 +531,7 @@ class StorageManager {
         wallet = {
           id: `wlt-${t.id}`,
           tenantId: t.id,
-          balance: t.eInvoiceCredits || 100,
+          balance: isProduction() ? (t.eInvoiceCredits ?? 0) : (t.eInvoiceCredits || 100),
           reservedBalance: 0,
           lowCreditThreshold: 20,
           updatedAt: now,
@@ -609,6 +611,7 @@ class StorageManager {
       state.sequences['DOCUMENT_AI_JOB'] = { prefix: 'OCR', year: 2026, lastNumber: 0, length: 6 };
     }
 
+    if (isProduction()) return;
     // Default accountant client seed for demo
     if (state.accountantClients.length === 0) {
       state.accountantClients.push({
@@ -677,6 +680,7 @@ class StorageManager {
 
     const now = new Date().toISOString();
 
+    if (isProduction()) return;
     // Default Approval Rules (Tutar Kademeli Onay)
     if (state.approvalRules.length === 0) {
       state.approvalRules.push(
@@ -1023,6 +1027,7 @@ class StorageManager {
     if (!state.tenantSuccessMetrics) state.tenantSuccessMetrics = [];
     if (!state.tenantDataExportJobs) state.tenantDataExportJobs = [];
 
+    if (isProduction()) return;
     // 1. Feature Flags Seed
     if (state.featureFlags.length === 0) {
       state.featureFlags.push(

@@ -36,6 +36,10 @@ export function isTest(): boolean {
   return getEnvironment() === 'test';
 }
 
+export function getDataDirectory(): string {
+  return path.resolve(process.cwd(), process.env.ISBEY_DATA_DIR || 'data');
+}
+
 /**
  * FAZ 27: Database path resolution.
  * Supports explicit DATABASE_PATH env var, or environment-based pathing.
@@ -47,7 +51,7 @@ export function getDatabasePath(): string {
   }
 
   const env = getEnvironment();
-  const dataDir = path.resolve(process.cwd(), 'data');
+  const dataDir = getDataDirectory();
 
   if (env === 'production') {
     return path.join(dataDir, 'database.prod.json');

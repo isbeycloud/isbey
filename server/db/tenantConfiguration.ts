@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DatabaseState, Company } from './schema';
 import { initialDatabaseState } from './seed';
+import { isProduction } from '../config/environment';
+import { createProductionDefaults } from './productionDefaults';
 
 export const tenantContext = new AsyncLocalStorage<string>();
 
@@ -16,7 +18,8 @@ export function tenantConfiguration(db: DatabaseState, tenantId: string) {
       ...Object.fromEntries(Object.entries(tenant).filter(([key]) => ['name', 'title', 'taxNumber', 'taxOffice', 'email', 'phone', 'address', 'city', 'district', 'logoUrl', 'website'].includes(key))), id: tenantId } as Company;
     db.tenantConfigurations[tenantId] = {
       company,
-      settings: structuredClone(legacyOwner === tenantId ? db.settings : initialDatabaseState.settings),
+      settings: structuredClone(legacyOwner === tenantId ? db.settings :
+        isProduction() ? createProductionDefaults().settings : initialDatabaseState.settings),
       sequences: structuredClone(db.sequences),
     };
   }

@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { getDataDirectory } from '../config/environment';
 
 export class DocumentStorageService {
   private static getBaseStorageDir(): string {
-    return path.resolve(process.cwd(), 'data', 'storage', 'tenants');
+    return path.join(getDataDirectory(), 'storage', 'tenants');
   }
 
   /**

@@ -16,7 +16,7 @@ dist-ssr
 # DB yedekleri, sunucu logları ve ham test çıktıları burada birikir — commit edilmez.
 .verify-tmp/
 releases/
-data/
+/data/
 
 # Secrets & environment variables
 .env
