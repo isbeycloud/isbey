@@ -1,3 +1,4 @@
+import { BrandLogo } from '../components/common/BrandLogo';
 import React, { useState, useEffect } from 'react';
 import {
   FileText,
@@ -50,12 +51,7 @@ export const PublicDocumentSharePage: React.FC<{ token: string }> = ({ token }) 
       <div style={{ width: '100%', maxWidth: '560px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg, 10px)', border: '1px solid var(--border-color)', padding: '32px', boxShadow: 'var(--shadow-xl)' }}>
         {/* Logo & Header */}
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <div style={{ width: '56px', height: '56px', borderRadius: 'var(--radius-md, 8px)', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-            <FileText size={28} color="#fff" />
-          </div>
-          <div style={{ fontSize: 'var(--fs-lg, 16px)', fontWeight: 700, color: 'var(--text-main)' }}>
-            İŞBEY <span style={{ color: 'var(--primary)' }}>CLOUD</span>
-          </div>
+          <BrandLogo width={260} style={{ marginBottom: 12 }} />
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-base, 13px)', color: 'var(--text-muted)' }}>
             Güvenli Belge ve Ekstre Paylaşım Portalı
           </p>

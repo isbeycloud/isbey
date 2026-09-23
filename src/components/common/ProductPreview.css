@@ -1,0 +1,26 @@
+.product-preview{width:100%;max-width:620px;overflow:hidden;border:1px solid #e5e7eb;border-radius:16px;background:#fff;color:#17202d;box-shadow:0 20px 65px #33121c14;text-align:left;font-family:Inter,system-ui,sans-serif}
+.product-preview__top{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid #eceef2;gap:12px}
+.product-preview__top>span{display:flex;align-items:center;gap:5px;font-size:10px;color:#667085;white-space:nowrap}
+.product-preview__body{display:flex;min-height:310px}
+.product-preview__nav{width:130px;flex-shrink:0;padding:22px 9px;background:#fbf9fa;border-right:1px solid #eceef2}
+.product-preview__nav>div{display:flex;gap:8px;align-items:center;padding:11px 8px;font-size:10px;color:#6b7280;border-radius:6px;margin-bottom:5px}
+.product-preview__nav .selected{color:#d41435;background:#fce9ee;font-weight:700}
+.product-preview__main{flex:1;min-width:0;padding:24px 20px;background:linear-gradient(140deg,#fff,#fff9fa)}
+.product-preview__eyebrow{font-size:8px;letter-spacing:1.4px;font-weight:700;color:#d41435}
+.product-preview h3{font-size:18px;line-height:1.35;margin:8px 0 18px;color:#17202d}
+.product-preview__metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.product-preview__metrics>div{padding:12px;background:#fff;border:1px solid #e8e9ee;border-radius:8px;display:flex;flex-direction:column;gap:6px}
+.product-preview__metrics span,.product-preview__metrics small{font-size:9px;color:#667085}
+.product-preview__metrics strong{font-size:20px;letter-spacing:-.6px}
+.product-preview__chart{padding:14px 12px 9px;border:1px solid #e8e9ee;border-radius:8px;margin-top:12px;background:#fff}
+.product-preview__chart>div:first-child{display:flex;justify-content:space-between;font-size:10px}.product-preview__chart>div:first-child span{color:#667085}
+.product-preview__bars{display:flex;align-items:flex-end;justify-content:space-around;height:100px;margin-top:12px;gap:10px}
+.product-preview__bars>div{height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;flex:1;gap:6px}
+.product-preview__bars i{width:100%;max-width:25px;min-height:8px;border-radius:4px 4px 0 0;background:linear-gradient(#f33c59,#ca1234)}
+.product-preview__bars small{font-size:8px;color:#667085}.product-preview__status{display:flex;align-items:center;gap:7px;color:#34735c;font-size:9px;margin-top:15px}
+.product-preview__caption{display:flex;justify-content:space-between;gap:8px;padding:11px 18px;border-top:1px solid #eceef2;font-size:8px;letter-spacing:.4px;color:#596273}.product-preview__caption span{color:#7b8290}
+.product-preview--compact .product-preview__nav{display:none}.product-preview--compact .product-preview__main{padding:20px 16px}.product-preview--compact .product-preview__top{padding:14px}.product-preview--compact .product-preview__top>span{display:none}
+@media(max-width:480px){.product-preview__nav{width:40px;padding:15px 4px}.product-preview__nav>div{padding:10px 7px}.product-preview__nav span{display:none}.product-preview__main{padding:18px 12px}.product-preview h3{font-size:16px}.product-preview__metrics strong{font-size:17px}.product-preview__top{padding:14px}.product-preview__top>span{display:none}}
+
+@media(max-width:900px){.brand-navigation-links{display:none!important}.brand-hero-grid,.brand-content-grid{grid-template-columns:1fr!important}.brand-auth-card{grid-template-columns:minmax(0,1fr)!important;max-width:540px!important}.brand-auth-card>div{min-width:0}.brand-auth-card>div:nth-child(2){display:none!important}}
+@media(max-width:540px){.brand-navigation{padding:0 14px!important}.brand-navigation svg[aria-label="İŞBEY CLOUD"]{width:175px!important}.brand-navigation>div>div:last-child>button:last-child{display:none!important}.brand-navigation>div>div:last-child>button{padding:9px 12px!important;white-space:nowrap}.brand-hero-grid{padding:40px 20px!important;gap:28px!important}.brand-content-grid{padding:20px!important;gap:24px!important}.brand-auth-card>div:first-child{padding:36px 22px!important}}

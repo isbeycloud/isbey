@@ -158,7 +158,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   // FAZ 25.3-F: mobil sidebar overlay
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('isbey_theme') || localStorage.getItem('isbasi_theme');
+    const saved = localStorage.getItem('isbey_theme');
     return saved === 'dark' ? 'dark' : 'light';
   });
 

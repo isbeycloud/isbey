@@ -1,5 +1,7 @@
+import { BrandLogo } from '../components/common/BrandLogo';
+import { ProductPreview } from '../components/common/ProductPreview';
 import React, { useState } from 'react';
-import { User, Mail, Phone, Building2, Lock, ArrowRight, ArrowLeft, CheckCircle2, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Phone, Building2, Lock, ArrowRight, ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface RegisterPageProps {
@@ -78,7 +80,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
     <div
       style={{
         minHeight: '100vh',
-        backgroundImage: 'url(/bg-login.png)',
+        backgroundImage: 'radial-gradient(ellipse at top right, #fce4e9, transparent 65%)',
         backgroundColor: 'var(--bg-surface-secondary)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
@@ -115,7 +117,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
       </div>
 
       {/* Ana Metronic Split Container */}
-      <div
+      <div className="brand-auth-card"
         style={{
           width: '100%',
           maxWidth: '1020px',
@@ -133,20 +135,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
         <div style={{ padding: '36px 32px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           {/* Logo */}
           <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: 'var(--radius-md, 8px)',
-                background: 'var(--primary)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '10px',
-              }}
-            >
-              <Sparkles size={22} color="#ffffff" />
-            </div>
+            <BrandLogo width={280} style={{ marginBottom: 16 }} />
             <h1 style={{ fontSize: 'var(--fs-xl, 20px)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '-0.5px', margin: 0 }}>
               14 Gün Ücretsiz <span style={{ color: 'var(--primary)' }}>Deneyin</span>
             </h1>
@@ -515,11 +504,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
           </div>
 
           <div style={{ width: '100%', maxWidth: '340px', margin: '16px 0' }}>
-            <img
-              src="/isbey-auth-banner.png"
-              alt="İŞBEY CLOUD ERP"
-              style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md, 8px)', boxShadow: 'var(--shadow-md)' }}
-            />
+            <ProductPreview compact />
           </div>
 
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '10px' }}>

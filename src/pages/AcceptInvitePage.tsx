@@ -1,3 +1,4 @@
+import { BrandLogo } from '../components/common/BrandLogo';
 import React, { useState, useEffect } from 'react';
 import {
   Building2,
@@ -92,9 +93,7 @@ export const AcceptInvitePage: React.FC = () => {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-surface-secondary)', padding: '20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg, 10px)', width: '100%', maxWidth: '480px', padding: '36px', boxShadow: 'var(--shadow-xl)' }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-md, 8px)', background: 'var(--primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px' }}>
-            <Building2 size={26} />
-          </div>
+          <BrandLogo width={280} style={{ marginBottom: 16 }} />
           <h2 style={{ fontSize: 'var(--fs-xl, 20px)', fontWeight: '700', color: 'var(--text-main)', margin: '0 0 6px 0' }}>
             İŞBEY CLOUD Daveti
           </h2>

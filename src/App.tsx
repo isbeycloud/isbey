@@ -1,3 +1,4 @@
+import { BrandLogo } from './components/common/BrandLogo';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
@@ -305,7 +306,7 @@ const AppContent: React.FC = () => {
       // token'larına ve normal başlık ağırlığına çevrildi.
       <div style={{ minHeight: '100vh', background: 'var(--bg-surface-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--info)', fontFamily: 'system-ui' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--fs-xl, 20px)', fontWeight: 700, marginBottom: '8px' }}>İŞBEY <span style={{ color: 'var(--text-main)' }}>CLOUD</span></div>
+          <BrandLogo width={280} style={{ marginBottom: 16 }} />
           <div style={{ color: 'var(--text-muted)', fontSize: 'var(--fs-base, 13px)' }}>Yükleniyor...</div>
         </div>
       </div>

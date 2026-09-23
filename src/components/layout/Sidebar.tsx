@@ -1,9 +1,9 @@
+import { BrandLogo } from '../common/BrandLogo';
 import React from 'react';
 // 2026-09-13 (ölü kod temizliği): LayoutDashboard, Wallet, Calendar, Sparkles
 // burada içe aktarılıyordu ama hiçbir modül meta verisinde kullanılmıyordu.
 import {
   Home,
-  Cloud,
   Users,
   ShoppingCart,
   ShoppingBag,
@@ -164,53 +164,7 @@ export const Sidebar: React.FC = () => {
           justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
         }}
       >
-        {!isSidebarCollapsed ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
-              style={{
-                width: '34px',
-                height: '34px',
-                /* 2026-09-13 (tasarım düzeltmesi): Marka kutusu önceki sürümde
-                   MAVİ bir tondu (rgba(37,99,235,...)) — marka rengi kırmızıyken
-                   girişte iki farklı marka rengi yan yana duruyordu. Artık tek
-                   marka rengi: düz kırmızı zemin, beyaz amblem. */
-                borderRadius: 'var(--radius-sm, 6px)',
-                background: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Cloud size={20} color="#ffffff" strokeWidth={2.2} />
-            </div>
-            <div>
-              <div style={{ fontSize: 'var(--fs-lg, 16px)', fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--text-main)', lineHeight: 1.15 }}>
-                İŞBEY
-              </div>
-              <div style={{ fontSize: 'var(--fs-xs, 11px)', fontWeight: 500, color: 'var(--text-muted)' }}>
-                Bulut ERP
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              width: '38px',
-              height: '38px',
-              /* 2026-09-13 (tasarım düzeltmesi): Daraltılmış marka kutusu hâlâ
-                 MAVİ tonda (rgba(37,99,235,...)) kalmıştı — açık marka kutusu
-                 ise kırmızı. İkisi yan yana iki farklı marka rengi gibi
-                 okunuyordu; kırmızı marka tonuna hizalandı. */
-              borderRadius: 'var(--radius-sm, 6px)',
-              background: 'var(--primary-light)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Cloud size={24} color="var(--primary)" strokeWidth={2.2} />
-          </div>
-        )}
+        <BrandLogo compact={isSidebarCollapsed} width={175} />
 
         <button
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

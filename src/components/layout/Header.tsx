@@ -1,3 +1,4 @@
+import { BrandLogo } from '../common/BrandLogo';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
@@ -198,7 +199,7 @@ export const Header: React.FC = () => {
           </button>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: 'var(--fs-xs, 11px)', fontWeight: 600, color: 'var(--color-text-muted, #5f6779)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>İŞBEY CLOUD</span>
+              <BrandLogo compact style={{ width: 20 }} />
               <span style={{ color: 'var(--color-text-light, #8b93a5)' }}>/</span>
               <span>{category}</span>
             </div>

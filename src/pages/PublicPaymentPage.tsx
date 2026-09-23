@@ -1,3 +1,4 @@
+import { BrandLogo } from '../components/common/BrandLogo';
 import React, { useState, useEffect } from 'react';
 import {
   CreditCard,
@@ -124,7 +125,7 @@ export const PublicPaymentPage: React.FC<PublicPaymentPageProps> = ({ token, onP
             <Lock size={14} />
             <span>256-Bit SSL Güvenli Tahsilat Portalı</span>
           </div>
-          <h2 style={{ margin: 0, fontSize: 'var(--fs-lg, 16px)', fontWeight: 700 }}>İŞBEY CLOUD PAY</h2>
+          <BrandLogo width={250} style={{ padding: 8 }} />
           <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-base, 13px)', opacity: 0.85 }}>{linkData?.customerTitle}</p>
         </div>
 

@@ -1,6 +1,8 @@
+import { BrandLogo } from '../components/common/BrandLogo';
+import { ProductPreview } from '../components/common/ProductPreview';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Zap, CheckCircle2, ArrowRight, ShieldCheck, Smartphone,
+  CheckCircle2, ArrowRight, ShieldCheck, Smartphone,
   BarChart3, Users, Package, FileText, Sparkles, HelpCircle,
   ChevronDown, ChevronUp, Building, CreditCard, Headphones,
   Check, Star, BookOpen, Briefcase, Calendar, DollarSign,
@@ -88,56 +90,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
       tab: 'Mobil',
       title: 'Her Yerden, Her Cihazdan Yönetin',
       desc: 'Bilgisayar, tablet veya cep telefonunuzdan; internet erişiminiz olan her yerden İŞBEY CLOUD ile işletmenizin ön muhasebe işlemlerini kesintisiz yönetin.',
-      img: '/isbey-mobil.jpg',
       alt: 'İŞBEY CLOUD Mobil Uygulama',
     },
     {
       tab: 'e-Fatura',
       title: 'e-Fatura Programı',
       desc: 'GİB onaylı özel entegratör altyapımızla dakikalar içinde e-Fatura mükellefiyetinizi aktif edin. e-Faturanızı hızlı ve kolayca oluşturup anında gönderin.',
-      img: '/isbey-efatura.jpg',
       alt: 'İŞBEY CLOUD e-Fatura Programı',
     },
     {
       tab: 'e-Arşiv',
       title: 'e-Arşiv Fatura',
       desc: 'e-Faturalı olun ya da olmayın; bilgisayardan, cep telefonundan veya tabletten e-Arşiv Fatura göndermek İŞBEY CLOUD ile çok hızlı ve kolay.',
-      img: '/isbey-earsiv.jpg',
       alt: 'İŞBEY CLOUD e-Arşiv Fatura',
     },
     {
       tab: 'Cari Hesap',
       title: 'Online Cari Hesap Takip Programı',
       desc: 'Müşteri ve tedarikçilerinizle olan tahsilat/ödeme takibini online gerçekleştirin. B2B tahsilat linki ile SMS veya WhatsApp üzerinden anında ödeme alın.',
-      img: '/isbey-cari.jpg',
       alt: 'İŞBEY CLOUD Cari Hesap',
     },
     {
       tab: 'Stok Takibi',
       title: 'Online Stok Takip Programı',
       desc: 'Gerçekleştirdiğiniz alış/satışlar sonrasında stoklarınız otomatik güncellenir. Giriş-çıkış hareketlerini, kritik stok eşiklerini kolayca görüntüleyin.',
-      img: '/isbey-stok.jpg',
       alt: 'İŞBEY CLOUD Stok Takibi',
     },
     {
       tab: 'Nakit Yönetimi',
       title: 'Kasa ve Banka Hesabı Takibi',
       desc: 'Tahsilat ve ödemelerinizi kasa ve banka hesaplarınızla ilişkilendirerek nakit yönetimi takibini gerçekleştirin. 17+ banka entegrasyonu ile otomatik senkron.',
-      img: '/isbey-nakit.jpg',
       alt: 'İŞBEY CLOUD Kasa Banka',
     },
     {
       tab: 'Raporlar',
       title: 'İşinizi İyi Yönetmeniz İçin Özet Raporlar',
       desc: 'Yaptığınız işlemlerin günlük özetlerini inceleyin, kar-zarar ve bilanço raporlarınıza anında erişin. 60+ işletme raporu ile işinizi daha iyi yönetin.',
-      img: '/isbey-raporlar.jpg',
       alt: 'İŞBEY CLOUD Raporlar',
     },
     {
       tab: 'Entegrasyonlar',
       title: 'Entegrasyonlarla İşinizi Büyütün',
       desc: 'Trendyol, Hepsiburada, Amazon, 17 banka entegrasyonu, CRM, kargo ve akıllı fiş okuma. Tüm iş süreçlerinizi tek platformda birleştirin.',
-      img: '/isbey-entegrasyon.jpg',
       alt: 'İŞBEY CLOUD Entegrasyonlar',
     },
   ];
@@ -217,7 +211,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
       </div>
 
       {/* ── NAV ──────────────────────────────────────────────────── */}
-      <nav style={{
+      <nav className="brand-navigation" style={{
         position: 'sticky', top: 0, zIndex: 60, background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border-color)',
         boxShadow: navScrolled ? 'var(--shadow-sm)' : 'none',
@@ -227,19 +221,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
 
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={onLoginClick}>
-            <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-lg, 10px)', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Zap size={20} color="#fff" />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 'var(--fs-lg, 16px)', letterSpacing: '-0.5px', color: 'var(--text-main)' }}>
-                İŞBEY <span style={{ color: 'var(--primary)', fontWeight: 700 }}>CLOUD</span>
-              </div>
-              <div style={{ fontSize: 'var(--fs-xs, 11px)', color: 'var(--text-muted)', letterSpacing: '0.5px', marginTop: '-2px' }}>GİB Onaylı Bulut ERP</div>
-            </div>
+            <BrandLogo width={220} />
           </div>
 
           {/* Desktop Nav Links */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--fs-base, 13px)', fontWeight: 500 }}>
+          <div className="brand-navigation-links" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--fs-base, 13px)', fontWeight: 500 }}>
             {[
               { label: 'Özellikler', href: '#features' },
               { label: 'e-Fatura', href: '#features' },
@@ -270,9 +256,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
         style={{ background: 'var(--bg-surface-secondary)', color: 'var(--text-main)', minHeight: '580px', display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden' }}
       >
         {/* Hero Bg Image Overlay */}
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/hero-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center right', opacity: 0.18, zIndex: 0 }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(ellipse at center right, #f28da2, transparent 70%)', backgroundSize: 'cover', backgroundPosition: 'center right', opacity: 0.18, zIndex: 0 }} />
 
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '70px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', alignItems: 'center', width: '100%', position: 'relative', zIndex: 1 }}>
+        <div className="brand-hero-grid" style={{ maxWidth: '1200px', margin: '0 auto', padding: '70px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', alignItems: 'center', width: '100%', position: 'relative', zIndex: 1 }}>
           {/* Left */}
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--primary-light)', border: '1px solid var(--primary-glow)', padding: '6px 16px', borderRadius: 'var(--radius-pill, 9999px)', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--primary)', marginBottom: '22px', letterSpacing: '0.5px' }}>
@@ -315,7 +301,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg, 10px)', padding: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)' }}>
-                <img src="/isbey-hero-preview.jpg" alt="İŞBEY CLOUD Uygulama Ekranı" style={{ width: '100%', maxWidth: '540px', borderRadius: 'var(--radius-md, 8px)', display: 'block', boxShadow: 'var(--shadow-md)' }} />
+                <ProductPreview />
               </div>
               {/* Floating badge */}
               <div style={{ position: 'absolute', bottom: '-16px', left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md, 8px)', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: 'var(--shadow-md)', whiteSpace: 'nowrap' }}>
@@ -360,10 +346,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
           </div>
 
           {/* Feature Content */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', alignItems: 'center', background: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-lg, 10px)', padding: '40px', border: '1px solid var(--border-color)' }}>
+          <div className="brand-content-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', alignItems: 'center', background: 'var(--bg-surface-secondary)', borderRadius: 'var(--radius-lg, 10px)', padding: '40px', border: '1px solid var(--border-color)' }}>
             <div>
-              <img src={features[activeFeature].img} alt={features[activeFeature].alt}
-                style={{ width: '100%', borderRadius: 'var(--radius-md, 8px)', boxShadow: 'var(--shadow-md)', display: 'block' }} />
+              <ProductPreview title={features[activeFeature].tab} />
             </div>
             <div>
               <h3 style={{ fontSize: 'var(--fs-lg, 16px)', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px', lineHeight: 1.3 }}>{features[activeFeature].title}</h3>
@@ -407,7 +392,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
             Banka, pazaryeri, kargo ve muhasebe yazılımlarıyla tam entegrasyon. Tüm iş süreçleriniz tek platformda.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
+          <div className="brand-content-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
             {[
               { icon: <Building size={28} color="var(--primary)" />, title: '17+ Banka Entegrasyonu', desc: 'Garanti, İş Bankası, Akbank, Yapı Kredi ve daha fazlası. Hesap hareketleri otomatik senkron.' },
               { icon: <Package size={28} color="var(--primary)" />, title: 'Pazaryeri Entegrasyonu', desc: 'Trendyol, Hepsiburada, Amazon TR. Siparişler otomatik faturalanır, stok otomatik güncellenir.' },
@@ -452,7 +437,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
           </div>
 
           {/* Price Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+          <div className="brand-content-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
             {prices[billingCycle].map((pkg, i) => (
               <div key={pkg.name} style={{ ...card, padding: '28px', position: 'relative', border: pkg.featured ? '2px solid var(--primary)' : '1px solid var(--border-color)', transform: pkg.featured ? 'scale(1.03)' : 'none' }}>
                 {pkg.featured && (
@@ -508,7 +493,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <h2 style={{ textAlign: 'center', fontSize: 'var(--fs-xl, 20px)', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Müşterilerimiz Ne Diyor?</h2>
           <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginBottom: '48px' }}>Kullanan 10 kişiden 9'u İŞBEY CLOUD'u öneriyor.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+          <div className="brand-content-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
             {testimonials.map(t => (
               <div key={t.name} style={{ ...card, padding: '24px' }}>
                 <div style={{ display: 'flex', gap: '3px', marginBottom: '12px' }}>
@@ -582,14 +567,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onRegist
       {/* ── FOOTER ────────────────────────────────────────────────── */}
       <footer style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', padding: '50px 24px 28px' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '40px', marginBottom: '40px' }}>
+          <div className="brand-content-grid" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '40px', marginBottom: '40px' }}>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-lg, 10px)', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Zap size={20} color="#fff" />
-                </div>
-                <span style={{ fontWeight: 700, fontSize: 'var(--fs-lg, 16px)', color: 'var(--text-main)' }}>İŞBEY <span style={{ color: 'var(--primary)' }}>CLOUD</span></span>
+                <BrandLogo width={240} />
               </div>
               <p style={{ fontSize: 'var(--fs-base, 13px)', lineHeight: 1.7, marginBottom: '16px', maxWidth: '260px' }}>
                 KOBİ ve kurumsal işletmeler için GİB onaylı bulut tabanlı Ön Muhasebe ve e-Fatura platformu.
