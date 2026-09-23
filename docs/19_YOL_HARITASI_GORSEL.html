@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>İŞBEY — Canlıya Geçiş Yol Haritası</title>
+<style>
+  :root {
+    color-scheme: light;
+    --done: #16a34a;
+    --done-bg: #dcfce7;
+    --partial: #d97706;
+    --partial-bg: #fef3c7;
+    --todo: #64748b;
+    --todo-bg: #f1f5f9;
+    --gate: #dc2626;
+    --gate-bg: #fee2e2;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f8fafc;
+    color: var(--ink);
+    padding: 32px 20px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0 26px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .timeline { position: relative; padding-left: 30px; }
+  .timeline::before {
+    content: '';
+    position: absolute; left: 9px; top: 6px; bottom: 6px;
+    width: 2px; background: var(--line);
+  }
+  .phase { position: relative; margin-bottom: 14px; }
+  .phase::before {
+    content: '';
+    position: absolute; left: -27px; top: 18px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--todo-bg); border: 2px solid var(--todo);
+  }
+  .phase.done::before { background: var(--done); border-color: var(--done); }
+  .phase.partial::before { background: var(--partial-bg); border-color: var(--partial); }
+  .phase.gate::before { background: var(--gate-bg); border-color: var(--gate); }
+  .card {
+    background: #ffffff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+  }
+  .phase-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .phase-title { font-weight: 800; font-size: 14px; }
+  .badge {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+    padding: 3px 9px; border-radius: 999px; text-transform: uppercase;
+  }
+  .badge.done { background: var(--done-bg); color: #166534; }
+  .badge.partial { background: var(--partial-bg); color: #92400e; }
+  .badge.todo { background: var(--todo-bg); color: #334155; }
+  .badge.gate { background: var(--gate-bg); color: #991b1b; }
+  .next { background: linear-gradient(90deg, #eff6ff, #ffffff); border: 1px solid #bfdbfe; }
+  .next-label { font-size: 11px; font-weight: 800; color: #1d4ed8; letter-spacing: 0.5px; }
+  .items { margin-top: 8px; font-size: 12.5px; color: #334155; line-height: 1.55; }
+  .items b { color: var(--ink); }
+  .items .k { color: var(--muted); }
+  .pct { margin-left: auto; font-size: 11px; font-weight: 800; color: var(--muted); }
+  .bar { height: 6px; background: var(--todo-bg); border-radius: 999px; margin-top: 10px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: var(--done); }
+  .bar > i.partial { background: linear-gradient(90deg, var(--done) 0%, var(--done) var(--split, 50%), var(--partial) var(--split, 50%)); }
+  .footnote { margin-top: 24px; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+  .arrow-sep { text-align: center; color: #94a3b8; font-size: 13px; margin: 2px 0 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>İŞBEY — Canlıya Geçiş Yol Haritası</h1>
+  <div class="sub">Durum: 2026-09-08 · Kaynak: docs/18 kontrol listesi (test kanıtlı durum mutabakatı)</div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--done)"></i> TAMAM</span>
+    <span><i class="dot" style="background:var(--partial)"></i> KISMEN</span>
+    <span><i class="dot" style="background:var(--todo)"></i> BAŞLAMADI</span>
+    <span><i class="dot" style="background:var(--gate)"></i> KAPI (aşağı fazı bloklar)</span>
+  </div>
+
+  <div class="timeline">
+
+    <div class="phase done">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">25.2-B — Permission Registry</span>
+          <span class="badge done">Tamam</span>
+          <span class="pct">B-1…B-5</span>
+        </div>
+        <div class="items">Tek kaynak registry (49 kod) · 57 route çağrısı sabite bağlı, literal 0 · frontend snapshot birebir · <b>31/31 test</b></div>
+        <div class="bar"><i style="width:100%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card next">
+        <div class="phase-head">
+          <span class="phase-title">25.2-C — Resource Ownership & Tenant Hardening</span>
+          <span class="badge todo">Başlamadı</span>
+          <span class="pct">Sıradaki adım</span>
+        </div>
+        <div class="items">73 IDOR noktası → policies.ts · öncelik: <b>Finans → Muhasebe → e-Fatura</b> → Cari → Ürün → Rapor · kabul: cross-tenant okuma/yazma = 0</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">25.2-D — Authorization Test Platformu</span>
+          <span class="badge partial">Kısmen örtülüyor</span>
+          <span class="pct">~35%</span>
+        </div>
+        <div class="items">Mevcut suitler (Gate 43 + İzolasyon 7 + FAZ19 45 + 25.2-A 19) örneklem kapsıyor · 8 rol × 60 endpoint ≈ 480 kontrol matrisi ve MODULE_ROLES↔MODULE_ACCESS_MATRIX hizalaması eksik</div>
+        <div class="bar"><i class="partial" style="width:100%; --split:35%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase partial">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">25.3 — Payment & External Integration Security</span>
+          <span class="badge partial">Kısmen</span>
+          <span class="pct">~40%</span>
+        </div>
+        <div class="items">✅ Mock/TEST mod kilidi (canlı QA PASS olmadan açılmaz) · ✅ idempotency temeli · ⬜ webhook imza zorunlu, hardcode secret taraması, retry, e-belge gönderim logu + hata kuyruğu, UtilEncrypt log denetimi</div>
+        <div class="bar"><i class="partial" style="width:100%; --split:40%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase partial">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">25.4 — Production Security Layer</span>
+          <span class="badge partial">Kısmen</span>
+          <span class="pct">~30%</span>
+        </div>
+        <div class="items">✅ Payload limit · 🔄 request validation (kısmi) · ⬜ Helmet, CORS allowlist, rate limit (login/webhook), moduleGate montajı (davranış değişikliği — onay gerekli)</div>
+        <div class="bar"><i class="partial" style="width:100%; --split:30%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase partial">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">25.5 — Backup / Disaster Recovery</span>
+          <span class="badge partial">Kısmen</span>
+          <span class="pct">~35%</span>
+        </div>
+        <div class="items">🔄 Zaman damgalı backup dizini aktif · ⬜ retention, checksum, restore testi (DB kaybı simülasyonu), geri dönüş prosedürü</div>
+        <div class="bar"><i class="partial" style="width:100%; --split:35%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">26 — CI/CD & Build Standardizasyonu</span>
+          <span class="badge todo">Başlamadı</span>
+          <span class="pct">~10%</span>
+        </div>
+        <div class="items">145 testlik suit var ama CI'ya bağlı değil · ⬜ pipeline (commit→test→typecheck→security scan→build→deploy approval), npm audit + secret scan · <span class="k">not: TS 6 noEmitOnError tuzağı pipeline'da çözülmeli</span></div>
+        <div class="bar"><i style="width:10%; background:var(--partial)"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">27 — Production Environment Hazırlığı</span>
+          <span class="badge todo">Başlamadı</span>
+          <span class="pct">0%</span>
+        </div>
+        <div class="items">dev / staging / production ayrımı: database, API key, webhook secret, storage; Hızlı Bilişim canlı credential izolasyonu</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">28 — Monitoring & Observability</span>
+          <span class="badge partial">Kısmen</span>
+          <span class="pct">~20%</span>
+        </div>
+        <div class="items">🔄 auditLogs + satır bazlı request logger var · ⬜ log ayrımı (auth/payment/error/admin), hata oranı & API süresi dashboard'u, login denemesi izleme, webhook durumu</div>
+        <div class="bar"><i class="partial" style="width:100%; --split:20%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">29 — Kullanıcı Kabul Testleri (UAT)</span>
+          <span class="badge todo">Başlamadı</span>
+          <span class="pct">0%</span>
+        </div>
+        <div class="items">Firma akışları (kayıt, kullanıcı+rol) · muhasebe akışları (cari/fatura/ödeme/rapor) · e-belge akışları (oluşturma/gönderim/cevap)</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase gate">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">30 — Production Release Candidate</span>
+          <span class="badge gate">Kapı</span>
+          <span class="pct">FAZ 29 bitince</span>
+        </div>
+        <div class="items">Teknik: Build PASS · Test PASS · Security PASS · Backup PASS — İş: canlı hesaplar, kullanıcı listesi, eğitim tamam</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+
+    <div class="phase gate">
+      <div class="card">
+        <div class="phase-head">
+          <span class="phase-title">31 — Canlıya Alma</span>
+          <span class="badge gate">Kapı</span>
+          <span class="pct">Son kapı</span>
+        </div>
+        <div class="items">DB snapshot → environment açılışı → deploy → health check → ilk firma testi → ilk belge testi → izleme (FAZ 28 kurulmadan açılmaz)</div>
+        <div class="bar"><i style="width:0%"></i></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footnote">
+    <b>Değişmez kurallar:</b> Canlı Hızlı Bilişim QA PASS olmadan açılmaz · bilanço bütünlüğü (Aktif = Pasif + Öz Kaynak, Fark = 0,00 TL) her fazda regresyonla korunur · üretim verisi (data/database.json) testlerde asla kullanılmaz.<br>
+    <b>Kanıt baseline:</b> 140/140 regresyon (Registry 26→31 + Gate 43 + İzolasyon 7 + 25.2-A 19 + FAZ19 45) · raporlar: docs/10, 12, 13, 15, 16, 17, 18.
+  </div>
+</div>
+</body>
+</html>

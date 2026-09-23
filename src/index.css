@@ -1,0 +1,2469 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ==========================================================================
+   İŞBEY ERP — KURUMSAL ERP DESIGN SYSTEM v2.0
+   İŞBEY Bulut ERP & Ön Muhasebe Kompakt Tasarım
+   ========================================================================== */
+
+:root {
+  /* ─── İŞBEY CLOUD ERP — M3 SURFACE RESKIN (2026-09) ───
+     Material 3 yüzey dili + İŞBEY kırmızısı korunur.
+     Kural: marka rengi yalnız ANLAM taşımış yerde (aktif öğe, birincil eylem). */
+  --ib-primary:            #d12131;
+  --ib-primary-hover:      #b81423;
+  --ib-primary-active:     #9e101d;
+
+  --ib-accent:             #d12131;
+  --ib-accent-hover:       #b81423;
+  --ib-accent-light:       rgba(209, 33, 49, 0.1);
+
+  --ib-background:         #f6f8fb;
+  --ib-surface:            #ffffff;
+  --ib-surface-hover:      #f0f4f9;
+  --ib-surface-subtle:     #f5f7fa;
+
+  --ib-border:             #e1e7ef;
+  --ib-border-light:       #edf1f7;
+  --ib-border-strong:      #c9d3e0;
+
+  --ib-text:               #1a1f2e;
+  --ib-text-secondary:     #444a5a;
+  --ib-text-muted:         #5f6779;
+  --ib-text-light:         #8b93a5;
+
+  --ib-success:            #1ea97c;
+  --ib-warning:            #e8a23d;
+  --ib-danger:             #ef5350;
+  --ib-info:               #3b82f6;
+
+  /* 2026-09-15 (ölü CSS temizliği): `--ib-shadow-sm/md/lg` KALDIRILDI.
+     Repo geneli taramada (src/**, dinamik `var(--ib-${...})` üretimi dahil)
+     bu üç değişkenin HİÇBİR tüketicisi bulunamadı. Tek "eşleşme" 09-13
+     tarihli `dist/` çıktısıydı; orada da fallback'li (`var(--ib-shadow-sm,
+     ...)`) ve o bileşenler artık kaynakta yok — bayat build artefaktı.
+
+     Not: Bu değişkenler dark temada da alias'lanmamıştı ve ikinci token
+     katmanının aynı kusurunu taşıyorlardı. Tüketici olmadığı için alias
+     eklemek yerine tanım kaldırıldı; gölgeler tek kaynaktan (--shadow-*)
+     yönetilir. Proje tasarım yönergesi de gereksiz/dekoratif katmanların
+     azaltılmasını destekliyor. */
+
+  --ib-radius-sm:          6px;
+  --ib-radius-md:          10px;
+  --ib-radius-lg:          14px;
+  --ib-radius-pill:        25px;
+
+  --ib-spacing-xs:         4px;
+  --ib-spacing-sm:         8px;
+  --ib-spacing-md:         16px;
+  --ib-spacing-lg:         24px;
+  --ib-spacing-xl:         32px;
+
+  /* ─── Standard Aliases ─── */
+  --color-primary:         var(--ib-primary);
+  --color-primary-hover:   var(--ib-primary-hover);
+  --color-primary-active:  var(--ib-primary-active);
+  --color-primary-light:   rgba(209, 33, 49, 0.08);
+
+  --color-secondary:       var(--ib-text-muted);
+  --color-secondary-hover: var(--ib-text-secondary);
+  --color-secondary-light: var(--ib-surface-hover);
+
+  --color-background:      var(--ib-background);
+  --color-surface:         var(--ib-surface);
+  --color-surface-subtle:  var(--ib-surface-subtle);
+  --color-surface-hover:   var(--ib-surface-hover);
+
+  --color-border:          var(--ib-border);
+  --color-border-light:    var(--ib-border-light);
+  --color-border-strong:   var(--ib-border-strong);
+  --color-border-focus:    #d12131;
+
+  --color-text:            var(--ib-text);
+  --color-text-muted:      var(--ib-text-muted);
+  --color-text-light:      var(--ib-text-light);
+
+  --color-accent:          var(--ib-accent);
+  --color-accent-hover:    var(--ib-accent-hover);
+  --color-accent-light:    var(--ib-accent-light);
+
+  --color-success:         var(--ib-success);
+  --color-success-hover:   #189068;
+  --color-success-bg:      rgba(30, 169, 124, 0.1);
+
+  --color-warning:         var(--ib-warning);
+  --color-warning-hover:   #cf8b22;
+  --color-warning-bg:      rgba(232, 162, 61, 0.12);
+
+  --color-danger:          var(--ib-danger);
+  --color-danger-hover:    #dc3d3a;
+  --color-danger-bg:       rgba(239, 83, 80, 0.1);
+
+  --color-info:            var(--ib-info);
+  --color-info-hover:      #2563eb;
+  --color-info-bg:         rgba(59, 130, 246, 0.1);
+
+  /* ─── Brand Colors (İŞBEY Crimson — korunmuş) ─── */
+  --primary:        #d12131;
+  --primary-hover:  #b81423;
+  --primary-light:  rgba(209, 33, 49, 0.08);
+  --primary-glow:   rgba(209, 33, 49, 0.22);
+  --primary-dark:   #9e101d;
+
+  /* ─── Semantic Colors ─── */
+  --success:        #1ea97c;
+  --success-bg:     rgba(30, 169, 124, 0.1);
+  --success-text:   #147a58;
+  --success-border: rgba(30, 169, 124, 0.25);
+
+  --warning:        #e8a23d;
+  --warning-bg:     rgba(232, 162, 61, 0.12);
+  --warning-text:   #9c6a15;
+  --warning-border: rgba(232, 162, 61, 0.3);
+
+  --danger:         #ef5350;
+  --danger-bg:      rgba(239, 83, 80, 0.1);
+  --danger-text:    #c63431;
+  --danger-border:  rgba(239, 83, 80, 0.25);
+
+  --info:           #3b82f6;
+  --info-bg:        rgba(59, 130, 246, 0.1);
+  --info-text:      #1d4ed8;
+  --info-border:    rgba(59, 130, 246, 0.25);
+
+  /* ─── Surfaces & Backgrounds (M3: neredeyse-beyaz zemin) ─── */
+  --bg-app:               #f6f8fb;
+  --bg-surface:           #ffffff;
+  --bg-surface-secondary: #f5f7fa;
+  --bg-surface-hover:     #f0f4f9;
+  --bg-surface-active:    rgba(209, 33, 49, 0.08);
+
+  /* ─── Sidebar (M3: AÇIK yüzey — koyu temadan vazgeçildi) ─── */
+  --bg-sidebar:       #fbfcfe;
+  --bg-sidebar-hover: #eef2f8;
+  --bg-sidebar-active:rgba(209, 33, 49, 0.10);
+
+  /* ─── Ribbon ─── */
+  --bg-ribbon:        #ffffff;
+  --bg-ribbon-tab:    #f5f7fa;
+  --bg-ribbon-active: #ffffff;
+
+  /* ─── Text ───
+     2026-09-15 (kusur düzeltmesi): --text-secondary HİÇ TANIMLI DEĞİLDİ.
+     Repo genelinde 5 yerde `var(--text-secondary)` fallback'siz çağrılıyordu
+     (hepsi DashboardView.tsx); tanımsız custom property `color` için geçersiz
+     değer sayılır ve metin MİRAS alınan renge düşer — açık temada kutuların
+     içinde beyaza yakın metin kalabiliyordu. Token burada tanımlandı.
+     Değer, --text-main ile --text-muted arasındaki ikincil ton: #444a5a
+     (--ib-text-secondary ile aynı; ileride ilk katman kaldırılınca çakışma
+     kalmaması için bilinçli olarak eşitlendi). */
+  --text-main:      #1a1f2e;
+  --text-secondary: #444a5a;
+  --text-muted:     #5f6779;
+  --text-light:     #8b93a5;
+  --text-sidebar:         #444a5a;
+  --text-sidebar-active:  #1a1f2e;
+  --text-sidebar-group:   #8b93a5;
+
+  /* ─── Borders ─── */
+  --border-color:  #e1e7ef;
+  --border-light:  #edf1f7;
+  --border-strong: #c9d3e0;
+  --border-focus:  #d12131;
+
+  /* ─── Shadows (M3: yumuşak, düşük dağılımlı) ─── */
+  --shadow-xs: 0 1px 2px rgba(23, 32, 51, 0.04);
+  --shadow-sm: 0 1px 3px rgba(23, 32, 51, 0.05);
+  --shadow-md: 0 2px 8px rgba(23, 32, 51, 0.07);
+  --shadow-lg: 0 6px 20px rgba(23, 32, 51, 0.10);
+  --shadow-xl: 0 12px 32px rgba(23, 32, 51, 0.13);
+
+  /* ─── Radius ───
+     2026-09-13 (tasarım sadeleştirmesi): "aşırı yuvarlatılmış kart" şikâyeti
+     üzerine ölçek SIKILAŞTIRILDI. Önceden lg=14 / xl=18 idi ve neredeyse her
+     kart 18px kullanıyordu — hiyerarşi yoktu, her şey aynı derecede yuvarlaktı.
+     Yeni kural: 4 basamak (kontrol → kart → panel → modal) + hap.
+     Ekranlarda elle yazılmış 4/5/7/12/16/20px değerleri zamanla bu basamaklara
+     çekilmelidir; token'lar tek doğruluk kaynağıdır. */
+  --radius-xs: 4px;   /* etiket, mini kontrol */
+  --radius-sm: 6px;   /* buton, input */
+  --radius-md: 8px;   /* kart, tablo kabı */
+  --radius-lg: 10px;  /* panel, modal */
+  --radius-xl: 12px;  /* büyük yüzey */
+  --radius-full: 9999px;
+  --radius-pill: 9999px;
+
+  /* ─── Tipografi Ölçeği ───
+     Önceden her ekran kendi font-size'ını elle yazıyordu (0.62rem…1.75rem
+     arası 20'den fazla değer). Bu ölçek tek referanstır; ekranlar mümkün
+     olduğunca bu basamakları kullanır. Taban 13.5px, ERP yoğunluğu için. */
+  --fs-2xs:  10px;   /* rozet, mikro etiket */
+  --fs-xs:   11px;   /* yardımcı metin, tablo başlığı */
+  --fs-sm:   12px;   /* ikincil metin, buton */
+  --fs-base: 13px;   /* gövde */
+  --fs-md:   14px;   /* vurgulu gövde, kart başlığı */
+  --fs-lg:   16px;   /* bölüm başlığı */
+  --fs-xl:   20px;   /* sayfa başlığı */
+  --fs-2xl:  26px;   /* KPI değeri */
+
+  /* Satır yüksekliği: veri yoğun ERP ekranlarında okunabilirlik için sıkı. */
+  --lh-tight:  1.25;
+  --lh-normal: 1.5;
+
+  /* Yazı ağırlıkları — 800 (extrabold) BİLİNÇLİ olarak kaldırıldı;
+     ERP arayüzünde "bağıran" başlık izlenimi veriyordu. En kalın 700. */
+  --fw-normal:   400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* ─── Layout Dimensions ─── */
+  --header-height:             56px;
+  --ribbon-height:             96px;
+  --ribbon-tab-height:         28px;
+  --ribbon-content-height:     68px;
+  --sidebar-width:             250px;
+  --sidebar-collapsed-width:   60px;
+  --statusbar-height:          26px;
+
+  /* ─── ERP Table Row Heights ─── */
+  --table-row-sm:  28px;
+  --table-row-md:  36px;
+  --table-row-lg:  42px;
+
+  /* ─── Fonts (M3-reskin: Google Sans hissi → Inter + system) ─── */
+  --font-sans: 'Inter', 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+}
+
+/* ─── Dark Theme (M3-reskin eşgüncel: koyu yüzeyler + aynı kırmızı marka) ─── */
+[data-theme='dark'] {
+  --bg-app:               #0f141c;
+  --bg-surface:           #171d27;
+  --bg-surface-secondary: #131820;
+  --bg-surface-hover:     #1e2632;
+  --bg-surface-active:    rgba(209, 33, 49, 0.18);
+
+  --bg-sidebar:       #131820;
+  --bg-sidebar-hover: #1c2430;
+  --bg-ribbon:        #171d27;
+  --bg-ribbon-tab:    #131820;
+  --bg-ribbon-active: #171d27;
+
+  --text-main:      #e7ebf2;
+  --text-secondary: #c3cbd9;
+  --text-muted:     #97a1b4;
+  --text-light:     #6b7589;
+  --text-sidebar:        #97a1b4;
+  --text-sidebar-active: #e7ebf2;
+  --text-sidebar-group:  #6b7589;
+
+  --border-color:  #232c3a;
+  --border-light:  #1a212c;
+  --border-strong: #334155;
+
+  --primary-light: rgba(209, 33, 49, 0.16);
+  --success-bg:    rgba(30, 169, 124, 0.12);
+  --warning-bg:    rgba(232, 162, 61, 0.12);
+  --danger-bg:     rgba(239, 83, 80, 0.12);
+  --info-bg:       rgba(59, 130, 246, 0.12);
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 8px rgba(0,0,0,0.5);
+  --shadow-lg: 0 10px 18px rgba(0,0,0,0.55);
+  --shadow-xl: 0 20px 28px rgba(0,0,0,0.65);
+
+  /* ─── --ib-* Takma Ad Katmanı (2026-09-15: dark tema kusuru düzeltildi) ───
+     NOT (yazım kuralı): Bu yorumda token adları YAN YANA EĞİK ÇİZGİ ile
+     yazılmaz (ör. "--bg-*" + "/" + "--text-*"). Böyle bir yazımda aradaki
+     eğik çizgi ve yıldız dizisi CSS yorumunu ERKEN KAPATIR; yorumun geri
+     kalanı stil kuralı sanılır ve vite/postcss "Unknown word" hatasıyla
+     build'i düşürür. Bu kusur 2026-09-15'te bizzat yaşandı (satır 277).
+     Bu yüzden burada token aileleri "ile" bağlacıyla anılır.
+
+     index.css'te --ib-* ve --bg-* / --text-* olmak üzere İKİ paralel token
+     katmanı var ve ikisi AYNI anda tanımlı (ör. --ib-primary ve --primary,
+     --ib-surface ve --bg-surface). --bg-* ve --text-* katmanı burada dark
+     tema için override EDİLİYORDU; --ib-* katmanı İSE HİÇ override edilmiyordu.
+
+     Sonuç: --ib-* kullanan bileşenler (ör. common/DataGrid.tsx) koyu temada
+     açık temanın değerlerini koruyordu — koyu zemin üzerinde BEYAZ tablo
+     yüzeyi (#ffffff), dolayısıyla okunamayan ızgara. Kusur buydu.
+
+     Düzeltme yönü: --ib-* değerleri burada icat EDİLMEDİ; açık temada zaten
+     --text-* ve --bg-* ile birebir aynı olan değerlere takma ad olarak
+     bağlandı. Böylece iki katman tek kaynaktan beslenir ve dark tema otomatik
+     doğru çalışır. İleride ilk katman tamamen kaldırılabilir. */
+  --ib-primary:        var(--primary);
+  --ib-primary-hover:  var(--primary-hover);
+  --ib-accent:         var(--primary);
+  --ib-background:     var(--bg-app);
+  --ib-surface:        var(--bg-surface);
+  --ib-surface-hover:  var(--bg-surface-hover);
+  --ib-surface-subtle: var(--bg-surface-secondary);
+  --ib-border:         var(--border-color);
+  --ib-border-light:   var(--border-light);
+  --ib-border-strong:  var(--border-strong);
+  --ib-text:           var(--text-main);
+  --ib-text-secondary: var(--text-secondary);
+  --ib-text-muted:     var(--text-muted);
+  --ib-text-light:     var(--text-light);
+
+  /* Gölge katmanı 2026-09-15'te kaldırıldı: tüketicisi olmadığı için dark
+     temada alias'lanması gerekmedi. Gölgeler --shadow-* üzerinden yönetilir. */
+}
+
+/* ================================================================
+   METRONIC v5 / TEMA2 ERP SIGNATURE UTILITIES
+   ================================================================ */
+.m-portlet {
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 15px 1px rgba(69, 65, 78, 0.08);
+  margin-bottom: 20px;
+  border: 1px solid #ebedf2;
+  transition: all 0.2s ease;
+}
+
+.m-portlet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #ebedf2;
+  height: 52px;
+}
+
+.m-portlet__head-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #212529;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m-portlet__body {
+  padding: 20px;
+}
+
+.m-btn--pill {
+  border-radius: 25px !important;
+}
+
+.m-input--pill {
+  border-radius: 25px !important;
+}
+
+.m-badge--pill {
+  border-radius: 20px !important;
+  padding: 3px 10px !important;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+/* 2026-09-13 (tasarım sadeleştirmesi): Gradyan ve "glow" gölge kaldırıldı.
+   Marka rengi düz kullanılır; vurgu renkten gelir, ışıma efektinden değil. */
+.btn-isbey-danger {
+  background: var(--primary) !important;
+  color: #ffffff !important;
+  border: none !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.btn-isbey-danger:hover {
+  background: var(--primary-hover) !important;
+}
+
+.btn-isbey-outline {
+  background: #ffffff !important;
+  color: #d12131 !important;
+  border: 1px solid #d12131 !important;
+  transition: all 0.15s ease !important;
+}
+
+.btn-isbey-outline:hover {
+  background: rgba(209, 33, 49, 0.08) !important;
+}
+
+/* ================================================================
+   BASE RESET
+   ================================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  font-size: 13.5px;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar         { width: 6px; height: 6px; }
+::-webkit-scrollbar-track   { background: transparent; }
+::-webkit-scrollbar-thumb   { background: rgba(148,163,184,0.35); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.6); }
+
+/* ─── Klavye odağı (erişilebilirlik) ───
+   2026-09-13: Sistemde görünür focus halkası YOKTU; klavye kullanıcısı
+   hangi öğede olduğunu göremiyordu. Yalnız klavye gezinmesinde görünür —
+   fare ile tıklayan kullanıcıyı rahatsız etmez. */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+/* ─── Hareket azaltma tercihi ───
+   İşletim sisteminde "hareketi azalt" açıksa giriş animasyonları kapatılır. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ================================================================
+   APP LAYOUT STRUCTURE
+   ================================================================ */
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--bg-app);
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.view-content-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ================================================================
+   TOP HEADER — 40px Kompakt ERP Başlığı
+   ================================================================ */
+.top-header {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 20;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+/* 2026-09-13 (tasarım düzeltmesi): Bu blok önceden iki kez tanımlıydı ve
+   KOYU header varsayımıyla yazılmıştı (beyaz yazı, rgba(255,255,255,...)
+   zeminler, gradyanlı marka kutusu). Üst header artık açık yüzey olduğu için
+   o değerler açık zeminde OKUNMAZ hale gelmişti — ölü kopya silindi ve
+   kalan tanım açık yüzeye çevrildi. */
+.brand-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: var(--fw-bold);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--text-main);
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+}
+
+.brand-name span {
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+
+/* Header Search (F10 Omnibox) — açık yüzey */
+.header-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 280px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.header-search-bar:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.kbd-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: var(--fw-semibold);
+  font-family: var(--font-mono);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.header-dropdown-menu {
+  position: absolute;
+  top: 36px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 500;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease;
+}
+
+.dropdown-item-btn:hover {
+  background: var(--bg-surface-hover) !important;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.header-kpi-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.header-kpi-pill:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.header-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+}
+.header-icon-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.header-user-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 4px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.header-user-chip:hover {
+  background: var(--bg-surface-hover);
+}
+
+.header-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: #ffffff;
+}
+
+.header-username {
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  color: var(--text-main);
+}
+
+/* ================================================================
+   SIDEBAR — Kompakt ERP Sol Menü
+   ================================================================ */
+.app-sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--bg-sidebar);
+  color: var(--text-sidebar);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 30;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.app-sidebar.collapsed {
+  width: var(--sidebar-collapsed-width);
+}
+
+.sidebar-header {
+  height: var(--header-height);
+  min-height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px;
+  /* 2026-09-13 (tasarım düzeltmesi): Önceden `rgba(255,255,255,0.04)` idi —
+     koyu tema artığı. Açık yüzeyde beyaz-üstü-beyaz kalıp çizgi tamamen
+     görünmez oluyordu. Nötr kenarlık token'ı kullanılır. */
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.sidebar-toggle {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: transparent;
+  border: none;
+  color: var(--text-sidebar);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sidebar-toggle:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-main);
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Group header in sidebar */
+.sidebar-group-header {
+  padding: 12px 10px 4px 10px;
+  /* 2026-09-13 (tasarım sadeleştirmesi): ALL-CAPS kaldırıldı — her grup
+     başlığı büyük harfle "bağırıyordu" ve 9.5px'te okunmuyordu. */
+  font-size: var(--fs-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: var(--text-sidebar-group);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-sidebar.collapsed .sidebar-group-header {
+  visibility: hidden;
+  height: 14px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  color: var(--text-sidebar);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-item .sidebar-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.sidebar-item:hover {
+  background-color: var(--bg-sidebar-hover);
+  color: var(--text-main);
+}
+.sidebar-item:hover .sidebar-icon {
+  opacity: 1;
+}
+
+.sidebar-item.active {
+  background: var(--bg-sidebar-active);
+  color: var(--primary);
+  font-weight: 700;
+}
+.sidebar-item.active::before {
+  display: none;
+}
+.sidebar-item.active .sidebar-icon {
+  opacity: 1;
+}
+
+.sidebar-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-item-badge {
+  margin-left: auto;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 9px;
+  background-color: var(--danger);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.app-sidebar.collapsed .sidebar-item {
+  padding: 6px;
+  justify-content: center;
+}
+.app-sidebar.collapsed .sidebar-item-label,
+.app-sidebar.collapsed .sidebar-item-badge {
+  display: none;
+}
+.app-sidebar.collapsed .sidebar-item .sidebar-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-footer {
+  padding: 8px 6px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ================================================================
+   RIBBON UI — Office ERP Ribbon
+   ================================================================ */
+.ribbon-container {
+  background-color: var(--bg-ribbon);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  box-shadow: var(--shadow-xs);
+  flex-shrink: 0;
+}
+
+.ribbon-tabs-row {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-ribbon-tab);
+  padding: 0 10px;
+  gap: 1px;
+  border-bottom: 1px solid var(--border-color);
+  height: var(--ribbon-tab-height);
+  flex-shrink: 0;
+}
+
+.ribbon-tab {
+  padding: 0 12px;
+  height: 100%;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background-color 0.12s ease;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ribbon-tab:hover {
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
+}
+
+.ribbon-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background-color: var(--bg-ribbon-active);
+  font-weight: 700;
+}
+
+.ribbon-content-row {
+  display: flex;
+  align-items: stretch;
+  padding: 5px 10px;
+  gap: 8px;
+  overflow-x: auto;
+  min-height: var(--ribbon-content-height);
+  max-height: var(--ribbon-content-height);
+  flex-shrink: 0;
+}
+.ribbon-content-row::-webkit-scrollbar { height: 0; }
+
+.ribbon-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--border-color);
+  padding-right: 8px;
+  padding-left: 2px;
+  min-width: max-content;
+  flex-shrink: 0;
+}
+
+.ribbon-group:last-child {
+  border-right: none;
+}
+
+.ribbon-group-items {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  padding-top: 2px;
+}
+
+.ribbon-group-title {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  /* 2026-09-13 (tasarım sadeleştirmesi): ALL-CAPS kaldırıldı. Şeritteki her
+     grup başlığı büyük harfle "bağırıyordu"; okunması da zordu (8.5px). */
+  color: var(--text-light);
+  text-align: center;
+  padding-top: 2px;
+  white-space: nowrap;
+}
+
+/* Large ribbon buttons (icon + label stacked) */
+.ribbon-btn-large {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-main);
+  font-size: 10.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  min-width: 46px;
+  height: 52px;
+  white-space: nowrap;
+  user-select: none;
+}
+.ribbon-btn-large:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--border-color);
+  color: var(--primary);
+}
+.ribbon-btn-large.primary {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-color: rgba(209, 33, 49, 0.2);
+  font-weight: 600;
+}
+.ribbon-btn-large.primary:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+.ribbon-btn-large .ribbon-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Small ribbon buttons (icon + label side by side) */
+.ribbon-btn-small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+  user-select: none;
+  height: 24px;
+}
+.ribbon-btn-small:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--border-color);
+}
+.ribbon-btn-small.active {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-color: rgba(209, 33, 49, 0.2);
+}
+
+/* ================================================================
+   STATUS BAR — Alt Durum Çubuğu
+   ================================================================ */
+.status-bar {
+  height: var(--statusbar-height);
+  min-height: var(--statusbar-height);
+  background-color: var(--bg-surface-secondary);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 20;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.85;
+}
+
+.status-item .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #86efac;
+  flex-shrink: 0;
+}
+
+.status-separator {
+  width: 1px;
+  height: 12px;
+  background: var(--border-color);
+}
+
+/* ================================================================
+   KPI CARDS — Dashboard KPI Grid
+   ================================================================ */
+/* 2026-09-15: `.kpi-grid` kaldırıldı. Repo geneli taramada (tsx/ts/jsx/js/css)
+   hiçbir bileşende kullanılmadığı doğrulandı — eski dashboard düzeninden kalan
+   ölü sınıftı (burada ve tek 768px media bloğunda tanımlıydı). `.kpi-card` ve
+   alt sınıfları (header/badge/title/icon-wrapper/value/subtext) hâlâ banka,
+   kasa, gider, raporlar, tenants ve satis ekranlarında yoğun kullanımda;
+   YALNIZ ızgara sınıfı silindi. */
+
+.kpi-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  min-height: 100px;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.kpi-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.kpi-card-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.kpi-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+  margin-top: 2px;
+}
+
+.kpi-icon-wrapper {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+
+.kpi-subtext {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ================================================================
+   CARD PANELS
+   ================================================================ */
+.card-panel {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-panel-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-surface);
+  min-height: 48px;
+}
+
+.card-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.card-panel-body {
+  padding: 16px 18px;
+  flex: 1;
+}
+
+/* ================================================================
+   ERP DATAGRID — Kompakt ERP Tablosu
+   ================================================================ */
+.datagrid-container {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  height: 100%;
+}
+
+.datagrid-toolbar {
+  padding: 10px 16px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 48px;
+}
+
+.datagrid-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  width: 260px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.datagrid-search-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.datagrid-search-box input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 12.5px;
+  color: var(--text-main);
+}
+.datagrid-search-box input::placeholder {
+  color: var(--text-light);
+}
+
+.datagrid-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.datagrid-table-wrapper {
+  flex: 1;
+  overflow: auto;
+}
+
+/* BenimPOS Dark Table */
+.datagrid-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12.5px;
+}
+
+.datagrid-table th {
+  /* 2026-09-13 (tasarım düzeltmesi): Önceden `rgba(15, 23, 42, 0.5)` — koyu tema
+     artığı. Açık yüzeyde tablo başlığı gri-lacivert bir leke gibi duruyordu.
+     Artık nötr yüzey token'ı kullanılır. */
+  background-color: var(--bg-surface-secondary);
+  color: var(--text-muted);
+  /* 2026-09-13 (tasarım sadeleştirmesi): ALL-CAPS kaldırıldı; tablo başlığı
+     büyük harf + 10.5px birleşimi okunaksızdı. */
+  font-weight: 600;
+  font-size: var(--fs-xs, 11px);
+  letter-spacing: 0.6px;
+  padding: 0 14px;
+  height: var(--table-row-sm);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+}
+.datagrid-table th:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.datagrid-table td {
+  padding: 0 14px;
+  height: var(--table-row-md);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-main);
+  white-space: nowrap;
+  font-size: 12.5px;
+  vertical-align: middle;
+}
+
+.datagrid-table tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+.datagrid-table tbody tr:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+/* Zebra striping — açık yüzeyde çok hafif ayrım (koyu tema artığı değil) */
+.datagrid-table tbody tr:nth-child(even) {
+  background-color: #fcfdfe;
+}
+.datagrid-table tbody tr:nth-child(even):hover {
+  background-color: var(--bg-surface-hover);
+}
+
+/* Selected row */
+.datagrid-table tbody tr.selected {
+  background-color: var(--primary-light) !important;
+}
+.datagrid-table tbody tr.selected td {
+  border-left: 2px solid var(--primary);
+}
+
+.datagrid-table td.numeric,
+.datagrid-table th.numeric {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.datagrid-table td.right,
+.datagrid-table th.right {
+  text-align: right;
+}
+
+.datagrid-table td.center,
+.datagrid-table th.center {
+  text-align: center;
+}
+
+.datagrid-pagination {
+  padding: 6px 12px;
+  background-color: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-height: 32px;
+}
+
+/* ================================================================
+   BADGES & STATUS PILLS
+   ================================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  /* 2026-09-13 (tasarım sadeleştirmesi): Rozetler hap biçimindeydi; her
+     etiketin tam yuvarlak olması "her şey aynı derecede yuvarlak" izlenimini
+     besliyordu. Küçük köşe yarıçapı yeterli ve daha kurumsal duruyor. */
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-success  { background-color: var(--success-bg);  color: var(--success-text); border: 1px solid var(--success-border); }
+.badge-warning  { background-color: var(--warning-bg);  color: var(--warning-text); border: 1px solid var(--warning-border); }
+.badge-danger   { background-color: var(--danger-bg);   color: var(--danger-text);  border: 1px solid var(--danger-border); }
+.badge-info     { background-color: var(--info-bg);     color: var(--info-text);    border: 1px solid var(--info-border); }
+.badge-secondary { background-color: var(--bg-surface-secondary); color: var(--text-muted); border: 1px solid var(--border-color); }
+.badge-primary  { background-color: var(--primary-light); color: var(--primary); border: 1px solid rgba(209, 33, 49, 0.2); }
+
+/* ================================================================
+   BUTTONS
+   ================================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  border: 1px solid transparent;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 1.3;
+  font-family: var(--font-sans);
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  /* 2026-09-13 (tasarım sadeleştirmesi): Hover'da renkli "glow" gölgesi
+     kaldırıldı. Vurgu rengin koyulaşmasından gelir. */
+}
+.btn-primary:active { background-color: var(--primary-dark); }
+
+.btn-secondary {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+.btn-secondary:hover {
+  background-color: var(--bg-surface-secondary);
+  border-color: var(--border-strong);
+}
+
+.btn-success { background-color: var(--success); color: #ffffff; }
+.btn-success:hover { background-color: #15803d; }
+
+.btn-danger { background-color: var(--danger); color: #ffffff; }
+.btn-danger:hover { background-color: #b91c1c; }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.btn-ghost:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.btn-xs { padding: 2px 7px; font-size: 10.5px; }
+.btn-sm { padding: 4px 9px; font-size: 11.5px; }
+.btn-lg { padding: 8px 18px; font-size: 13px; }
+
+/* ================================================================
+   FORMS
+   ================================================================ */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.form-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-label.required::after {
+  content: ' *';
+  color: var(--danger);
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: var(--fs-base);
+  color: var(--text-main);
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  width: 100%;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.form-input:disabled,
+.form-select:disabled {
+  background-color: var(--bg-surface-secondary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.form-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+
+/* ================================================================
+   MODALS
+   ================================================================ */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  /* 2026-09-13 (tasarım sadeleştirmesi): Bulanık arka plan (glassmorphism)
+     kaldırıldı — istenmeyen efekt listesindeydi. Düz karartma yeterli ve
+     daha hızlı (backdrop-filter GPU maliyeti yüksektir). */
+  background-color: rgba(10, 15, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-dialog {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-dialog.sm  { max-width: 460px; }
+.modal-dialog.large { max-width: 900px; }
+.modal-dialog.xl  { max-width: 1100px; }
+.modal-dialog.full { max-width: 1280px; height: 92vh; }
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.modal-close-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.12s;
+  font-size: 16px;
+}
+.modal-close-btn:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background-color: var(--bg-surface-secondary);
+  flex-shrink: 0;
+}
+
+/* ================================================================
+   TOAST NOTIFICATIONS
+   ================================================================ */
+.toast-container {
+  position: fixed;
+  bottom: calc(var(--statusbar-height) + 12px);
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+}
+
+.toast-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  min-width: 280px;
+  max-width: 420px;
+  animation: toastIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ================================================================
+   SETTINGS TABS
+   ================================================================ */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-secondary);
+  padding: 0 12px;
+}
+
+.settings-tab {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.settings-tab:hover { color: var(--text-main); }
+.settings-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ================================================================
+   FORM DESIGNER — Özel Stiller
+   ================================================================ */
+.form-designer-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+/* Toolbox Panel */
+.fd-toolbox {
+  width: 200px;
+  min-width: 200px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.fd-toolbox-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  /* 2026-09-13 (tasarım sadeleştirmesi): text-transform: uppercase kaldırıldı
+     (tüm-büyük harf yasak). */
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-secondary);
+  flex-shrink: 0;
+}
+
+.fd-toolbox-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.fd-tool-group-header {
+  font-size: 9.5px;
+  font-weight: 700;
+  /* 2026-09-13 (tasarım sadeleştirmesi): text-transform: uppercase kaldırıldı. */
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+  padding: 6px 6px 3px 6px;
+}
+
+.fd-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  color: var(--text-main);
+  cursor: grab;
+  transition: all 0.1s;
+  user-select: none;
+  margin-bottom: 1px;
+}
+.fd-tool-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--primary);
+}
+.fd-tool-item:active {
+  cursor: grabbing;
+  background: var(--primary-light);
+}
+
+/* Canvas Panel */
+.fd-canvas-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #e8eaf0;
+}
+
+.fd-canvas-toolbar {
+  height: 38px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fd-canvas-body {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.fd-canvas {
+  background: #ffffff;
+  width: 210mm;
+  min-height: 297mm;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+  position: relative;
+  border: 1px solid var(--border-color);
+}
+
+/* 2026-09-13 (tasarım sadeleştirmesi): bu gradyanlar KORUNDU — dekoratif değil,
+   form tasarımcısı tuvalinin ızgara çizgilerini (background-image tekniği) üretiyor. */
+.fd-canvas-grid {
+  background-image:
+    linear-gradient(rgba(209, 33, 49, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(209, 33, 49, 0.05) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+/* Canvas Sections */
+.fd-section {
+  width: 100%;
+  border: 1px dashed transparent;
+  position: relative;
+  transition: border-color 0.1s;
+  min-height: 40px;
+}
+.fd-section:hover {
+  border-color: rgba(209, 33, 49, 0.3);
+}
+.fd-section.selected {
+  border-color: var(--primary);
+  outline: 1px solid rgba(209, 33, 49, 0.2);
+}
+
+.fd-section-label {
+  position: absolute;
+  top: -10px;
+  left: 4px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  /* 2026-09-13 (tasarım sadeleştirmesi): text-transform: uppercase kaldırıldı. */
+}
+.fd-section:hover .fd-section-label,
+.fd-section.selected .fd-section-label {
+  opacity: 1;
+}
+
+/* Canvas Elements */
+.fd-element {
+  position: absolute;
+  border: 1px solid transparent;
+  cursor: move;
+  border-radius: 2px;
+  transition: border-color 0.1s, box-shadow 0.1s;
+  overflow: hidden;
+}
+.fd-element:hover {
+  border-color: rgba(209, 33, 49, 0.4);
+  box-shadow: 0 0 0 1px rgba(209, 33, 49, 0.15);
+}
+.fd-element.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(209, 33, 49, 0.25);
+}
+
+/* Resize handles */
+.fd-resize-handle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: var(--primary);
+  border: 1px solid #fff;
+  border-radius: 1px;
+  z-index: 10;
+}
+.fd-resize-handle.se { bottom: -3px; right: -3px; cursor: se-resize; }
+.fd-resize-handle.ne { top: -3px; right: -3px; cursor: ne-resize; }
+.fd-resize-handle.sw { bottom: -3px; left: -3px; cursor: sw-resize; }
+.fd-resize-handle.nw { top: -3px; left: -3px; cursor: nw-resize; }
+.fd-resize-handle.n  { top: -3px; left: calc(50% - 3px); cursor: n-resize; }
+.fd-resize-handle.s  { bottom: -3px; left: calc(50% - 3px); cursor: s-resize; }
+.fd-resize-handle.e  { top: calc(50% - 3px); right: -3px; cursor: e-resize; }
+.fd-resize-handle.w  { top: calc(50% - 3px); left: -3px; cursor: w-resize; }
+
+/* Properties Panel */
+.fd-properties {
+  width: 240px;
+  min-width: 240px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.fd-properties-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  /* 2026-09-13 (tasarım sadeleştirmesi): text-transform: uppercase kaldırıldı. */
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-secondary);
+  flex-shrink: 0;
+}
+
+.fd-properties-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.fd-prop-group {
+  margin-bottom: 12px;
+}
+
+.fd-prop-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  /* 2026-09-13 (tasarım sadeleştirmesi): text-transform: uppercase kaldırıldı. */
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+  padding: 4px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.fd-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.fd-prop-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.fd-prop-input {
+  flex: 1;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 3px 6px;
+  font-size: 11.5px;
+  color: var(--text-main);
+  outline: none;
+  font-family: var(--font-sans);
+  min-width: 0;
+}
+.fd-prop-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+/* Data Binding Picker */
+.fd-data-tree {
+  font-size: 11.5px;
+}
+.fd-data-tree-node {
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.1s;
+}
+.fd-data-tree-node:hover { background: var(--bg-surface-hover); }
+.fd-data-tree-node.selected { background: var(--primary-light); color: var(--primary); }
+.fd-data-tree-children {
+  margin-left: 14px;
+  border-left: 1px solid var(--border-light);
+  padding-left: 6px;
+}
+
+/* Drop Zone Highlight */
+.fd-drop-zone {
+  background: rgba(209, 33, 49, 0.05);
+  border: 1.5px dashed rgba(209, 33, 49, 0.3);
+  border-radius: 4px;
+}
+.fd-drop-zone-active {
+  background: rgba(209, 33, 49, 0.1);
+  border-color: rgba(209, 33, 49, 0.6);
+}
+
+/* ================================================================
+   THERMAL 80mm PRINT LAYOUT
+   ================================================================ */
+.thermal-receipt {
+  width: 80mm;
+  padding: 10px;
+  background: #ffffff;
+  color: #000000;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  margin: 0 auto;
+  box-shadow: var(--shadow-md);
+}
+
+.thermal-header {
+  text-align: center;
+  border-bottom: 1px dashed #000;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.thermal-items {
+  width: 100%;
+  border-bottom: 1px dashed #000;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.thermal-footer {
+  text-align: center;
+  padding-top: 5px;
+  font-size: 9px;
+}
+
+/* ================================================================
+   A4 QUOTE / INVOICE TEMPLATES
+   ================================================================ */
+.quote-a4-document {
+  background: #ffffff;
+  color: #1e293b;
+  padding: 28px;
+  font-family: var(--font-sans);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  max-width: 850px;
+  margin: 0 auto;
+  font-size: 12px;
+}
+
+.quote-header-box {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.quote-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 18px;
+  font-size: 11.5px;
+}
+
+.quote-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 18px;
+  font-size: 11.5px;
+}
+
+.quote-table th {
+  background: var(--primary);
+  color: #ffffff;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.quote-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.quote-terms-box {
+  border: 1px dashed #cbd5e1;
+  border-radius: 5px;
+  padding: 10px;
+  font-size: 10.5px;
+  color: #475569;
+  background: #f8fafc;
+  margin-top: 14px;
+}
+
+/* ================================================================
+   E-INVOICE STYLES
+   ================================================================ */
+.einvoice-xml-box {
+  /* 2026-09-13 (tasarım sadeleştirmesi): Kutu koyu lacivert (#0f172a) bir
+     kod bloğuydu; açık temalı modalın içinde "başka bir ürün" gibi duruyordu.
+     UBL XML salt okunur bir çıktıdır, editör değil — nötr yüzeye alındı. */
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs, 11px);
+  padding: 12px;
+  border-radius: var(--radius-sm, 6px);
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.einvoice-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 7px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #065f46;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+/* ================================================================
+   IMPORT WIZARD
+   ================================================================ */
+.import-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: 10px;
+  padding: 28px;
+  text-align: center;
+  background: var(--bg-surface-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.import-dropzone:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* ================================================================
+   GLOBAL SEARCH MODAL
+   ================================================================ */
+.global-search-overlay {
+  position: fixed;
+  inset: 0;
+  /* 2026-09-13 (tasarım sadeleştirmesi): backdrop-filter (glassmorphism)
+     kullanıcının yasakladığı estetik listesinde. Düz karartma yeterli ve
+     GPU maliyeti de daha düşük. */
+  background: rgba(10,15,30,0.5);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.global-search-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.global-search-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.global-search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+}
+.global-search-input::placeholder { color: var(--text-light); }
+
+.global-search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.global-search-category-title {
+  padding: 4px 14px 3px;
+  /* 2026-09-13 (tasarım sadeleştirmesi): ALL-CAPS kaldırıldı. */
+  font-size: var(--fs-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+}
+
+.global-search-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.08s;
+  font-size: 12.5px;
+}
+.global-search-item:hover,
+.global-search-item.active {
+  background: var(--primary-light);
+}
+.global-search-item.active .global-search-item-title {
+  color: var(--primary);
+}
+
+.global-search-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-surface-secondary);
+}
+
+/* ================================================================
+   RESPONSIVE MEDIA QUERIES
+   ================================================================ */
+@media (max-width: 1024px) {
+  .app-sidebar {
+    position: fixed;
+    height: 100vh;
+    left: calc(-1 * var(--sidebar-width));
+    transition: left 0.2s ease, width 0.2s ease;
+  }
+  .app-sidebar.mobile-open {
+    left: 0;
+  }
+  .header-search-bar {
+    width: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .ribbon-content-row {
+    padding: 4px 8px;
+  }
+
+  /* ── FAZ 25.3-F: MOBİL UYUM ─────────────────────────────── */
+
+  /* Hamburger butonu yalnızca mobilde görünür (masaüstünde display:none) */
+  .sidebar-hamburger {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Özet/kart gridleri tek kolona iner (auto-fit olanlar zaten iner) */
+  .dashboard-summary-grid,
+  .dashboard-pending-grid,
+  .report-designer-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tablolar yatay kaydırılabilir olur (taşma koruması) */
+  .erp-datagrid-container,
+  .datagrid-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ribbon sekmeleri sıkıştırılır */
+  .ribbon-tabs-row {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .ribbon-tabs-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* FAB dokunmatik hedef boyutu */
+  .quick-action-fab > button {
+    width: 56px !important;
+    height: 56px !important;
+  }
+}
+
+/* ================================================================
+   PRINT MEDIA STYLES
+   ================================================================ */
+@media print {
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    height: auto !important;
+    overflow: visible !important;
+    font-size: 12px !important;
+  }
+
+  body * { visibility: hidden !important; }
+
+  .print-surface,
+  .print-surface * {
+    visibility: visible !important;
+  }
+
+  .print-surface {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .modal-overlay,
+  .modal-dialog,
+  .modal-header,
+  .modal-body,
+  .app-container,
+  .app-sidebar,
+  .top-header,
+  .ribbon-container,
+  .status-bar {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    width: auto !important;
+  }
+
+  @page {
+    margin: 8mm;
+    size: auto;
+  }
+}
+
+/* ================================================================
+   UTILITY CLASSES
+   ================================================================ */
+.text-muted { color: var(--text-muted); }
+.text-danger { color: var(--danger); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-primary { color: var(--primary); }
+.text-mono { font-family: var(--font-mono); }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.text-sm { font-size: 11.5px; }
+.text-xs { font-size: 10.5px; }
+.font-bold { font-weight: 700; }
+.font-semibold { font-weight: 600; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flex { display: flex; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; }
+.gap-1 { gap: 4px; }
+.ml-auto { margin-left: auto; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.overflow-hidden { overflow: hidden; }
+
+/* Banknote Buttons */
+.banknote-btn {
+  transform: translateY(0);
+}
+.banknote-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25) !important;
+  filter: brightness(1.08);
+}
+.banknote-btn:active {
+  transform: translateY(1px) scale(0.97);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* ================================================================
+   GOOGLE MATERIAL 3 & MODERN SAAS DASHBOARD STYLES
+   ================================================================ */
+.m3-dashboard-canvas {
+  background-color: var(--bg-app);
+  min-height: 100%;
+  padding: 24px 32px 40px 32px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  color: var(--text-main);
+}
+
+.m3-card {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s ease;
+}
+
+/* ─── Kompakt KPI Şeridi (2026-09-15) ───
+   Önceden 4 adet AYRI yüzen kart vardı: her biri kendi kenarlığı, kendi
+   yuvarlaması ve kendi iç ikonuyla. Göz her birini ayrı nesne olarak
+   işliyordu. Tek yüzey + hairline ayırıcı ile dört değer "bir tablo" gibi
+   okunur; hiyerarşi kutu içinde puantajla değil, ağırlıkla kurulur. */
+.dash-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.dash-kpi {
+  padding: 20px 22px;
+  border-left: 1px solid var(--border-light);
+  min-width: 0;
+}
+.dash-kpi:first-child { border-left: 0; }
+.dash-kpi__label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.dash-kpi__value {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.dash-kpi__foot {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-light);
+  flex-wrap: wrap;
+}
+
+/* Dar ekran: 2'li ızgara; mobil: YATAY KAYDIRMALI tek satır.
+   (İstenen davranış: mobilde KPI'lar dikey yığılıp sayfayı uzatmasın.) */
+@media (max-width: 1100px) {
+  .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+  .dash-kpi:nth-child(3) { border-left: 0; }
+  .dash-kpi:nth-child(n + 3) { border-top: 1px solid var(--border-light); }
+}
+@media (max-width: 720px) {
+  .dash-kpis {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .dash-kpi {
+    border-left: 1px solid var(--border-light);
+    border-top: 0 !important;
+    scroll-snap-align: start;
+    padding: 16px 18px;
+  }
+  .dash-kpi:first-child { border-left: 0; }
+  .dash-kpi__value { font-size: var(--fs-xl); }
+}
+
+/* Etkileşimli kart: gölge BÜYÜTMEK yerine yalnız kenarlık koyulaşır.
+   "Her karta gölge + yukarı kayma" AI-dashboard izlenimi veriyordu. */
+.m3-card-interactive:hover {
+  border-color: var(--border-strong);
+}
+
+.m3-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 1.4;
+}
+
+.m3-pill-success {
+  background: #e6f7ef;
+  color: #059669;
+}
+
+.m3-pill-info {
+  background: #e8f2ff;
+  color: #2563eb;
+}
+
+.m3-pill-purple {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.m3-pill-warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.m3-pill-danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Custom Sleek Scrollbar */
+.m3-dashboard-canvas::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.m3-dashboard-canvas::-webkit-scrollbar-track {
+  background: transparent;
+}
+.m3-dashboard-canvas::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.m3-dashboard-canvas::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+

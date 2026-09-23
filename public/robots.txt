@@ -1,0 +1,48 @@
+User-agent: *
+Allow: /
+Disallow: /app/
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /*.json$
+Disallow: /src/
+
+# Sitemap
+Sitemap: https://isbey.cloud/sitemap.xml
+
+# LLM ve AI Arama Botları
+User-agent: GPTBot
+Allow: /
+Allow: /llms.txt
+
+User-agent: ChatGPT-User
+Allow: /
+Allow: /llms.txt
+
+User-agent: Google-Extended
+Allow: /
+Allow: /llms.txt
+
+User-agent: anthropic-ai
+Allow: /
+Allow: /llms.txt
+
+User-agent: ClaudeBot
+Allow: /
+Allow: /llms.txt
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /llms.txt
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Yandex
+Allow: /
+
+# LLMs.txt (AI özetleme dosyası konumu)
+# https://isbey.cloud/llms.txt

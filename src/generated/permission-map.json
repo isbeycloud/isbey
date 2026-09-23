@@ -1,0 +1,561 @@
+{
+  "$schema": "isbey-permission-map/v1",
+  "generatedAt": "2026-09-08T15:48:05.289Z",
+  "source": "server/security (FAZ 25.2-B registry — TEK KAYNAK)",
+  "generator": "server/scripts/generatePermissionMap.mjs",
+  "counts": {
+    "permissions": 49,
+    "catalogEntries": 37,
+    "roles": 5
+  },
+  "reserved": [
+    "accounting.view",
+    "accounting.create",
+    "accounting.approve",
+    "accounting.delete",
+    "backup.manage"
+  ],
+  "permissions": [
+    {
+      "code": "customers.view",
+      "module": "CARI",
+      "action": "view",
+      "name": "Carileri Görüntüle",
+      "description": "Müşteri ve tedarikçi listesini ve ekstrelerini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "customers.create",
+      "module": "CARI",
+      "action": "create",
+      "name": "Cari Oluştur",
+      "description": "Yeni müşteri ve tedarikçi kartı açabilir",
+      "catalog": true
+    },
+    {
+      "code": "customers.update",
+      "module": "CARI",
+      "action": "update",
+      "name": "Cari Düzenle",
+      "description": "Cari hesap bilgilerini güncelleyebilir",
+      "catalog": true
+    },
+    {
+      "code": "customers.delete",
+      "module": "CARI",
+      "action": "delete",
+      "name": "Cari Sil",
+      "description": "Cari kartları silebilir veya arşivleyebilir",
+      "catalog": true
+    },
+    {
+      "code": "products.view",
+      "module": "STOK",
+      "action": "view",
+      "name": "Stokları Görüntüle",
+      "description": "Ürün, hizmet ve depo stok miktarlarını görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "products.create",
+      "module": "STOK",
+      "action": "create",
+      "name": "Ürün Oluştur",
+      "description": "Yeni ürün veya hizmet kartı açabilir",
+      "catalog": true
+    },
+    {
+      "code": "products.update",
+      "module": "STOK",
+      "action": "update",
+      "name": "Ürün Düzenle",
+      "description": "Ürün fiyat, barkod ve detaylarını günceller",
+      "catalog": true
+    },
+    {
+      "code": "products.delete",
+      "module": "STOK",
+      "action": "delete",
+      "name": "Ürün Sil",
+      "description": "Ürün kartlarını silebilir",
+      "catalog": true
+    },
+    {
+      "code": "invoices.view",
+      "module": "FATURA",
+      "action": "view",
+      "name": "Faturaları Görüntüle",
+      "description": "Satış ve alış faturalarını görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "invoices.create",
+      "module": "FATURA",
+      "action": "create",
+      "name": "Fatura Oluştur",
+      "description": "Yeni satış/alış faturası düzenleyebilir",
+      "catalog": true
+    },
+    {
+      "code": "invoices.update",
+      "module": "FATURA",
+      "action": "update",
+      "name": "Fatura Düzenle",
+      "description": "Taslak faturaları güncelleyebilir",
+      "catalog": true
+    },
+    {
+      "code": "invoices.delete",
+      "module": "FATURA",
+      "action": "delete",
+      "name": "Fatura İptal/Sil",
+      "description": "Faturayı iptal edebilir veya silebilir",
+      "catalog": true
+    },
+    {
+      "code": "invoices.send",
+      "module": "FATURA",
+      "action": "send",
+      "name": "GİB e-Fatura Gönder",
+      "description": "e-Fatura / e-Arşiv belgelerini GİB sistemine iletir",
+      "catalog": true
+    },
+    {
+      "code": "quotes.view",
+      "module": "TEKLIF",
+      "action": "view",
+      "name": "Teklif/Sipariş Görüntüle",
+      "description": "Teklif ve sipariş belgelerini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "quotes.create",
+      "module": "TEKLIF",
+      "action": "create",
+      "name": "Teklif/Sipariş Oluştur",
+      "description": "Yeni teklif veya sipariş hazırlar",
+      "catalog": true
+    },
+    {
+      "code": "quotes.update",
+      "module": "TEKLIF",
+      "action": "update",
+      "name": "Teklif/Sipariş Düzenle",
+      "description": "Teklif ve siparişleri günceller/onaylar",
+      "catalog": true
+    },
+    {
+      "code": "quotes.delete",
+      "module": "TEKLIF",
+      "action": "delete",
+      "name": "Teklif/Sipariş Sil",
+      "description": "Teklif veya sipariş kaydını siler",
+      "catalog": true
+    },
+    {
+      "code": "waybills.view",
+      "module": "IRSALIYE",
+      "action": "view",
+      "name": "İrsaliyeleri Görüntüle",
+      "description": "Sevk ve alış irsaliyelerini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "waybills.create",
+      "module": "IRSALIYE",
+      "action": "create",
+      "name": "İrsaliye Oluştur",
+      "description": "Yeni sevk veya alış irsaliyesi düzenler",
+      "catalog": true
+    },
+    {
+      "code": "waybills.update",
+      "module": "IRSALIYE",
+      "action": "update",
+      "name": "İrsaliye Düzenle",
+      "description": "İrsaliye detaylarını günceller",
+      "catalog": true
+    },
+    {
+      "code": "waybills.delete",
+      "module": "IRSALIYE",
+      "action": "delete",
+      "name": "İrsaliye Sil",
+      "description": "İrsaliye kaydını siler",
+      "catalog": true
+    },
+    {
+      "code": "cash.view",
+      "module": "FINANS",
+      "action": "view",
+      "name": "Kasa/Banka Görüntüle",
+      "description": "Kasa, banka ve çek/senet bakiyelerini ve hareketlerini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "cash.create",
+      "module": "FINANS",
+      "action": "create",
+      "name": "Tahsilat/Ödeme Ekle",
+      "description": "Nakit, havale veya çek/senet tahsilatı ve ödemesi işler",
+      "catalog": true
+    },
+    {
+      "code": "cash.update",
+      "module": "FINANS",
+      "action": "update",
+      "name": "Finansal Hareket Düzenle",
+      "description": "Kasa ve banka hareketlerini günceller",
+      "catalog": true
+    },
+    {
+      "code": "cash.delete",
+      "module": "FINANS",
+      "action": "delete",
+      "name": "Finansal Hareket Sil",
+      "description": "Kasa ve banka kayıtlarını iptal eder",
+      "catalog": true
+    },
+    {
+      "code": "expenses.view",
+      "module": "GIDER",
+      "action": "view",
+      "name": "Giderleri Görüntüle",
+      "description": "Masraf ve işletme giderlerini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "expenses.create",
+      "module": "GIDER",
+      "action": "create",
+      "name": "Gider Kaydı Ekle",
+      "description": "Yeni masraf/gider fişi girer",
+      "catalog": true
+    },
+    {
+      "code": "expenses.update",
+      "module": "GIDER",
+      "action": "update",
+      "name": "Gider Düzenle",
+      "description": "Gider kayıtlarını günceller",
+      "catalog": true
+    },
+    {
+      "code": "expenses.delete",
+      "module": "GIDER",
+      "action": "delete",
+      "name": "Gider Sil",
+      "description": "Gider kaydını siler",
+      "catalog": true
+    },
+    {
+      "code": "reports.view",
+      "module": "RAPORLAR",
+      "action": "view",
+      "name": "Finansal Raporları Görüntüle",
+      "description": "KDV, mizan, gelir tablosu ve kârlılık raporlarına erişir",
+      "catalog": true
+    },
+    {
+      "code": "users.view",
+      "module": "YONETIM",
+      "action": "view",
+      "name": "Kullanıcıları Görüntüle",
+      "description": "Firma kullanıcı ve personel listesini görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "users.create",
+      "module": "YONETIM",
+      "action": "create",
+      "name": "Kullanıcı Davet Et / Ekle",
+      "description": "Yeni personel veya muhasebeci ekler",
+      "catalog": true
+    },
+    {
+      "code": "users.update",
+      "module": "YONETIM",
+      "action": "update",
+      "name": "Kullanıcı Rolü Düzenle",
+      "description": "Kullanıcı rol ve yetkilerini değiştirir",
+      "catalog": true
+    },
+    {
+      "code": "users.delete",
+      "module": "YONETIM",
+      "action": "delete",
+      "name": "Kullanıcı Sil / Pasife Al",
+      "description": "Kullanıcı hesabını devre dışı bırakır",
+      "catalog": true
+    },
+    {
+      "code": "company.view",
+      "module": "AYARLAR",
+      "action": "view",
+      "name": "Firma Ayarlarını Görüntüle",
+      "description": "Firma ve entegrasyon ayarlarını görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "company.update",
+      "module": "AYARLAR",
+      "action": "update",
+      "name": "Firma Ayarlarını Güncelle",
+      "description": "Firma bilgileri, logo ve e-Dönüşüm ayarlarını günceller",
+      "catalog": true
+    },
+    {
+      "code": "tenants.manage",
+      "module": "PLATFORM",
+      "action": "manage",
+      "name": "Tüm Şirketleri Yönet",
+      "description": "Platform Admin: Tüm şirketleri, paketleri ve bayi ağını yönetir",
+      "catalog": true
+    },
+    {
+      "code": "warehouses.view",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "warehouses.update",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "bank.view",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "bank.create",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "collections.create",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "collections.cancel",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "einvoice.view",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "accounting.view",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "accounting.create",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "accounting.approve",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "accounting.delete",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    },
+    {
+      "code": "backup.manage",
+      "module": null,
+      "action": null,
+      "name": null,
+      "description": null,
+      "catalog": false
+    }
+  ],
+  "roles": {
+    "platform_admin": [
+      "customers.view",
+      "customers.create",
+      "customers.update",
+      "customers.delete",
+      "products.view",
+      "products.create",
+      "products.update",
+      "products.delete",
+      "warehouses.view",
+      "warehouses.update",
+      "invoices.view",
+      "invoices.create",
+      "invoices.update",
+      "invoices.delete",
+      "invoices.send",
+      "quotes.view",
+      "quotes.create",
+      "quotes.update",
+      "quotes.delete",
+      "waybills.view",
+      "waybills.create",
+      "waybills.update",
+      "waybills.delete",
+      "cash.view",
+      "cash.create",
+      "cash.update",
+      "cash.delete",
+      "bank.view",
+      "bank.create",
+      "collections.create",
+      "collections.cancel",
+      "expenses.view",
+      "expenses.create",
+      "expenses.update",
+      "expenses.delete",
+      "reports.view",
+      "users.view",
+      "users.create",
+      "users.update",
+      "users.delete",
+      "company.view",
+      "company.update",
+      "tenants.manage",
+      "einvoice.view",
+      "accounting.view",
+      "accounting.create",
+      "accounting.approve",
+      "accounting.delete",
+      "backup.manage"
+    ],
+    "company_admin": [
+      "customers.view",
+      "customers.create",
+      "customers.update",
+      "customers.delete",
+      "products.view",
+      "products.create",
+      "products.update",
+      "products.delete",
+      "warehouses.view",
+      "warehouses.update",
+      "invoices.view",
+      "invoices.create",
+      "invoices.update",
+      "invoices.delete",
+      "invoices.send",
+      "quotes.view",
+      "quotes.create",
+      "quotes.update",
+      "quotes.delete",
+      "waybills.view",
+      "waybills.create",
+      "waybills.update",
+      "waybills.delete",
+      "cash.view",
+      "cash.create",
+      "cash.update",
+      "cash.delete",
+      "bank.view",
+      "bank.create",
+      "collections.create",
+      "collections.cancel",
+      "expenses.view",
+      "expenses.create",
+      "expenses.update",
+      "expenses.delete",
+      "reports.view",
+      "users.view",
+      "users.create",
+      "users.update",
+      "users.delete",
+      "company.view",
+      "company.update",
+      "einvoice.view",
+      "accounting.view",
+      "accounting.create",
+      "accounting.approve",
+      "accounting.delete",
+      "backup.manage"
+    ],
+    "accountant": [
+      "customers.view",
+      "customers.create",
+      "customers.update",
+      "products.view",
+      "invoices.view",
+      "invoices.create",
+      "invoices.update",
+      "invoices.delete",
+      "invoices.send",
+      "quotes.view",
+      "waybills.view",
+      "cash.view",
+      "cash.create",
+      "cash.update",
+      "cash.delete",
+      "expenses.view",
+      "expenses.create",
+      "expenses.update",
+      "reports.view",
+      "company.view"
+    ],
+    "employee": [
+      "customers.view",
+      "customers.create",
+      "products.view",
+      "invoices.view",
+      "invoices.create",
+      "quotes.view",
+      "quotes.create",
+      "waybills.view",
+      "cash.view",
+      "cash.create",
+      "expenses.create"
+    ],
+    "viewer": [
+      "customers.view",
+      "products.view",
+      "invoices.view",
+      "quotes.view",
+      "waybills.view",
+      "cash.view",
+      "expenses.view",
+      "reports.view",
+      "company.view"
+    ]
+  }
+}

@@ -1,0 +1,77 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Doğrulama paketi geçici çıktıları (tools/dogrulama.ps1)
+# DB yedekleri, sunucu logları ve ham test çıktıları burada birikir — commit edilmez.
+.verify-tmp/
+releases/
+data/
+
+# Secrets & environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Local credentials, archives, and unrelated working materials
+.env.*
+!.env.example
+cookies.txt
+*.pem
+*.key
+*.p12
+*.pfx
+*.zip
+*.tar.gz
+*.tsbuildinfo
+.agents/
+.claude/
+.codex/
+.cursor/
+.tasarim-yedek/
+ECC-main/
+ecc-import/
+everything-claude-code/
+headroom-main/
+mempalace/
+mockups/
+tema/
+tema2/
+İŞBEY CLOUD/
+Yönetim Panelli Cilenger/
+crop_*.png
+test_download.jpg
+KamuSMAktivasyonUygulamasi.jar
+install-ecc-import.bat
+walkthrough_phase5.md
+tools/ANTIGRAVITY-GOREV.md
+.github/agents/
