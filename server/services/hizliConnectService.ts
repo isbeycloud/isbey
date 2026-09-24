@@ -826,21 +826,40 @@ export class HizliConnectService {
     const baseUrl = this.getBaseUrl(isTest);
 
     try {
-      const response = await axios.get(
-        `${baseUrl}/HizliApi/RestApi/GetGibUserList?AppType=1&Type=VKN_TCKN&Identifier=${cleanVkn}`,
-        { headers: { 'Authorization': `Bearer ${token}` }, timeout: 15000 }
-      );
-
-      if (response.data && (response.data.title || response.data.Title || response.data.users?.length > 0)) {
-        const u = response.data.users ? response.data.users[0] : response.data;
-        // FAZ 13: Alias'lar API'den gelmiyorsa uydurulmaz — boş bırakılır, çağıran taraf karar verir
+      // Provider contract: Type selects the mailbox (PK/GB), Identifier is the VKN.
+      // HTTP 200 alone is not proof of a successful registry lookup.
+      if (!/^\d{10,11}$/.test(cleanVkn)) throw new Error('Geçerli VKN/TCKN gereklidir.');
+      const lists = await Promise.all(['PK', 'GB'].map(async type => {
+        const response = await axios.get(
+          `${baseUrl}/HizliApi/RestApi/GetGibUserList?AppType=1&Type=${type}&Identifier=${cleanVkn}`,
+          { headers: { 'Authorization': `Bearer ${token}` }, timeout: 15000 }
+        );
+        const data = response.data;
+        if (data?.IsSucceeded !== true || !Array.isArray(data.gibUserLists)) {
+          throw new Error('Sağlayıcı mükellef sorgusunu doğrulamadı.');
+        }
+        if (data.gibUserLists.some((u: any) => !u || u.Identifier !== cleanVkn ||
+          typeof u.Alias !== 'string' || !u.Alias.startsWith('urn:mail:') || !u.Alias.slice(9).trim() ||
+          typeof u.Title !== 'string' || !u.Title.trim())) {
+          throw new Error('Mükellef yanıtı istenen firma ile eşleşmiyor veya eksik.');
+        }
+        return data.gibUserLists;
+      }));
+      const [pk, gb] = lists;
+      const users = [...pk, ...gb];
+      if (users.length) {
+        const uniqueAlias = (rows: any[]) => {
+          const aliases = [...new Set<string>(rows.map(u => u.Alias))];
+          return aliases.length === 1 ? aliases[0] : '';
+        };
         return {
           success: true,
           isEInvoiceUser: true,
-          title: u.Title || u.title,
-          aliasPk: u.Alias || u.aliasPk || '',
-          aliasGb: u.AliasGb || u.aliasGb || '',
-          firstCreationTime: u.FirstCreationTime || '',
+          title: users[0].Title,
+          // Ambiguous mailbox lists require an explicit choice, never pick the first.
+          aliasPk: uniqueAlias(pk),
+          aliasGb: uniqueAlias(gb),
+          firstCreationTime: users[0].FirstCreationTime || '',
           message: 'Alıcı GİB e-Fatura mükellefidir.',
         };
       }
@@ -956,7 +975,8 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
-      return { success: true, list: res.data?.list || res.data || [] };
+      if (res.data?.IsSucceeded !== true || !Array.isArray(res.data.Prefix) || res.data.Prefix.some((p: unknown) => typeof p !== 'string' || !p.trim())) throw new Error('Sağlayıcı seri listesini doğrulamadı.');
+      return { success: true, list: res.data.Prefix as string[] };
     } catch (err: any) {
       // FAZ 12: GİB kod listeleri statik mock yerine gerçek hata döndürür —
       // kod listesi stale kalırsa fatura red riski vardır; kullanıcı hata görmelidir.
@@ -994,7 +1014,8 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
-      return { success: true, list: res.data?.list || res.data || [] };
+      if (res.data?.IsSucceeded !== true || !Array.isArray(res.data.Prefix) || res.data.Prefix.some((p: unknown) => typeof p !== 'string' || !p.trim())) throw new Error('Sağlayıcı seri listesini doğrulamadı.');
+      return { success: true, list: res.data.Prefix as string[] };
     } catch (err: any) {
       // FAZ 12: Sahte seri listesi ÜRETİLMEZ
       console.warn('[HIZLI_CONNECT] PrefixCodeList hatası:', err?.response?.data?.Message || err?.message);
@@ -1024,7 +1045,8 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
-      return { success: true, list: res.data?.list || res.data || [] };
+      if (res.data?.IsSucceeded !== true || !Array.isArray(res.data.Prefix) || res.data.Prefix.some((p: unknown) => typeof p !== 'string' || !p.trim())) throw new Error('Sağlayıcı seri listesini doğrulamadı.');
+      return { success: true, list: res.data.Prefix as string[] };
     } catch (err: any) {
       // FAZ 12: Sahte şablon listesi ÜRETİLMEZ
       console.warn('[HIZLI_CONNECT] XsltList hatası:', err?.response?.data?.Message || err?.message);
@@ -1470,6 +1492,7 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
+      if (res.data?.IsSucceeded !== true) return { success: false, message: res.data?.Message || 'Sağlayıcı son fatura numarasını doğrulamadı.' };
       return { success: true, data: res.data };
     } catch (err: any) {
       // FAZ 12: Uydurma fatura numarası ÜRETİLMEZ — seri numarası çakışması riski

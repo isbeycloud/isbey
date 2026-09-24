@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 fs.mkdirSync('.verify-tmp', { recursive: true });
 const directory = fs.mkdtempSync(path.resolve('.verify-tmp/local-'));
 const suites = [
+  'hizliRegistryContractTest.ts',
   'eInvoiceLivePreparationTest.ts',
   'eServicesTest.ts',
   'productionProvisioningTest.ts', 'productionTenantTest.ts', 'membershipIsolationTest.ts', 'credentialVaultRegressionTest.ts', 'credentialMaskRegressionTest.ts',
