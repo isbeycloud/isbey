@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { canAccessMembershipModule, getUserWorkspace, getInitialViewForRole, hasPermission as _hasPermission } from '../utils/modulePermissions';
 import type { UserWorkspace } from '../utils/modulePermissions';
 import type { AppView } from './AppContext';
+import { menuAllowsView } from '../data/erpMenus';
 
 interface AuthContextType {
   user: User | null;
@@ -44,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [allowedTenants, setAllowedTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
+  const [registrationLanding, setRegistrationLanding] = useState(false);
 
   const refreshProfile = async () => {
     try {
@@ -119,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(res.user);
         if (res.tenant) setActiveTenant(res.tenant);
         if (res.isFirstLogin) {
-          setShowOnboardingWizard(true);
+          setRegistrationLanding(true);
         }
         await refreshProfile();
         return { success: true, message: res.message, isFirstLogin: res.isFirstLogin };
@@ -131,6 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    setRegistrationLanding(false);
     localStorage.removeItem('isbey_token');
     setUser(null);
     setActiveTenant(null);
@@ -164,7 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canAccessModule = (moduleId: string): boolean => {
     if (!user) return false;
     // UserPermission[] → modül adı string'lerine çevir (module.canView kontrolü)
-    return canAccessMembershipModule(user.effectiveRoles || [user.role], user.permissionCodes, moduleId);
+    return menuAllowsView(user.allowedMenuIds, moduleId) && canAccessMembershipModule(user.effectiveRoles || [user.role], user.permissionCodes, moduleId);
   };
 
   // FAZ 17: Aktif çalışma alanı
@@ -173,6 +176,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // FAZ 17: Login sonrası başlangıç view
   const getInitialView = (): AppView => {
     if (!user) return 'dashboard';
+    if (registrationLanding) return 'hizmetler';
+    if (!menuAllowsView(user.allowedMenuIds, getInitialViewForRole(user.role))) return 'dashboard';
     return getInitialViewForRole(user.role);
   };
 

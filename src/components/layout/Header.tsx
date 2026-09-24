@@ -65,12 +65,17 @@ export const Header: React.FC = () => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showTenantMenu, setShowTenantMenu] = useState(false);
+  const [tenantSearch, setTenantSearch] = useState('');
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState('');
+  const tenantMenuRef = useRef<HTMLDivElement>(null);
   const [showQuickActionMenu, setShowQuickActionMenu] = useState(false);
   const quickActionRef = useRef<HTMLDivElement>(null);
 
   // Close menus on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      if (tenantMenuRef.current && !tenantMenuRef.current.contains(event.target as Node)) setShowTenantMenu(false);
       if (quickActionRef.current && !quickActionRef.current.contains(event.target as Node)) {
         setShowQuickActionMenu(false);
       }
@@ -110,6 +115,7 @@ export const Header: React.FC = () => {
       case 'dashboard': return { title: 'Yönetim Paneli & KPI', category: 'Dashboard' };
       case 'companies':
       case 'tenants': return { title: 'Firma & Şirketler', category: 'Ayarlar' };
+      case 'hizmetler': return { title: 'Hizmetler ve Paketler', category: 'Abonelik' };
       case 'cari': return { title: 'Cari Hesaplar & Müşteriler', category: 'Cari İşlemleri' };
       case 'stok': return { title: 'Stok & Depo Yönetimi', category: 'Stok İşlemleri' };
       case 'alis': return { title: 'Alış Faturaları & Giderler', category: 'Alış İşlemleri' };
@@ -596,8 +602,9 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Firma / Tenant Seçici */}
-          <div style={{ position: 'relative' }}>
+          <div ref={tenantMenuRef} style={{ position: 'relative' }} onKeyDown={e => { if (e.key === 'Escape') setShowTenantMenu(false); }}>
             <button
+              aria-label="Firma seç / değiştir" aria-expanded={showTenantMenu}
               onClick={() => setShowTenantMenu(!showTenantMenu)}
               style={{
                 display: 'flex',
@@ -625,6 +632,20 @@ export const Header: React.FC = () => {
               </span>
               <ChevronDown size={14} color="var(--text-light, #8b93a5)" />
             </button>
+            {showTenantMenu && <div style={{ position: 'absolute', right: 0, top: '100%', width: 320, maxWidth: '90vw', zIndex: 100, background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, boxShadow: '0 8px 32px #0002' }}>
+              <strong>Firma seç / değiştir</strong>
+              <p style={{ fontSize: 12 }}>Yalnızca yetkili olduğunuz firmalar listelenir.</p>
+              <input aria-label="Firma adı veya vergi numarası" className="form-input" placeholder="Firma adı veya VKN/TCKN" value={tenantSearch} onChange={e => setTenantSearch(e.target.value)} />
+              <div style={{ maxHeight: 280, overflowY: 'auto', marginTop: 8 }}>
+                {tenants.filter(t => `${t.name} ${t.taxNumber}`.toLocaleLowerCase('tr').includes(tenantSearch.toLocaleLowerCase('tr'))).map(t => <button key={t.id} className="btn btn-ghost" disabled={switching || t.id === activeTenant?.id} style={{ width: '100%', justifyContent: 'space-between', marginBottom: 4 }} onClick={async () => {
+                  setSwitching(true); setSwitchError('');
+                  try { if (await switchTenant(t.id)) { setShowTenantMenu(false); setActiveView('dashboard'); } else setSwitchError('Firmaya geçiş yapılamadı. Üyeliğinizi kontrol edin.'); }
+                  finally { setSwitching(false); }
+                }}><span>{t.name}<small style={{ display: 'block' }}>{t.taxNumber}</small></span>{t.id === activeTenant?.id ? 'Aktif' : 'Seç'}</button>)}
+                {!tenants.length && <p>Erişilebilir firma bulunamadı.</p>}
+              </div>
+              {switchError && <p role="alert">{switchError}</p>}
+            </div>}
           </div>
 
           {/* Kullanıcı Profili & Dropdown */}

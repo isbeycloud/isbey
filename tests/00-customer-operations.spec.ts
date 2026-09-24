@@ -1,0 +1,53 @@
+import { test, expect } from '@playwright/test';
+
+test('direct signup opens the service catalog and can request a plan', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Ücretsiz Deneyin|Ücretsiz Başla|Ücretsiz Dene/ }).first().click();
+  await page.getByPlaceholder('Ahmet Yılmaz').fill('Yeni ERP Kullanıcısı');
+  await page.getByPlaceholder('ornek@sirketiniz.com').fill(`catalog-${Date.now()}@example.test`);
+  await page.getByPlaceholder('ABC Teknoloji Ltd. Şti.').fill('Katalog Test Firması');
+  await page.getByPlaceholder('10 veya 11 hane').fill('1234567890');
+  await page.getByPlaceholder('••••••••', { exact: true }).nth(0).fill('TestPassword123!');
+  await page.getByPlaceholder('••••••••', { exact: true }).nth(1).fill('TestPassword123!');
+  await page.getByRole('button', { name: '14 Günlük Ücretsiz Denemeyi Başlat' }).click();
+  await expect(page.getByRole('heading', { name: 'Hizmetler ve Paketler', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toBeVisible();
+  await page.getByRole('button', { name: 'Paket talebi oluştur', exact: true }).first().click();
+  await expect(page.getByText('paket talebiniz kaydedildi. Henüz ödeme alınmadı.', { exact: false })).toBeVisible();
+  await page.screenshot({ path: '.verify-tmp/service-catalog.png', fullPage: true });
+});
+
+test('customer operations, company switcher and service application form', async ({ page, request }) => {
+  const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
+  expect(login.status()).toBe(200);
+  const { token } = await login.json();
+  await page.addInitScript(value => localStorage.setItem('isbey_token', value), token);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Firma seç / değiştir', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Firma adı veya vergi numarası' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Firma adı veya vergi numarası' }).fill('no-such-company');
+  await expect(page.getByRole('button', { name: /Seç$/ })).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Firma adı veya vergi numarası' }).fill('');
+  const other = page.getByRole('button', { name: /Seç$/ }).first();
+  await expect(other).toBeVisible();
+  const previous = await page.evaluate(() => localStorage.getItem('isbey_token'));
+  await other.click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('isbey_token'))).not.toBe(previous);
+  await page.getByText('Müşteri İşlemleri', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Hızlı Bilişim — Müşteri İşlemleri' })).toBeVisible();
+  await page.getByText('e-Hizmet Başvuruları ve Ödeme Teklifleri', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'e-Hizmet Başvuru ve Ödeme' })).toBeVisible();
+  await expect(page.getByText('Online ödeme henüz etkin değil.', { exact: false })).toBeVisible();
+  await page.getByLabel('Yetkili adı', { exact: true }).fill('E2E Yetkili');
+  await page.getByLabel('E-posta', { exact: true }).fill('service@example.test');
+  await page.getByLabel('Telefon', { exact: true }).fill('05555555555');
+  await page.getByLabel('e-Fatura', { exact: true }).check();
+  await page.getByLabel('Seçili firma adına başvuru yapmaya yetkili olduğumu', { exact: false }).check();
+  await page.getByRole('button', { name: 'Başvuruyu gönder', exact: true }).click();
+  await expect(page.getByText('Başvurunuz kaydedildi.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'İncelemede', exact: true })).toBeVisible();
+  await page.screenshot({ path: '.verify-tmp/customer-operations.png', fullPage: true });
+  expect(errors).toEqual([]);
+});

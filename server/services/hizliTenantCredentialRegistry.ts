@@ -124,6 +124,8 @@ export function resolveTenantWsCredentials(settings: TenantEinvoiceSettings): Te
   const envSecret = process.env.HIZLI_BILISIM_SECRET_KEY || '';
 
   if (envUser && envPass && envApiKey && envSecret) {
+    const ownerVkn = (process.env.HIZLI_BILISIM_VKN || '').trim();
+    if (!/^\d{10,11}$/.test(ownerVkn) || settings.senderIdentifier?.trim() !== ownerVkn) throw new Error('Ortak web servis hesabı bu firmaya ait değil. Firma bazlı bağlantı tanımlayın.');
     return { apiKey: envApiKey, secretKey: envSecret, username: envUser, password: envPass, source: 'env-default-firm' };
   }
 
@@ -153,6 +155,7 @@ export async function ensureTenantToken(
   settings: TenantEinvoiceSettings,
   isTest: boolean
 ): Promise<{ token: string; source: TenantWsCredentials['source'] }> {
+  HizliConnectService.getBaseUrl(isTest); // Enforce the live lock even when a token is cached.
   const key = cacheKey(settings.tenantId, isTest);
 
   // 1) Geçerli token var mı?

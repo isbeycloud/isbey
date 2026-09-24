@@ -35,6 +35,7 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import type { AppView, RibbonTab } from '../../context/AppContext';
 import { getMembershipSidebar } from '../../utils/modulePermissions';
+import { menuAllowsView } from '../../data/erpMenus';
 
 interface ModuleMeta {
   id: AppView;
@@ -48,6 +49,7 @@ interface ModuleMeta {
 
 // ─── Tüm Modüllerin Meta Verisi (SÖZLEŞME: değişmedi — M3 reskin yalnız görsel) ──
 const MODULE_META: Record<string, ModuleMeta> = {
+  hizmetler: { id: 'hizmetler', ribbonTab: 'AYARLAR', orderNumber: '0', label: 'Hizmetler ve Paketler', icon: <CreditCard size={18} /> },
   dashboard:          { id: 'dashboard',          ribbonTab: 'ANASAYFA',    orderNumber: '1',  label: 'Ana Sayfa',            icon: <Home size={18} /> },
   cari:               { id: 'cari',               ribbonTab: 'CARI',        orderNumber: '2',  label: 'Cari',                 icon: <Users size={18} /> },
   stok:               { id: 'stok',               ribbonTab: 'STOK',        orderNumber: '3',  label: 'Stok',                 icon: <Package size={18} /> },
@@ -77,7 +79,7 @@ const MODULE_META: Record<string, ModuleMeta> = {
   'muhasebe-kontrol': { id: 'muhasebe-kontrol',   ribbonTab: 'RAPORLAR',    orderNumber: '23', label: 'Muhasebe Kontrol',     icon: <TrendingUp size={18} /> },
   'platform-admin':   { id: 'platform-admin',     ribbonTab: 'AYARLAR',     orderNumber: '1',  label: 'Admin & SaaS Paneli',  icon: <ShieldAlert size={18} />, badge: 'SUPER',   badgeColor: '#dc2626' },
   'saas-admin':       { id: 'saas-admin',         ribbonTab: 'AYARLAR',     orderNumber: '1',  label: 'SaaS Yönetimi',        icon: <ShieldAlert size={18} />, badge: 'SAAS',    badgeColor: '#dc2626' },
-  hizlibilisim:       { id: 'hizlibilisim',       ribbonTab: 'AYARLAR',     orderNumber: '2',  label: 'Hızlı Bilişim',        icon: <Zap size={18} />,         badge: 'API',     badgeColor: '#059669' },
+  hizlibilisim:       { id: 'hizlibilisim',       ribbonTab: 'AYARLAR',     orderNumber: '2',  label: 'Müşteri İşlemleri',        icon: <Users size={18} />,         badge: 'HB',     badgeColor: '#059669' },
   dealers:            { id: 'dealers',            ribbonTab: 'AYARLAR',     orderNumber: '3',  label: 'Bayi Yönetimi',        icon: <Users size={18} />,       badge: 'BAYİ',    badgeColor: '#0369a1' },
   subscription:       { id: 'subscription',       ribbonTab: 'AYARLAR',     orderNumber: '4',  label: 'Abonelik & SaaS',      icon: <CreditCard size={18} /> },
   'customer-billing': { id: 'customer-billing',   ribbonTab: 'AYARLAR',     orderNumber: '5',  label: 'Faturalama',           icon: <Receipt size={18} /> },
@@ -113,7 +115,8 @@ export const Sidebar: React.FC = () => {
   const userRole = user?.role || 'employee';
 
   // FAZ 17: Role-based sidebar modüllerini al (SÖZLEŞME: aynen korunur)
-  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes);
+  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id)) }));
+  sidebarGroups.push({ groupLabel: 'HİZMETLER', moduleIds: ['hizmetler'] });
 
   const handleNav = (id: AppView, ribbonTab: RibbonTab) => {
     setActiveView(id);

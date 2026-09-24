@@ -143,9 +143,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  requestServicePlan: (planId: string, period: 'MONTHLY' | 'YEARLY') => request<{ success: boolean }>('/e-services/plan-requests', { method: 'POST', body: JSON.stringify({ planId, period }) }),
+  getServicePlanRequests: () => request<{ success: boolean; requests: { id: string; tenantId: string; companyName: string; planId: string; planName: string; period: string; status: string }[] }>('/e-services/plan-requests'),
   updateErpSubscription: (id: string, data: { startDate: string; endDate: string }) => request<{ success: boolean; message: string }>(`/companies/${id}/erp-subscription`, { method: 'PUT', body: JSON.stringify(data) }),
-  getUserMemberships: (id: string) => request<{ success: boolean; companies: { id: string; name: string }[]; roles: { id: string; name: string; tenantId?: string; isSystem: boolean }[]; memberships: { tenantId: string; roleIds: string[]; status: string }[] }>(`/users/${id}/memberships`),
-  saveUserMembership: (id: string, tenantId: string, data: { roleIds: string[]; status: string }) => request<{ success: boolean; message: string }>(`/users/${id}/memberships/${tenantId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getUserMemberships: (id: string) => request<{ success: boolean; companies: { id: string; name: string }[]; roles: { id: string; name: string; tenantId?: string; isSystem: boolean }[]; memberships: { tenantId: string; roleIds: string[]; status: string; allowedMenuIds?: string[] | null }[] }>(`/users/${id}/memberships`),
+  saveUserMembership: (id: string, tenantId: string, data: { roleIds: string[]; status: string; isOwner?: boolean; allowedMenuIds?: string[] | null }) => request<{ success: boolean; message: string }>(`/users/${id}/memberships/${tenantId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteUserMembership: (id: string, tenantId: string) => request<{ success: boolean; message: string }>(`/users/${id}/memberships/${tenantId}`, { method: 'DELETE' }),
   // Auth
   login: (credentials: { username?: string; email?: string; password: string }) =>
@@ -942,6 +944,11 @@ export const api = {
   },
 
   // Hızlı Bilişim e-Connect Belgeler & İşlemler
+  getCompanyInvoiceHistory: (startDate: string, endDate: string) => request<{ success: boolean; documents: import('../components/modules/edonusum/InvoiceHistory').HistoryDocument[] }>(`/e-services/invoice-history?${new URLSearchParams({ startDate, endDate })}`),
+  getEServiceApplications: () => request<{ success: boolean; applications: import('../components/modules/edonusum/EServiceApplications').ServiceApplication[]; checkoutAvailable: boolean }>('/e-services/applications'),
+  submitEServiceApplication: (data: { contactName: string; email: string; phone: string; services: string[]; consent: boolean }) => request<{ success: boolean }>('/e-services/applications', { method: 'POST', body: JSON.stringify(data) }),
+  quoteEServiceApplication: (id: string, amountMinor: number) => request<{ success: boolean }>(`/e-services/applications/${id}/quote`, { method: 'POST', body: JSON.stringify({ amountMinor }) }),
+  checkoutEServiceApplication: (id: string) => request<{ success: boolean; url: string }>(`/e-services/applications/${id}/checkout`, { method: 'POST' }),
   getHizliDocuments: (params?: { appType?: number; dateType?: string; startDate?: string; endDate?: string; isNew?: boolean }) => {
     const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
     return request<{ success: boolean; documents: any[] }>(`/efatura/hizli/documents${query}`);

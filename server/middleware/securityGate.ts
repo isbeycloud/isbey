@@ -45,6 +45,7 @@ const PUBLIC_ROUTES: PublicRoute[] = [
 
   // W1-W2: Webhook'lar (imza doğrulaması Sprint 25.3'te zorunlu hale gelir)
   { method: 'POST', pattern: /^\/api\/v1\/payments\/webhook$/ },
+  { method: 'POST', pattern: '/api/e-services/payment-callback' },
   { method: 'POST', pattern: /^\/api\/v1\/integrations\/[^/]+\/webhook$/ },
 
   // T1-T3: İmzalı token ile erişilen uçlar (token doğrulama handler içinde)

@@ -1581,6 +1581,8 @@ export interface DatabaseState {
   company: Company;
   activeTenantId?: string;
   tenants: Tenant[];
+  eServiceApplications?: import('../services/eServiceApplications').EServiceApplication[];
+  servicePlanRequests?: { id: string; tenantId: string; userId: string; planId: string; planName: string; period: 'MONTHLY' | 'YEARLY'; amount: number; currency: string; status: 'REQUESTED'; createdAt: string }[];
   users: User[];
   customers: Customer[];
   productGroups: ProductGroup[];
@@ -1807,6 +1809,7 @@ export interface SupportTicket {
 }
 
 export interface TenantUser {
+  allowedMenuIds?: string[] | null;
   id: string;
   tenantId: string;
   userId: string;

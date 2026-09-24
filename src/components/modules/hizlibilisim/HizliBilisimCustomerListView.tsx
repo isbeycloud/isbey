@@ -58,7 +58,7 @@ const emptyForm = (): SearchForm => ({
 
 export const HizliBilisimCustomerListView: React.FC = () => {
   const { showToast } = useToast();
-  const { triggerRefresh } = useApp();
+  const { triggerRefresh, switchTenant, setActiveView } = useApp();
 
   const [customers, setCustomers] = useState<ExternalCustomer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -255,9 +255,15 @@ export const HizliBilisimCustomerListView: React.FC = () => {
       },
     },
     {
-      key: 'actions', title: 'İşlemler', width: '185px',
+      key: 'actions', title: 'İşlemler', width: '260px',
       render: c => (
-        <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
+          {c.isbeyCompanyId && <select aria-label={`${c.companyName} işlemleri`} className="form-select" value="" onChange={async e => {
+            const action = e.target.value;
+            if (!action) return;
+            if (await switchTenant(c.isbeyCompanyId!)) setActiveView(action === 'invoices' ? 'edonusum' : 'dashboard');
+            else showToast('Firmaya geçiş yapılamadı. Firma durumu ve üyelikleri kontrol edin.', 'error');
+          }}><option value="">İşlem seçin</option><option value="company">Firmaya geç</option><option value="invoices">Geçmiş e-Faturalar / Başvuru</option></select>}
           {!c.isbeyCompanyId ? (
             <button type="button" className="btn btn-primary btn-xs"
               onClick={() => setConvertCustomer(c)}

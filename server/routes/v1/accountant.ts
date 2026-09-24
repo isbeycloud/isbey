@@ -8,7 +8,7 @@ import { resolveRequestTenantId } from '../../security/policies';
 const router = Router();
 
 // FAZ 17: Tüm accountant route'larına auth guard eklendi
-router.use(requireAuth);
+router.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'));
 
 /**
  * GET /api/v1/accountant/clients
@@ -36,6 +36,7 @@ router.get('/clients/:id/monthly-report', (req, res) => {
   }
 
   const period = (req.query.period as string) || new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ success: false, message: 'Geçerli dönem seçin.' });
   const report = AccountantService.generateMonthlyClosingReport(tenantId, period);
   return res.json({ success: true, report });
 });
@@ -60,7 +61,10 @@ router.get('/requests', (req, res) => {
 router.post('/requests', async (req, res) => {
   try {
     const tenantId = resolveRequestTenantId(req);
-    const { accountantUserId = 'usr-accountant', accountantName = 'SMMM Yetkilisi', companyName = 'İŞBEY Teknoloji A.Ş.', documentType = 'BANK_STATEMENT', period = '2026-09', description, dueDate } = req.body;
+    const { documentType = 'BANK_STATEMENT', period = new Date().toISOString().slice(0, 7), description, dueDate } = req.body;
+    const accountantUserId = req.user.id;
+    const accountantName = req.user.fullName;
+    const companyName = storage.getState().tenants.find(t => t.id === tenantId)?.name || '';
 
     if (!description) {
       return res.status(400).json({ success: false, message: 'Evrak talep açıklaması zorunludur.' });

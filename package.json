@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "efatura:preflight": "node --import tsx tools/hizli-canli-hazirlik.mjs",
     "start": "node --import tsx tools/start-production.mjs",
     "preflight": "node --import tsx tools/production-preflight.mjs",
     "release:package": "node tools/package-release.mjs",

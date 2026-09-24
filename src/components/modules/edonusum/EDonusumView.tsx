@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { EServiceApplications } from './EServiceApplications';
+import { InvoiceHistory } from './InvoiceHistory';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
 import type { Invoice } from '../../../types';
@@ -544,6 +546,8 @@ export const EDonusumView: React.FC = () => {
 
   return (
     <div className="view-content-container">
+      <details><summary className="btn btn-secondary">Geçmiş e-Faturalar</summary><InvoiceHistory /></details>
+      <details><summary className="btn btn-secondary">e-Hizmet Başvuru ve Ödeme</summary><EServiceApplications /></details>
       {/* ─── Başlık Bandı ─── */}
       <div style={{
         // 2026-09-13 (tasarım sadeleştirmesi): dekoratif gradyan yerine düz koyu yüzey

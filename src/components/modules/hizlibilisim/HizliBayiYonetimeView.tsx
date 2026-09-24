@@ -24,6 +24,7 @@ import {
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { HizliBilisimCustomerListView } from './HizliBilisimCustomerListView';
+import { EServiceApplications } from '../edonusum/EServiceApplications';
 
 interface DealerItem {
   id: string;
@@ -59,7 +60,7 @@ interface DealerKPIs {
 export const HizliBayiYonetimeView: React.FC = () => {
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'DEALERS' | 'PORTFOLIO' | 'LOGS'>('DEALERS');
+  const [activeTab, setActiveTab] = useState<'DEALERS' | 'PORTFOLIO' | 'LOGS'>('PORTFOLIO');
   const [dealers, setDealers] = useState<DealerItem[]>([]);
   const [kpis, setKpis] = useState<DealerKPIs>({
     total: 0,
@@ -579,7 +580,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
       {/* Portföydeki firmalar burada İŞBEY şirketi ve seçilen yetkilisiyle
           birlikte kurulabilir. Ekranın kendi senkronizasyon ve dönüştürme
           aksiyonları vardır; bu sayfa yalnız bileşeni görünür kılar. */}
-      {activeTab === 'PORTFOLIO' && <HizliBilisimCustomerListView />}
+      {activeTab === 'PORTFOLIO' && <><HizliBilisimCustomerListView /><details><summary className="btn btn-secondary">e-Hizmet Başvuruları ve Ödeme Teklifleri</summary><EServiceApplications /></details></>}
 
       {/* ─── SEKME 1: ALT BAYİLER / FİRMALAR ─── */}
       {activeTab === 'DEALERS' && (

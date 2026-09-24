@@ -1,6 +1,7 @@
 import { storage } from '../../db/storage';
 import { AccountantClient, DocumentRequest, DatabaseState, DocumentTypeEnum } from '../../db/schema';
 import { AnomalyService } from './anomalyService';
+import { canEnterCompany, membershipFor, membershipRoles } from '../../security/memberships';
 
 export class AccountantService {
   /**
@@ -8,8 +9,15 @@ export class AccountantService {
    */
   public static getClients(accountantUserId: string): AccountantClient[] {
     const db = storage.getState();
-    const all = db.accountantClients || [];
-    return all.filter(c => c.accountantUserId === accountantUserId);
+    const user = db.users.find(u => u.id === accountantUserId);
+    if (!user) return [];
+    return db.tenants.filter(t => canEnterCompany(db, user, t.id) && membershipRoles(db, membershipFor(db, user.id, t.id)).some(r => r.slug === 'accountant')).map(t => ({
+      id: `portfolio-${t.id}`, accountantUserId, tenantId: t.id, companyName: t.name,
+      taxNumber: t.taxNumber, taxOffice: t.taxOffice, contactEmail: t.email, contactPhone: t.phone,
+      status: 'ACTIVE', createdAt: t.createdAt,
+      missingDocumentsCount: (db.documentRequests || []).filter(r => r.tenantId === t.id && r.status === 'PENDING').length,
+      unreconciledBankCount: (db.bankTransactionMatches || []).filter(m => m.tenantId === t.id && m.status === 'PROPOSED').length,
+    }));
   }
 
   /**
@@ -18,10 +26,8 @@ export class AccountantService {
   public static isAccountantAuthorizedForTenant(accountantUserId: string, tenantId: string): boolean {
     const db = storage.getState();
     const user = (db.users || []).find(u => u.id === accountantUserId);
-    if (user && user.role === 'SUPER_ADMIN') return true;
-    if (user && user.allowedCompanyIds && user.allowedCompanyIds.includes(tenantId)) return true;
-    const clients = (db.accountantClients || []).filter(c => c.accountantUserId === accountantUserId);
-    return clients.some(c => c.tenantId === tenantId);
+    return !!user && canEnterCompany(db, user, tenantId) &&
+      (['SUPER_ADMIN', 'ADMIN'].includes(user.role) || membershipRoles(db, membershipFor(db, user.id, tenantId)).some(r => r.slug === 'accountant'));
   }
 
   /**
@@ -67,10 +73,10 @@ export class AccountantService {
   public static generateMonthlyClosingReport(tenantId: string, period: string) {
     const db = storage.getState();
     const invoices = (db.invoices || []).filter(
-      i => (i.tenantId === tenantId || (!i.tenantId && tenantId === 'tnt-isbey')) && i.status !== 'CANCELLED'
+      i => (i.tenantId === tenantId || (!i.tenantId && tenantId === 'tnt-isbey')) && i.status !== 'CANCELLED' && i.date?.slice(0, 7) === period
     );
     const expenses = (db.expenses || []).filter(
-      e => e.tenantId === tenantId || (!e.tenantId && tenantId === 'tnt-isbey')
+      e => (e.tenantId === tenantId || (!e.tenantId && tenantId === 'tnt-isbey')) && e.date?.slice(0, 7) === period
     );
     const bankMatches = (db.bankTransactionMatches || []).filter(
       m => m.tenantId === tenantId && m.status === 'PROPOSED'
@@ -83,7 +89,7 @@ export class AccountantService {
 
     return {
       period,
-      companyName: 'İŞBEY Teknoloji A.Ş.',
+      companyName: db.tenants.find(t => t.id === tenantId)?.name || '',
       generatedAt: new Date().toISOString(),
       stats: {
         totalSalesInvoices: invoices.filter(i => i.type === 'SALES').length,

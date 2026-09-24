@@ -36,7 +36,7 @@ export function companyIdentity(db: DatabaseState, user: User, tenantId: string)
   const permissionCodes = platform ? ['*'] : [...new Set(roles.flatMap(r => r.permissions))];
   const { passwordHash: _secret, permissions: _legacy, ...safe } = user;
   return { ...safe, role, companyId: tenantId, companyName: db.tenants.find(t => t.id === tenantId)?.name, tenantId, allowedCompanyIds: [tenantId],
-    roleSlugs, effectiveRoles, permissionCodes };
+    roleSlugs, effectiveRoles, permissionCodes, allowedMenuIds: platform ? null : membership?.allowedMenuIds ?? null };
 }
 
 // Idempotent upgrade: never reactivate a revoked membership or overwrite its roles.

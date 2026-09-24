@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { isPlatformUser, membershipFor, activeMembership, membershipRoles } from '../security/memberships';
+import { ERP_MENUS } from '../../src/data/erpMenus';
 
 export const membershipsRouter = Router();
 membershipsRouter.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'));
@@ -25,8 +26,11 @@ membershipsRouter.get('/:id/memberships', (req, res) => {
 membershipsRouter.put('/:id/memberships/:tenantId', async (req, res) => {
   const tenantId = String(req.params.tenantId);
   const userId = String(req.params.id);
-  const { roleIds, status } = req.body;
+  const { roleIds, status, isOwner, allowedMenuIds } = req.body;
+  if (allowedMenuIds !== undefined && allowedMenuIds !== null && (!Array.isArray(allowedMenuIds) || allowedMenuIds.some(id => !ERP_MENUS.some(m => m.id === id)) || new Set(allowedMenuIds).size !== allowedMenuIds.length)) return res.status(400).json({ success: false, message: 'Geçerli menüler seçin.' });
   const platform = isPlatformUser(req.user);
+  if (isOwner !== undefined && (typeof isOwner !== 'boolean' || !platform)) return res.status(403).json({ success: false, message: 'Firma sahipliğini yalnızca platform yöneticisi belirleyebilir.' });
+  if (!platform && req.user.allowedMenuIds != null && allowedMenuIds !== undefined && (allowedMenuIds === null || allowedMenuIds.some((id: string) => !req.user.allowedMenuIds.includes(id)))) return res.status(403).json({ success: false, message: 'Kendi menü erişiminizin dışında yetki atayamazsınız.' });
   if (!platform && tenantId !== req.tenantId) return res.status(403).json({ success: false, message: 'Yalnızca aktif firma üyeliğini yönetebilirsiniz.' });
   if (!Array.isArray(roleIds) || !roleIds.length || roleIds.some(id => typeof id !== 'string') || new Set(roleIds).size !== roleIds.length || !['active', 'passive'].includes(status)) {
     return res.status(400).json({ success: false, message: 'En az bir rol ve geçerli üyelik durumu seçin.' });
@@ -41,6 +45,7 @@ membershipsRouter.put('/:id/memberships/:tenantId', async (req, res) => {
       if (userId === req.user.id) throw new Error('Kendi üyeliğinizi değiştiremezsiniz; başka bir yönetici kullanın.');
       const roles = roleIds.map(id => draft.roles?.find(r => r.id === id && r.slug !== 'platform_admin' && (r.isSystem || r.tenantId === tenantId)));
       if (roles.some(r => !r)) throw new Error('Rol bu firmaya atanamaz.');
+      if (isOwner === true && !roles.some(r => r?.slug === 'company_admin')) throw new Error('Firma sahibi için firma yöneticisi rolü gerekir.');
       if (!platform && roles.some(r => r!.permissions.some(p => !(req.userPermissions || []).includes(p)))) throw new Error('Sahip olmadığınız yetkileri atayamazsınız.');
       if (status === 'active' && !activeMembership(current) && tenant.maxUsers) {
         const count = (draft.tenantUsers || []).filter(m => m.tenantId === tenantId && activeMembership(m) && draft.users.some(u => u.id === m.userId && u.active)).length;
@@ -51,6 +56,8 @@ membershipsRouter.put('/:id/memberships/:tenantId', async (req, res) => {
       membership.roleIds = roleIds;
       membership.roleSlug = roles[0]!.slug; // Compatibility display only; authorization uses roleIds.
       membership.status = status;
+      if (allowedMenuIds !== undefined) membership.allowedMenuIds = allowedMenuIds;
+      if (isOwner !== undefined) membership.isOwner = isOwner;
       membership.updatedAt = now;
       delete membership.deletedAt;
       draft.tenantUsers ||= [];

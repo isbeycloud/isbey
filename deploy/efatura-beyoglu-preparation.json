@@ -1,0 +1,56 @@
+{
+  "status": "PREPARATION_ONLY",
+  "productionSendingAuthorized": false,
+  "deployment": {
+    "origin": "https://bey360.com",
+    "provider": "Hostinger",
+    "method": "GIT_AUTO_DEPLOY",
+    "repository": "https://github.com/isbeycloud/isbey.git",
+    "branch": "main",
+    "branchConfirmedByUser": true,
+    "healthCheckedAt": "2026-09-24T20:05:32Z",
+    "healthStatus": "healthy",
+    "localDatabaseChangesDeployed": false
+  },
+  "company": {
+    "title": "Beyoğlu Teknoloji Ltd. Şti.",
+    "taxNumber": "1681136628",
+    "taxOffice": "Ziyapaşa Vergi Dairesi"
+  },
+  "candidateTenantId": "tnt-1788768284315-w41y",
+  "providerCustomerId": "hbc-1787730386934-3yqq",
+  "providerExternalId": "HB-1681136628",
+  "databaseChangesApplied": true,
+  "appliedChanges": {
+    "scope": "LOCAL_COMPANY_IDENTITY_AND_PROVIDER_PREPARATION",
+    "appliedOn": "2026-09-24",
+    "userApproved": true,
+    "backup": "data/backups/before-beyoglu-identity-2026-09-24T18-29-25-680Z.json",
+    "verified": true,
+    "providerLinkApplied": true,
+    "integrationSettingsChanged": true,
+    "integrationPreparedAt": "2026-09-24T20:06:18.511Z",
+    "integrationBackup": "data/backups/before-beyoglu-integration-2026-09-24T20-06-18-511Z.json",
+    "environment": "TEST",
+    "integrationEnabled": false,
+    "autoSendToGib": false,
+    "providerVerification": "PENDING"
+  },
+  "proposedChanges": [
+    "Canlı veritabanında firma ve sağlayıcı eşleştirmesini ayrıca doğrula; yerel veritabanını canlı verinin üzerine kopyalama.",
+    "Firma WS hesabını, posta kutusu etiketlerini ve belge serilerini sağlayıcıdan doğrula.",
+    "Eski firma kayıtlarının bağlantılarını, belgelerini ve sayaçlarını taşıma veya silme."
+  ],
+  "requiredBeforeApply": [
+    "Veritabanı yedeği al ve çalışan uygulamayla atomik işlem kullan.",
+    "Hedef firmada işlem bulunmadığını ve VKN/sağlayıcı bağlantısının tekil olduğunu işlem anında yeniden kontrol et."
+  ],
+  "requiredBeforeLive": [
+    "Hedef sunucu ve HTTPS alan adı",
+    "Temiz production veritabanı ve benzersiz yönetici parolası",
+    "Kasa anahtarı ve güvenli yedek/migrasyon doğrulaması",
+    "Firma WS hesabı, posta kutusu etiketleri ve belge serisi doğrulaması",
+    "GİB kullanıcı sorgusu için güncel sağlayıcı kabulü",
+    "Gerçek fatura taslağı ve ayrı canlı gönderim onayı"
+  ]
+}

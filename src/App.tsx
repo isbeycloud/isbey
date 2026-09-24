@@ -1,6 +1,7 @@
 import { BrandLogo } from './components/common/BrandLogo';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ServiceCatalogView } from './components/modules/billing/ServiceCatalogView';
 import { ToastProvider } from './context/ToastContext';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/layout/Header';
@@ -127,6 +128,7 @@ const MainLayout: React.FC = () => {
 
   const renderActiveView = () => {
     switch (activeView) {
+      case 'hizmetler': return <ServiceCatalogView />;
       case 'dashboard': return <DashboardView />;
       case 'cari': return guard('cari', <CustomerListView />);
       case 'pos': return guard('pos', <POSSalesView />);
@@ -266,16 +268,15 @@ const MainLayout: React.FC = () => {
 
       {/* Yeni Kayıt İlk Kurulum Sihirbazı (Onboarding Wizard) */}
       {showOnboardingWizard && (
-        <SetupWizard onComplete={() => setShowOnboardingWizard(false)} />
+        <SetupWizard onComplete={() => { setShowOnboardingWizard(false); setActiveView('hizmetler'); }} />
       )}
     </div>
   );
 };
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading, getInitialView } = useAuth();
+  const { isAuthenticated, isLoading, getInitialView, activeTenant } = useAuth();
   const [authScreen, setAuthScreen] = useState<'LANDING' | 'LOGIN' | 'REGISTER'>('LANDING');
-  const [initialViewSet, setInitialViewSet] = useState(false);
 
   // Check if landing on public payment link (/pay/:token)
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/pay/')) {
@@ -319,7 +320,7 @@ const AppContent: React.FC = () => {
         <LoginPage
           onRegisterClick={() => setAuthScreen('REGISTER')}
           onLandingClick={() => setAuthScreen('LANDING')}
-          onSuccessLogin={() => setInitialViewSet(false)}
+          onSuccessLogin={() => {}}
         />
       );
     }
@@ -328,7 +329,7 @@ const AppContent: React.FC = () => {
         <RegisterPage
           onLoginClick={() => setAuthScreen('LOGIN')}
           onLandingClick={() => setAuthScreen('LANDING')}
-          onSuccessRegister={() => setInitialViewSet(false)}
+          onSuccessRegister={() => {}}
         />
       );
     }
@@ -341,8 +342,8 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <AppProvider initialView={!initialViewSet ? (() => { setInitialViewSet(true); return getInitialView(); })() : undefined}>
-      <MainLayout />
+    <AppProvider initialView={getInitialView()}>
+      <MainLayout key={activeTenant?.id} />
     </AppProvider>
   );
 };

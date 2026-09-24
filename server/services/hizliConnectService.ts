@@ -92,6 +92,7 @@ export function isSeviyesiMesaji(veri: unknown): string | undefined {
 
 export class HizliConnectService {
   public static getBaseUrl(isTest: boolean): string {
+    if (!isTest && process.env.HIZLI_BILISIM_ALLOW_PROD !== 'true') throw new Error('Hızlı Bilişim canlı ortam kilidi kapalı.');
     return isTest
       ? 'https://econnecttest.hizliteknoloji.com.tr'
       : 'https://econnect.hizliteknoloji.com.tr';

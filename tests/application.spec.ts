@@ -92,12 +92,15 @@ test('membership editor saves independent company roles and status', async ({ pa
   await editor.getByLabel('Firma', { exact: true }).selectOption(other.id);
   await editor.getByLabel('Mali Müşavir / Muhasebeci', { exact: true }).check();
   await editor.getByLabel('İzleyici (Salt Okunur)', { exact: true }).check();
+  await editor.getByLabel('Rolün izin verdiği tüm menüler', { exact: true }).uncheck();
+  await editor.getByLabel('Stok ve ürünler', { exact: true }).uncheck();
   const saved = page.waitForResponse(r => r.url().endsWith(`/users/${account.id}/memberships/${other.id}`) && r.request().method() === 'PUT');
   await editor.getByRole('button', { name: 'Firma Üyeliğini Kaydet' }).click();
   expect((await saved).status()).toBe(200);
   await expect(editor.getByRole('button', { name: 'Firma Üyeliğini Kaydet' })).toBeEnabled();
   const data = (await (await request.get(`/api/users/${account.id}/memberships`, { headers })).json()).memberships;
   expect(data.find((m: any) => m.tenantId === other.id).roleIds.sort()).toEqual(['role-accountant', 'role-viewer']);
+  expect(data.find((m: any) => m.tenantId === other.id).allowedMenuIds).not.toContain('stok');
   expect(data.find((m: any) => m.tenantId === session.activeTenant.id).roleIds).toEqual(['role-company-admin']);
   await editor.getByLabel('Üyelik durumu').selectOption('passive');
   const deactivated = page.waitForResponse(r => r.url().endsWith(`/users/${account.id}/memberships/${other.id}`) && r.request().method() === 'PUT');

@@ -1,9 +1,9 @@
 import { useAuth } from './AuthContext';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { Tenant } from '../types';
-import { api } from '../services/api';
 
 export type AppView = 
+  | 'hizmetler'
   | 'dashboard'
   | 'cari'
   | 'stok'
@@ -163,9 +163,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   });
 
   // Multi-Tenant State
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [activeTenantId, setActiveTenantId] = useState<string>('tnt-isbey');
-  const [activeTenant, setActiveTenant] = useState<Tenant | null>(null);
+  const { allowedTenants: tenants, activeTenant, switchCompany: switchAuthenticatedCompany, refreshProfile } = useAuth();
+  const activeTenantId = activeTenant?.id || '';
   
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isFastCollectionOpen, setIsFastCollectionOpen] = useState(false);
@@ -233,27 +232,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   };
 
   const loadTenants = async () => {
-    try {
-      const res = await api.getTenants();
-      if (res.success && res.tenants) {
-        setTenants(res.tenants);
-        const currentActiveId = res.activeTenantId || activeTenantId;
-        setActiveTenantId(currentActiveId);
-        const active = res.tenants.find((t: Tenant) => t.id === currentActiveId) || res.tenants[0] || null;
-        setActiveTenant(active);
-      }
-    } catch (err) {
-      console.error('[TENANT] Error loading tenants:', err);
-    }
+    await refreshProfile();
   };
 
-  const { switchCompany: switchAuthenticatedCompany } = useAuth();
   const switchTenant = async (tenantId: string): Promise<boolean> => {
     try {
       const success = await switchAuthenticatedCompany(tenantId);
       if (success) {
-        setActiveTenantId(tenantId);
-        setActiveTenant(tenants.find(t => t.id === tenantId) || null);
+        setIsFastCollectionOpen(false);
+        setIsFastPaymentOpen(false);
+        setIsNewCustomerModalOpen(false);
+        setIsNewProductModalOpen(false);
+        setIsNewInvoiceModalOpen(false);
+        setIsNewQuoteModalOpen(false);
+        setIsNewWaybillModalOpen(false);
+        setIsNewExpenseModalOpen(false);
+        setIsImportModalOpen(false);
+        setIsEInvoiceModalOpen(false);
+        setPrintData(null);
         triggerRefresh();
         return true;
       }

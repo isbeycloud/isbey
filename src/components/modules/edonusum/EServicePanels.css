@@ -1,0 +1,13 @@
+.e-service-panel h2 { margin: 0 0 8px; font-size: 20px; }
+.e-service-panel h3 { margin: 24px 0 10px; font-size: 16px; }
+.e-service-panel p { margin: 8px 0 16px; line-height: 1.55; color: var(--text-muted); }
+.e-service-panel form { margin-top: 16px; }
+.e-service-panel legend { font-weight: 600; padding-bottom: 12px; }
+.e-service-panel label { line-height: 1.5; }
+.e-service-panel input.form-input { margin-top: 4px; }
+.e-service-panel table { border-collapse: collapse; text-align: left; font-size: 13px; }
+.e-service-panel th { background: var(--bg-app); color: var(--text-muted); font-size: 12px; }
+.e-service-panel th, .e-service-panel td { padding: 12px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+.e-service-panel td form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.e-service-panel td input { width: 130px; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-surface); color: var(--text-main); }
+.e-service-panel small { color: var(--text-muted); margin-top: 4px; }

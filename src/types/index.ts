@@ -17,6 +17,7 @@ export interface User {
   roleSlugs?: string[];
   effectiveRoles?: UserRole[];
   permissionCodes?: string[];
+  allowedMenuIds?: string[] | null;
   id: string;
   username: string;
   fullName: string;

@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { ERP_MENUS } from '../../data/erpMenus';
 
-interface Membership { tenantId: string; roleIds: string[]; status: string }
+interface Membership { tenantId: string; roleIds: string[]; status: string; isOwner?: boolean; allowedMenuIds?: string[] | null }
 interface Role { id: string; name: string; tenantId?: string; isSystem: boolean }
 export function FirmMembershipEditor({ userId, initialTenantId }: { userId: string; initialTenantId?: string }) {
   const { showToast } = useToast();
-  const { activeTenant } = useAuth();
+  const { activeTenant, user } = useAuth();
+  const platform = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const [isOwner, setIsOwner] = useState(false);
+  const [allowedMenuIds, setAllowedMenuIds] = useState<string[] | null>(null);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [memberships, setMemberships] = useState<Membership[]>([]);
@@ -23,6 +27,8 @@ export function FirmMembershipEditor({ userId, initialTenantId }: { userId: stri
   };
   const select = (id: string, list = memberships) => {
     const membership = list.find(m => m.tenantId === id);
+    setIsOwner(!!membership?.isOwner);
+    setAllowedMenuIds(membership?.allowedMenuIds ?? null);
     setTenantId(id); setRoleIds(membership?.roleIds || []); setStatus(membership?.status || 'active');
   };
   useEffect(() => {
@@ -41,7 +47,7 @@ export function FirmMembershipEditor({ userId, initialTenantId }: { userId: stri
     setBusy(true); setError('');
     try {
       const result = remove ? await api.deleteUserMembership(userId, tenantId)
-        : await api.saveUserMembership(userId, tenantId, { roleIds, status });
+        : await api.saveUserMembership(userId, tenantId, { roleIds, status, allowedMenuIds, ...(platform ? { isOwner } : {}) });
       const refreshed = await load(); select(tenantId, refreshed.memberships);
       showToast(result.message, 'success');
     } catch (err) { setError((err as Error).message); }
@@ -49,6 +55,8 @@ export function FirmMembershipEditor({ userId, initialTenantId }: { userId: stri
   };
   return <section aria-label="Firma üyelikleri" style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 16 }}>
     <h3>Firma Üyelikleri</h3>
+    <p>Aynı hesap birden fazla firmaya bağlanabilir. Mali müşavir portföyü için ilgili firmalarda Muhasebe rolünü seçin.</p>
+    {platform && <label><input type="checkbox" checked={isOwner} disabled={busy} onChange={e => setIsOwner(e.target.checked)} /> Bu firmanın sahibi</label>}
     <p>Roller ve aktiflik durumu seçili firmaya özeldir. ERP abonelik süresi firma üzerinden yönetilir.</p>
     {error && <p role="alert" style={{ color: 'var(--danger, #dc2626)' }}>{error}</p>}
     <label className="form-label" htmlFor="membership-company">Firma</label>
@@ -61,6 +69,13 @@ export function FirmMembershipEditor({ userId, initialTenantId }: { userId: stri
       {roles.filter(r => r.isSystem || r.tenantId === tenantId).map(r => <label key={r.id}>
         <input type="checkbox" checked={roleIds.includes(r.id)} onChange={e => setRoleIds(e.target.checked ? [...roleIds, r.id] : roleIds.filter(id => id !== r.id))} /> {r.name}
       </label>)}
+    </fieldset>
+    <fieldset disabled={busy || !tenantId} style={{ padding: 16, border: '1px solid var(--border-color)', borderRadius: 8, margin: '16px 0' }}>
+      <legend>Erişebileceği ERP menüleri</legend>
+      <p>Seçimler yalnızca bu firmada geçerlidir. İşlem yetkileri seçilen rollerle belirlenir; menü seçmek ilave yetki vermez.</p>
+      <label><input type="checkbox" checked={allowedMenuIds === null} onChange={e => setAllowedMenuIds(e.target.checked ? null : ERP_MENUS.map(m => m.id))} /> Rolün izin verdiği tüm menüler</label>
+      {allowedMenuIds !== null && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 12 }}>{ERP_MENUS.map(m => <label key={m.id}><input type="checkbox" checked={allowedMenuIds.includes(m.id)} onChange={e => setAllowedMenuIds(e.target.checked ? [...allowedMenuIds, m.id] : allowedMenuIds.filter(id => id !== m.id))} /> {m.label}</label>)}</div>}
+      <p>Ana sayfa, yardım ve hizmet kataloğu açık kalır. Kapalı menülerin API istekleri de engellenir.</p>
     </fieldset>
     <label className="form-label" htmlFor="membership-status">Üyelik durumu</label>
     <select id="membership-status" className="form-select" value={status} disabled={busy} onChange={e => setStatus(e.target.value)}>

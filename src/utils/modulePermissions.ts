@@ -21,6 +21,7 @@ const MEMBERSHIP_MODULE_RESOURCES: Record<string, string[]> = {
 };
 
 export function canAccessMembershipModule(roles: string[], codes: string[] | undefined, moduleId: string): boolean {
+  if (moduleId === 'hizmetler') return true;
   if (roles.some(role => canAccessModule(role, moduleId))) return true;
   if (['dashboard', 'support', 'support-center'].includes(moduleId)) return true;
   return (MEMBERSHIP_MODULE_RESOURCES[moduleId] || []).some(resource =>

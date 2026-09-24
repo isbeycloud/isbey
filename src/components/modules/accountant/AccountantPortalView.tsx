@@ -17,10 +17,12 @@ import {
 } from 'lucide-react';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
+import { useApp } from '../../../context/AppContext';
 import type { AccountantClient, DocumentRequest } from '../../../types';
 
 export const AccountantPortalView: React.FC = () => {
   const { showToast } = useToast();
+  const { switchTenant, setActiveView, activeTenant } = useApp();
   const [clients, setClients] = useState<AccountantClient[]>([]);
   const [requests, setRequests] = useState<DocumentRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,10 +30,10 @@ export const AccountantPortalView: React.FC = () => {
   // New Request Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [newRequest, setNewRequest] = useState({
-    companyName: 'İŞBEY Teknoloji A.Ş.',
+    companyName: activeTenant?.name || '',
     documentType: 'BANK_STATEMENT',
-    period: '2026-09',
-    description: 'Eylül 2026 Garanti & Yapı Kredi Banka Ekstreleri',
+    period: new Date().toISOString().slice(0, 7),
+    description: '',
     dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
   });
 
@@ -156,6 +158,10 @@ export const AccountantPortalView: React.FC = () => {
                     </span>
                   </td>
                   <td style={{ padding: '14px 18px' }}>
+                    <button className="btn btn-secondary" onClick={async () => {
+                      if (await switchTenant(c.tenantId)) setActiveView('muhasebe');
+                      else showToast('Firma üyeliği aktif değil veya erişim yetkiniz kaldırılmış.', 'error');
+                    }}>Firmaya geç / İşlem yap</button>
                     <button
                       onClick={() => handleViewMonthlyReport(c.tenantId)}
                       style={{ padding: '6px 12px', background: 'var(--primary)', border: 'none', borderRadius: 'var(--radius-sm, 6px)', color: '#fff', fontSize: 'var(--fs-xs, 11px)', fontWeight: 700, cursor: 'pointer' }}
