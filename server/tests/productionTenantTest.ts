@@ -17,6 +17,8 @@ const { companiesRouter } = await import('../routes/companies');
 const { hizliBilisimRouter } = await import('../routes/hizli-bilisim');
 const { migrateMemberships } = await import('../security/memberships');
 const { subscriptionState, validSubscriptionDates } = await import('../security/erpSubscription');
+const { dispatchHizliInvoice } = await import('../services/hizliInvoiceDispatch');
+const { HizliConnectService } = await import('../services/hizliConnectService');
 storage.update(db => {
   const t = db.tenants[0], u = db.users[0];
   db.tenants = ['a', 'b'].map((id, i) => ({ ...t, id, name: id, title: id, taxNumber: `123456789${i}`, status: 'ACTIVE', isArchived: false, externalCustomerId: undefined,
@@ -44,6 +46,28 @@ async function call(url: string, id: string, method = 'GET', body?: any, status 
   const json = await response.json(); assert.equal(response.status, status, `${url}: ${JSON.stringify(json)}`); checks++; return json;
 }
 try {
+  await tenantContext.run('a', async () => {
+    await storage.runTransaction(draft => {
+      draft.invoices.push({ ...draft.invoices[0], id: 'dispatch-fixture', tenantId: 'a', status: 'DRAFT', eInvoiceStatus: 'DRAFT' } as any);
+    });
+    const originalSend = HizliConnectService.sendInvoice;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    let sends = 0;
+    HizliConnectService.sendInvoice = async () => { sends++; started(); await gate; return { success: false, requiresReconciliation: true }; };
+    try {
+      const first = dispatchHizliInvoice('dispatch-fixture', 'a');
+      await ready;
+      await assert.rejects(dispatchHizliInvoice('dispatch-fixture', 'a'), /işlemde/);
+      release(); await first;
+      await assert.rejects(dispatchHizliInvoice('dispatch-fixture', 'a'), /işlemde/);
+      assert.equal(sends, 1);
+      assert.equal(storage.getState().invoices.find(i => i.id === 'dispatch-fixture')?.eInvoiceStatus, 'SENDING');
+      await assert.rejects(dispatchHizliInvoice('dispatch-fixture', 'b'), /bulunamadı/);
+    } finally { release(); HizliConnectService.sendInvoice = originalSend; }
+  });
   await call('/einvoice/settings', 'a', 'PUT', { providerId: 'HIZLI_TEKNOLOJI', defaultInvoicePrefix: 'btf' });
   assert.equal((await call('/einvoice/settings', 'a')).settings.defaultInvoicePrefix, 'BTF');
   assert.equal((await call('/einvoice/settings', 'b')).settings.defaultInvoicePrefix, undefined);

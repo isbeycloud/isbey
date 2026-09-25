@@ -491,7 +491,7 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
       }
 
       if (sendOk) {
-        toast(`✓ Fatura GİB'e iletildi. (ETTN: ${sendUuid})`, 'success');
+        toast(`Fatura entegratör tarafından kabul edildi. GİB durumunu takip edin.${sendUuid ? ` (ETTN: ${sendUuid})` : ''}`, 'success');
       } else {
         // Gönderim başarısız → taslak KAYDEDİLDİ, ama GÖNDERİLMEDİ. Bu ayrım
         // kullanıcıya net söylenir; "başarılı" izlenimi verilmez.

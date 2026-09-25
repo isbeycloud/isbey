@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
+import { dispatchHizliInvoice } from '../services/hizliInvoiceDispatch';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { getDataDirectory } from '../config/environment';
@@ -779,10 +780,7 @@ router.post('/batch-send', requireRole('SUPER_ADMIN', 'platform_admin'), async (
       // doğru kaynak entegratörün YANITIDIR. Yanıt ne diyorsa o yazılır.
       let result: any = { success: false, message: 'Gönderim denenmedi.' };
       try {
-        const customer = db.customers.find(c => c.id === inv.customerId);
-        result = await HizliConnectService.sendInvoice(
-          inv, customer, db.company, hizliConfig, hizliConfig.token
-        );
+        result = await dispatchHizliInvoice(inv.id, req.tenantId!);
       } catch (callErr: any) {
         result = { success: false, message: callErr.message };
       }
@@ -1293,9 +1291,7 @@ router.post('/hizli/save-credentials', requireRole('SUPER_ADMIN', 'platform_admi
 // gönderim QA onay fazı öncesi kapalıdır; bu yüzden uç platform yöneticisine
 // kısıtlandı.
 //
-// NOT (takip işi): Bu uç, kiracı bazlı token üreten `hizliTeknolojiProvider`
-// (ensureTenantToken) üzerinden çalışacak şekilde taşınmalıdır. O zamana kadar
-// gönderim yalnız platform yöneticisi tarafından yapılabilir.
+// Firma bazlı token ve kalıcı gönderim kilidi dispatchHizliInvoice içinde uygulanır.
 router.post('/hizli/send-invoice', requireRole('SUPER_ADMIN', 'platform_admin'), async (req: Request, res: Response) => {
   const { invoiceId } = req.body;
   const db = storage.getState();
@@ -1328,17 +1324,8 @@ router.post('/hizli/send-invoice', requireRole('SUPER_ADMIN', 'platform_admin'),
     return res.status(404).json({ success: false, message: 'Fatura bulunamadı.' });
   }
 
-  const customer = db.customers.find(c => c.id === invoice.customerId);
-  const company = db.company;
-
   try {
-    const result = await HizliConnectService.sendInvoice(
-      invoice,
-      customer,
-      company,
-      hizliConfig,
-      hizliConfig.token
-    );
+    const result = await dispatchHizliInvoice(invoice.id, requestTenantId);
 
     // ────────────────────────────────────────────────────────────────────
     // 2026-09-12 (kritik dürüstlük düzeltmesi):
@@ -1422,7 +1409,7 @@ router.post('/hizli/send-invoice', requireRole('SUPER_ADMIN', 'platform_admin'),
       module: 'INVOICE',
       documentNo: invoice.invoiceNo,
       ipAddress: req.ip || '127.0.0.1',
-      details: `Fatura Hızlı Teknoloji e-Connect üzerinden GİB'e iletildi. (ETTN: ${sentUuid || 'YOK'} | Belge No: ${sentInvoiceNumber || 'YOK'})`,
+      details: `Fatura Hızlı Teknoloji tarafından kabul edildi; GİB sonucu ayrıca sorgulanmalı. (ETTN: ${sentUuid || 'YOK'} | Belge No: ${sentInvoiceNumber || 'YOK'})`,
     });
 
     // 2026-09-12: Önceden ham servis yanıtı (`{success, data, message}`) olduğu

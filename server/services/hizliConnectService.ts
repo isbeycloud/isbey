@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { validateHizliSendResponse } from './hizliSendContract';
 
 // ============================================================
 // Sunucu genelinde paylaşılan token deposu (in-memory)
@@ -254,14 +255,16 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         timeout: 30000,
       });
-      return { success: true, data: res.data, message: 'Fatura başarıyla iletildi.' };
+      return validateHizliSendResponse(res.data, payload.length);
     } catch (err: any) {
       // FAZ 12: Sahte "1300 GİB'e iletildi" response'u ÜRETİLMEZ
       console.warn('[HIZLI_CONNECT] SendInvoiceModel hatası:', err?.response?.data?.Message || err?.message);
       return {
         success: false,
         error: err?.response?.status,
-        message: `Fatura entegratöre iletilemedi: ${err?.response?.data?.Message || err.message}`,
+        requiresReconciliation: true,
+        data: undefined,
+        message: 'Gönderim sonucu doğrulanamadı. Yeniden göndermeden önce sağlayıcıdan belge durumunu kontrol edin.',
       };
     }
   }
@@ -318,14 +321,16 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         timeout: 30000,
       });
-      return { success: true, data: res.data, message: 'XML Belgeleri başarıyla gönderildi.' };
+      return validateHizliSendResponse(res.data, normalizedDocuments.length);
     } catch (err: any) {
       // FAZ 12: Sahte gönderim response'u ÜRETİLMEZ
       console.warn('[HIZLI_CONNECT] SendDocument hatası:', err?.response?.data?.Message || err?.message);
       return {
         success: false,
         error: err?.response?.status,
-        message: `XML belgeleri gönderilemedi: ${err?.response?.data?.Message || err.message}`,
+        requiresReconciliation: true,
+        data: undefined,
+        message: 'XML gönderim sonucu doğrulanamadı. Yeniden göndermeden önce sağlayıcıdan belge durumunu kontrol edin.',
       };
     }
   }
@@ -1579,8 +1584,33 @@ export class HizliConnectService {
    */
   public static async sendInvoice(invoice: any, customer: any, company: any, config?: any, token?: string): Promise<any> {
     try {
-      const activeToken = token || (await this.ensureToken(config?.isTestMode ?? true));
-      return await this.sendInvoiceModel([invoice], activeToken, config?.isTestMode ?? true);
+      const settings = config?.tenantSettings;
+      if (!settings || settings.tenantId !== invoice?.tenantId || settings.senderIdentifier !== company?.taxNumber) {
+        throw new Error('Gönderim için faturanın firmasına ait entegratör ayarı gereklidir.');
+      }
+      if (invoice.status === 'CANCELLED' || ['SENT', 'DELIVERED', 'ACCEPTED'].includes(invoice.eInvoiceStatus)) {
+        throw new Error('İptal edilmiş veya gönderilmiş fatura tekrar gönderilemez.');
+      }
+      const model = invoice.hizliModel;
+      if (!model?.invoiceheader || !model.customer || !Array.isArray(model.invoiceLines) || !model.invoiceLines.length) {
+        throw new Error('Sağlayıcıya uygun kayıtlı fatura modeli bulunamadı.');
+      }
+      if (model.supplier?.supplierParty?.IdentificationID !== settings.senderIdentifier ||
+          model.customer.IdentificationID !== customer?.taxNumber) {
+        throw new Error('Fatura modelindeki gönderici veya alıcı vergi numarası kayıtla uyuşmuyor.');
+      }
+      const prefix = settings.defaultInvoicePrefix;
+      if (!/^[A-Z][A-Z0-9]{2}$/.test(prefix || '')) throw new Error('Firmanın fatura serisi seçilmemiş.');
+      if (model.invoiceheader.Prefix && model.invoiceheader.Prefix !== prefix) throw new Error('Taslak serisi firma serisinden farklı; taslağı kontrol edin.');
+      const payload = structuredClone(model);
+      payload.invoiceheader.Prefix = prefix;
+      payload.invoiceheader.SourceUrn = settings.senderAliasGB;
+      // "Otomatik" is a UI label, never an official invoice number.
+      if (payload.invoiceheader.Invoice_ID === 'Otomatik') payload.invoiceheader.Invoice_ID = null;
+      const isTest = settings.environment !== 'PRODUCTION';
+      const { ensureTenantToken } = await import('./hizliTenantCredentialRegistry');
+      const active = await ensureTenantToken(settings, isTest);
+      return await this.sendInvoiceModel([payload], active.token, isTest);
     } catch (err: any) {
       return { success: false, message: err.message, invoiceNumber: invoice?.invoiceNo, uuid: invoice?.eInvoiceUUID };
     }
