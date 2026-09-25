@@ -1605,13 +1605,45 @@ export class HizliConnectService {
       const payload = structuredClone(model);
       payload.invoiceheader.Prefix = prefix;
       payload.invoiceheader.SourceUrn = settings.senderAliasGB;
-      // "Otomatik" is a UI label, never an official invoice number.
-      if (payload.invoiceheader.Invoice_ID === 'Otomatik') payload.invoiceheader.Invoice_ID = null;
       const isTest = settings.environment !== 'PRODUCTION';
       const { ensureTenantToken } = await import('./hizliTenantCredentialRegistry');
       const active = await ensureTenantToken(settings, isTest);
+      const appType = payload.invoiceheader.ProfileID === 'EARSIVFATURA' ? 2 : 1;
+
+      // ──────────────────────────────────────────────────────────────────
+      // 2026-09-25 (canlı gönderim kusuru — "Belge No Zorunludur!"):
+      // "Otomatik" bir ARAYÜZ etiketidir, resmî belge numarası DEĞİLDİR.
+      // Önceden bu alan `null` yapılıp gönderiliyordu; sağlayıcı belge
+      // numarasını ZORUNLU tuttuğu için gönderim daha doğrulama aşamasında
+      // reddediliyordu ("Fatura Belge No Zorunludur! Gönderim İşlemi
+      // Durduruldu!").
+      //
+      // Numara UYDURULMAZ: sağlayıcının kendi sırasından okunur
+      // (`GetLastInvoiceIdAndDate` → `NextDocumentId`). Seri, yıl içerir
+      // (ör. "BTF" öneki için "BTF2026"); yıl faturanın düzenlenme
+      // tarihinden alınır ki dönem sınırında yanlış seriye düşülmesin.
+      //
+      // Numara ALINAMAZSA gönderim YAPILMAZ: sıra dışı bir numara üretmek
+      // GİB'de numara çakışması/kaçak belge demektir.
+      // ──────────────────────────────────────────────────────────────────
+      const mevcutBelgeNo = payload.invoiceheader.Invoice_ID;
+      if (!mevcutBelgeNo || mevcutBelgeNo === 'Otomatik') {
+        const issueDate = new Date(payload.invoiceheader.IssueDate);
+        const yil = String(!Number.isNaN(issueDate.getTime()) ? issueDate.getFullYear() : new Date().getFullYear());
+        const seri = `${prefix}${yil}`;
+        const sonBelge = await this.getLastInvoiceIdAndDate(appType, seri, active.token, isTest);
+        const yeniBelgeNo = sonBelge.success ? sonBelge.data?.NextDocumentId : undefined;
+        if (typeof yeniBelgeNo !== 'string' || !yeniBelgeNo.trim()) {
+          throw new Error(
+            `Belge numarası sağlayıcıdan alınamadı (seri: ${seri}); gönderim yapılmadı. ` +
+            `${sonBelge.message || 'Sağlayıcı sıradaki belge numarasını döndürmedi.'}`
+          );
+        }
+        payload.invoiceheader.Invoice_ID = yeniBelgeNo.trim();
+      }
+
       const result = await this.sendInvoiceModel([{
-        AppType: payload.invoiceheader.ProfileID === 'EARSIVFATURA' ? 2 : 1,
+        AppType: appType,
         SourceUrn: settings.senderAliasGB,
         DestinationIdentifier: payload.customer.IdentificationID,
         DestinationUrn: payload.invoiceheader.DestinationUrn,

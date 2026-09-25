@@ -11,6 +11,7 @@ for (const data of [undefined, {}, [], [null], [{ IsSucceeded: false }], [ok, { 
 assert.equal(validateHizliSendResponse([ok], 1).success, true);
 assert.equal(validateHizliSendResponse([ok, { IsSucceeded: false }], 2).success, false);
 const originalPost = axios.post;
+const originalGet = axios.get;
 let calls = 0;
 let answer: any = [ok];
 let sent: any;
@@ -19,18 +20,24 @@ axios.post = (async (_url: string, payload: any, config: any) => {
   assert.equal(config.headers.Authorization, 'Bearer company-token');
   return { data: answer };
 }) as typeof axios.post;
+// 2026-09-25: 'Otomatik' belge no artık sağlayıcının sırasından çözülür
+// (bkz. hizliInvoiceNumberContractTest.ts). Bu testte yalnız o uç taklit edilir.
+axios.get = (async (url: string) => {
+  assert.match(url, /GetLastInvoiceIdAndDate/);
+  return { data: { IsSucceeded: true, NextDocumentId: 'BTF2026000000143', Message: 'Başarılı' } };
+}) as typeof axios.get;
 const settings = { tenantId: 'send-fixture', environment: 'TEST', senderIdentifier: '1681136628', senderAliasGB: 'urn:mail:fixture', defaultInvoicePrefix: 'BTF' } as any;
 const customer = { taxNumber: '1234567890' };
 const company = { taxNumber: settings.senderIdentifier };
 const invoice = { tenantId: settings.tenantId, status: 'DRAFT', hizliModel: {
-  invoiceheader: { Prefix: 'BTF', Invoice_ID: 'Otomatik' }, customer: { IdentificationID: customer.taxNumber },
+  invoiceheader: { Prefix: 'BTF', Invoice_ID: 'Otomatik', IssueDate: '2026-09-25' }, customer: { IdentificationID: customer.taxNumber },
   supplier: { supplierParty: { IdentificationID: company.taxNumber } }, invoiceLines: [{ Item_Name: 'Fixture' }],
 } };
 try {
   setTenantTokenForTest(settings.tenantId, true, 'company-token');
   assert.equal((await H.sendInvoice(invoice, customer, company, { tenantSettings: settings }, 'wrong-global-token')).success, true);
   assert.equal(sent[0].InvoiceModel.invoiceheader.Prefix, 'BTF');
-  assert.equal(sent[0].InvoiceModel.invoiceheader.Invoice_ID, null);
+  assert.equal(sent[0].InvoiceModel.invoiceheader.Invoice_ID, 'BTF2026000000143');
   assert.equal(sent[0].SourceUrn, settings.senderAliasGB);
   assert.equal(sent[0].AppType, 1);
   assert.equal(sent[0].DestinationIdentifier, customer.taxNumber);
@@ -51,4 +58,4 @@ try {
   assert.equal((await H.sendInvoiceModel([invoice.hizliModel], 'company-token', true)).success, false);
   assert.equal((await H.sendDocument([{ XmlContent: '<Invoice/>', DestinationIdentifier: customer.taxNumber }], 'company-token', true)).success, false);
   console.log('PASS: provider acceptance, partial/malformed responses, model payload, tenant token and resend rejection.');
-} finally { axios.post = originalPost; invalidateTenant(settings.tenantId); }
+} finally { axios.post = originalPost; axios.get = originalGet; invalidateTenant(settings.tenantId); }
