@@ -354,6 +354,7 @@ export const api = {
 
   // Settings & Audit Logs
   getSettings: () => request<{ success: boolean; company: Company; sequences: any; settings: any }>('/settings'),
+  getTenantInvoiceDefaults: () => request<{ success: boolean; settings: { defaultInvoicePrefix?: string } }>('/v1/e-invoice/settings'),
   getCompany: () => request<{ success: boolean; company: Company; sequences: any; settings: any }>('/settings'),
   updateCompany: (data: Partial<Company>) => request<{ success: boolean; company: Company; message: string }>('/settings/company', { method: 'PUT', body: JSON.stringify(data) }),
 

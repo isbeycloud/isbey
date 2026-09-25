@@ -1896,6 +1896,7 @@ export interface TenantEinvoiceSettings {
   senderTitle?: string;
   senderAliasGB?: string; // Gelen kutusu etiketi (urn:mail:defaultgb)
   senderAliasPK?: string; // Gönderici posta kutusu (urn:mail:defaultpk)
+  defaultInvoicePrefix?: string;
   defaultInvoiceProfile?: 'TEMELFATURA' | 'TICARIFATURA' | 'EARSIVFATURA';
   defaultDespatchProfile?: 'TEMELIRSALIYE';
   autoSendToGib?: boolean;

@@ -88,7 +88,7 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
       SignedByUser: false,
       LocalReferenceId: null,
       SubeKodu: 1,
-      Prefix: 'HZT',
+      Prefix: '',
       SourceUrn: 'urn:mail:defaultgb@beyogluteknoloji.com',
       DestinationUrn: null,
       UpdateDocument: false,
@@ -199,6 +199,13 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
   }, [isOpen, defaultProfileId, defaultInvoiceTypeCode]);
 
   const loadInitialData = async () => {
+    setModel(prev => ({ ...prev, invoiceheader: { ...prev.invoiceheader, Prefix: '' } }));
+    try {
+      const defaults = await api.getTenantInvoiceDefaults();
+      if (defaults.success) setModel(prev => ({ ...prev, invoiceheader: { ...prev.invoiceheader, Prefix: defaults.settings.defaultInvoicePrefix || '' } }));
+    } catch {
+      toast('Firmanın fatura serisi alınamadı. Seri seçimini kontrol edin.', 'error');
+    }
     try {
       const [custRes, prodRes] = await Promise.all([
         api.getCustomers(),
@@ -418,6 +425,10 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
   //   2) Yalnız gönderim istenmişse gerçek gönderim ucu çağrılır (send-invoice)
   //      ve GİB/entegratör reddederse fatura "gönderildi" SAYILMAZ.
   const handleSubmitInvoice = async (sendToGib: boolean) => {
+    if (!/^[A-Z][A-Z0-9]{2}$/.test(model.invoiceheader.Prefix || '')) {
+      toast('Üç karakterli fatura serisini giriniz.', 'error');
+      return;
+    }
     if (!model.customer.IdentificationID || !model.customer.PartyName) {
       toast('Lütfen alıcı VKN/TCKN ve Ünvan bilgilerini eksiksiz doldurunuz.', 'error');
       setActiveTab('ALICI');
@@ -769,7 +780,7 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
                   <input
                     type="text"
                     maxLength={3}
-                    value={model.invoiceheader.Prefix || 'HZT'}
+                    value={model.invoiceheader.Prefix || ''}
                     onChange={(e) =>
                       setModel((prev) => ({
                         ...prev,

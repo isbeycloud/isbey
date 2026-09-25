@@ -74,7 +74,13 @@ v1EinvoiceSettingsRouter.put('/settings', requirePermission(PERMISSIONS.COMPANY_
     defaultInvoiceProfile,
     defaultDespatchProfile,
     autoSendToGib,
+    defaultInvoicePrefix,
   } = req.body;
+
+  const requestedPrefix = defaultInvoicePrefix === undefined ? undefined : String(defaultInvoicePrefix).trim().toUpperCase();
+  if (requestedPrefix !== undefined && !/^[A-Z][A-Z0-9]{2}$/.test(requestedPrefix)) {
+    return res.status(400).json({ success: false, message: 'Fatura serisi harfle başlayan üç büyük harf/rakam olmalıdır.' });
+  }
 
   if (!db.tenantEinvoiceSettings) db.tenantEinvoiceSettings = [];
   let settings = db.tenantEinvoiceSettings.find(s => s.tenantId === tenantId);
@@ -163,6 +169,7 @@ v1EinvoiceSettingsRouter.put('/settings', requirePermission(PERMISSIONS.COMPANY_
   }
 
   // Şifre güncellenmişse sakla.
+  if (requestedPrefix !== undefined) settings.defaultInvoicePrefix = requestedPrefix;
   // 2026-09-14 (kimlik bilgisi sertleştirmesi): Burada eskiden
   // `Buffer.from(x).toString('base64')` yazılıyordu. base64 bir KODLAMADIR,
   // şifreleme değildir — `data/database.json` ele geçtiğinde firma WS şifreleri

@@ -12,6 +12,7 @@ const { tenantContext } = await import('../db/tenantConfiguration');
 const { generateToken } = await import('../routes/auth');
 const { requireAuth } = await import('../middleware/authGuards');
 const { settingsRouter } = await import('../routes/settings');
+const { v1EinvoiceSettingsRouter } = await import('../routes/v1/e-invoice-settings');
 const { companiesRouter } = await import('../routes/companies');
 const { hizliBilisimRouter } = await import('../routes/hizli-bilisim');
 const { migrateMemberships } = await import('../security/memberships');
@@ -27,6 +28,7 @@ storage.update(db => {
 const token = (id: string) => generateToken(storage.getState().users.find(u => u.id === id)!, id === 'admin' ? 'a' : id);
 const app = express(); app.use(express.json());
 app.use('/settings', settingsRouter); app.use('/companies', companiesRouter); app.use('/hizli', hizliBilisimRouter);
+app.use('/einvoice', v1EinvoiceSettingsRouter);
 app.post('/sequence', requireAuth, async (_req, res) => {
   const value = await storage.runTransaction(async draft => {
     await new Promise(resolve => setTimeout(resolve, 5));
@@ -42,6 +44,12 @@ async function call(url: string, id: string, method = 'GET', body?: any, status 
   const json = await response.json(); assert.equal(response.status, status, `${url}: ${JSON.stringify(json)}`); checks++; return json;
 }
 try {
+  await call('/einvoice/settings', 'a', 'PUT', { providerId: 'HIZLI_TEKNOLOJI', defaultInvoicePrefix: 'btf' });
+  assert.equal((await call('/einvoice/settings', 'a')).settings.defaultInvoicePrefix, 'BTF');
+  assert.equal((await call('/einvoice/settings', 'b')).settings.defaultInvoicePrefix, undefined);
+  await call('/einvoice/settings', 'a', 'PUT', { defaultInvoicePrefix: 'TOOLONG' }, 400);
+  await call('/einvoice/settings', 'a', 'PUT', { autoSendToGib: false });
+  assert.equal((await call('/einvoice/settings', 'a')).settings.defaultInvoicePrefix, 'BTF');
   const bBefore = await call('/settings', 'b');
   await call('/settings/company', 'a', 'PUT', { title: 'Only A', id: 'b' });
   await call('/settings/system', 'a', 'PUT', { receiptFooter: 'A footer' });
