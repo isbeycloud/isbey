@@ -13,6 +13,7 @@ const { generateToken } = await import('../routes/auth');
 const { requireAuth } = await import('../middleware/authGuards');
 const { settingsRouter } = await import('../routes/settings');
 const { v1EinvoiceSettingsRouter } = await import('../routes/v1/e-invoice-settings');
+const { v1InvoicesRouter } = await import('../routes/v1/invoices');
 const { companiesRouter } = await import('../routes/companies');
 const { hizliBilisimRouter } = await import('../routes/hizli-bilisim');
 const { migrateMemberships } = await import('../security/memberships');
@@ -31,6 +32,7 @@ const token = (id: string) => generateToken(storage.getState().users.find(u => u
 const app = express(); app.use(express.json());
 app.use('/settings', settingsRouter); app.use('/companies', companiesRouter); app.use('/hizli', hizliBilisimRouter);
 app.use('/einvoice', v1EinvoiceSettingsRouter);
+app.use('/invoices', v1InvoicesRouter);
 app.post('/sequence', requireAuth, async (_req, res) => {
   const value = await storage.runTransaction(async draft => {
     await new Promise(resolve => setTimeout(resolve, 5));
@@ -46,6 +48,20 @@ async function call(url: string, id: string, method = 'GET', body?: any, status 
   const json = await response.json(); assert.equal(response.status, status, `${url}: ${JSON.stringify(json)}`); checks++; return json;
 }
 try {
+  await tenantContext.run('a', () => storage.runTransaction(draft => {
+    draft.invoices.push({ id: 'address-fixture', tenantId: 'a', status: 'DRAFT', eInvoiceStatus: 'DRAFT', grandTotal: 120,
+      hizliModel: { customer: { IdentificationID: '12345678901' } } } as any);
+  }));
+  const address = { StreetName: 'Fixture street', CityName: 'ADANA', CitySubdivisionName: 'SEYHAN', CountryName: 'TÜRKİYE', grandTotal: 999, IdentificationID: 'other' };
+  await call('/invoices/address-fixture/recipient-address', 'b', 'PATCH', address, 404);
+  await call('/invoices/address-fixture/recipient-address', 'a', 'PATCH', { ...address, StreetName: '' }, 400);
+  await call('/invoices/address-fixture/recipient-address', 'a', 'PATCH', address);
+  await tenantContext.run('a', () => storage.runTransaction(draft => {
+    const inv = draft.invoices.find(i => i.id === 'address-fixture')!;
+    assert.equal(inv.grandTotal, 120); assert.equal((inv as any).hizliModel.customer.IdentificationID, '12345678901');
+    assert.equal((inv as any).hizliModel.customer.CityName, 'ADANA'); inv.eInvoiceStatus = 'SENDING';
+  }));
+  await call('/invoices/address-fixture/recipient-address', 'a', 'PATCH', address, 409);
   await tenantContext.run('a', async () => {
     await storage.runTransaction(draft => {
       draft.invoices.push({ ...draft.invoices[0], id: 'dispatch-fixture', tenantId: 'a', status: 'DRAFT', eInvoiceStatus: 'DRAFT' } as any);

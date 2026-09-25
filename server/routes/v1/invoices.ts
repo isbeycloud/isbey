@@ -7,6 +7,34 @@ export const v1InvoicesRouter = Router();
 
 v1InvoicesRouter.use(requireAuth, resolveTenant);
 
+// Only an unsent draft's recipient address can be changed through this endpoint.
+v1InvoicesRouter.patch('/:id/recipient-address', requirePermission(PERMISSIONS.INVOICES_UPDATE), async (req: Request, res: Response) => {
+  const keys = ['StreetName', 'CityName', 'CitySubdivisionName', 'CountryName'] as const;
+  if (keys.some(key => typeof req.body?.[key] !== 'string' || !req.body[key].trim() || req.body[key].length > 500)) {
+    return res.status(400).json({ success: false, message: 'Açık adres, il, ilçe ve ülke gereklidir.' });
+  }
+  const patch = Object.fromEntries(keys.map(key => [key, req.body[key].trim()]));
+  try {
+    const result = await storage.runTransaction(draft => {
+      const invoice = draft.invoices.find(i => i.id === req.params.id && i.tenantId === req.tenantId && !i.isDeleted);
+      if (!invoice) return { status: 404, message: 'Fatura bulunamadı.' };
+      const model = (invoice as any).hizliModel;
+      if (invoice.status !== 'DRAFT' || invoice.eInvoiceStatus !== 'DRAFT' || !model?.customer) {
+        return { status: 409, message: 'Yalnız gönderilmemiş fatura taslağının adresi değiştirilebilir.' };
+      }
+      Object.assign(model.customer, patch);
+      invoice.updatedAt = new Date().toISOString();
+      return { status: 200, message: 'Taslak alıcı adresi güncellendi.' };
+    });
+    if (result.status === 200) storage.addAuditLog({ userId: req.user!.id, username: req.user!.username,
+      companyId: req.tenantId, action: 'UPDATE', module: 'INVOICE', ipAddress: req.ip || '',
+      details: `${req.params.id} taslağının alıcı adresi güncellendi.` });
+    return res.status(result.status).json({ success: result.status === 200, message: result.message });
+  } catch {
+    return res.status(500).json({ success: false, message: 'Adres kaydedilemedi.' });
+  }
+});
+
 /**
  * GET /api/v1/invoices
  * Sayfalanmış faturalar listesi
