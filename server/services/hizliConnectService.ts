@@ -1610,7 +1610,7 @@ export class HizliConnectService {
       const isTest = settings.environment !== 'PRODUCTION';
       const { ensureTenantToken } = await import('./hizliTenantCredentialRegistry');
       const active = await ensureTenantToken(settings, isTest);
-      return await this.sendInvoiceModel([{
+      const result = await this.sendInvoiceModel([{
         AppType: payload.invoiceheader.ProfileID === 'EARSIVFATURA' ? 2 : 1,
         SourceUrn: settings.senderAliasGB,
         DestinationIdentifier: payload.customer.IdentificationID,
@@ -1623,6 +1623,8 @@ export class HizliConnectService {
         IsPreview: false,
         IsXml: false,
       }], active.token, isTest);
+      // This is the UUID supplied in the accepted document, not a fabricated provider ID.
+      return { ...result, uuid: result.success ? payload.invoiceheader.UUID : undefined };
     } catch (err: any) {
       return { success: false, message: err.message, invoiceNumber: invoice?.invoiceNo, uuid: invoice?.eInvoiceUUID };
     }
