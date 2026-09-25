@@ -120,6 +120,11 @@ export const EDonusumMerkeziView: React.FC = () => {
     }
   };
 
+  // 2026-09-25: Burada `api.checkHizliGibUser` kullanılıyordu — o fonksiyon
+  // sunucuya hiç gitmiyor, VKN uzunluğuna bakıp "mükellef" kararı veriyor ve
+  // posta kutusu etiketlerini uyduruyordu. Artık GERÇEK uç çağrılır
+  // (`/v1/taxpayers/check`): sonuç ya canlı GİB kaydından ya da yerel cari
+  // kaydından gelir; doğrulanamazsa kullanıcıya açıkça söylenir.
   const handleQueryGibUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryVkn || queryVkn.length < 10) {
@@ -129,14 +134,19 @@ export const EDonusumMerkeziView: React.FC = () => {
 
     setQuerying(true);
     try {
-      const res = await api.checkHizliGibUser(queryVkn);
-      setQueryResult(res);
-      if (res.isGibUser) {
+      const res = await api.checkTaxpayerV1(queryVkn);
+      const tp = res.taxpayer;
+      setQueryResult(tp);
+      if (tp?.isEInvoiceUser === true) {
         toast(`✓ [${queryVkn}] e-Fatura mükellefidir!`, 'success');
-      } else {
+      } else if (tp?.isEInvoiceUser === false) {
         toast(`ℹ [${queryVkn}] e-Fatura mükellefi değildir (e-Arşiv kesilmelidir).`, 'info');
+      } else {
+        toast(`ℹ [${queryVkn}] Mükellefiyet durumu doğrulanamadı.`, 'info');
       }
     } catch (err: any) {
+      // Uydurma sonuç ÜRETİLMEZ: sorgu başarısızsa ekranda sonuç gösterilmez.
+      setQueryResult(null);
       toast(err.message || 'Sorgulama hatası.', 'error');
     } finally {
       setQuerying(false);
@@ -720,25 +730,55 @@ export const EDonusumMerkeziView: React.FC = () => {
 
           {queryResult && (
             <div className={`p-4 rounded-xl border text-xs space-y-2 ${
-              queryResult.isGibUser
+              queryResult.isEInvoiceUser
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
                 : 'bg-amber-50 border-amber-200 text-amber-950'
             }`}>
               <div className="flex items-center gap-2 font-bold text-sm">
-                {queryResult.isGibUser ? (
+                {queryResult.isEInvoiceUser === true ? (
                   <>
                     <CheckCircle2 className="text-emerald-600" size={18} />
                     <span>e-Fatura Mükellefi (Kayıtlı Kullanıcı)</span>
                   </>
-                ) : (
+                ) : queryResult.isEInvoiceUser === false ? (
                   <>
                     <AlertCircle className="text-amber-600" size={18} />
                     <span>e-Fatura Mükellefi Değildir (e-Arşiv Fatura Düzenlenmeli)</span>
                   </>
+                ) : (
+                  <>
+                    <AlertCircle className="text-slate-500" size={18} />
+                    <span>Mükellefiyet Durumu Doğrulanamadı</span>
+                  </>
                 )}
               </div>
-              <div className="pt-1 border-t border-slate-200/40 text-xs">
-                <strong>Posta Kutusu (PK Etiketi):</strong> {queryResult.pkEtiket || 'urn:mail:defaultpk@...'}
+              <div className="pt-1 border-t border-slate-200/40 space-y-1">
+                <div>
+                  <strong>Ünvan:</strong> {queryResult.title || '—'}
+                </div>
+                <div>
+                  <strong>VKN/TCKN:</strong> {queryResult.identifier || queryVkn}
+                </div>
+                {queryResult.aliasPK && (
+                  <div>
+                    <strong>Posta Kutusu (PK Etiketi):</strong>{' '}
+                    <span className="font-mono">{queryResult.aliasPK}</span>
+                  </div>
+                )}
+                {queryResult.aliasGB && (
+                  <div>
+                    <strong>GB Etiketi:</strong>{' '}
+                    <span className="font-mono">{queryResult.aliasGB}</span>
+                  </div>
+                )}
+                {queryResult.lastCheckedAt && (
+                  <div className="text-[10px] opacity-70">
+                    Sorgu zamanı: {new Date(queryResult.lastCheckedAt).toLocaleString('tr-TR')}
+                    {queryResult.expiresAt
+                      ? ` · Önbellek geçerlilik: ${new Date(queryResult.expiresAt).toLocaleString('tr-TR')}`
+                      : ''}
+                  </div>
+                )}
               </div>
             </div>
           )}

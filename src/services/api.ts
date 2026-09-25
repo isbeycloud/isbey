@@ -542,6 +542,26 @@ export const api = {
     request<{ success: boolean; token?: string; expireDate?: string; message: string }>('/efatura/hizli/test-connection', { method: 'POST', body: JSON.stringify(data || {}) }),
   checkGibUser: (vkn: string) =>
     request<{ success: boolean; isEInvoiceUser: boolean; title?: string; aliasPk?: string; aliasGb?: string; message?: string }>('/efatura/hizli/check-gib-user', { method: 'POST', body: JSON.stringify({ vkn }) }),
+  /**
+   * Mükellefiyet sorgusu — GERÇEK uç (kiracı bazlı token, önbellekli).
+   * 2026-09-25: E-Dönüşüm Merkezi'nin kullandığı uydurma `checkHizliGibUser`
+   * kaldırıldı; bu uç onun yerine geçer.
+   * `taxpayer.isEInvoiceUser` ÜÇ DEĞERLİDİR: true / false / null (doğrulanamadı).
+   */
+  checkTaxpayerV1: (vkn: string, force = false) =>
+    request<{
+      success: boolean;
+      taxpayer: {
+        identifier: string;
+        title: string;
+        isEInvoiceUser: boolean;
+        isEDespatchUser?: boolean;
+        aliasGB?: string;
+        aliasPK?: string;
+        lastCheckedAt?: string;
+        expiresAt?: string;
+      };
+    }>(`/v1/taxpayers/check?vkn=${encodeURIComponent(vkn)}${force ? '&force=true' : ''}`),
   checkTaxpayer: (vkn: string) =>
     request<{
       success: boolean;
@@ -584,6 +604,49 @@ export const api = {
     request<{ success: boolean; message: string; syncedCount: number; updated: any[] }>('/efatura/batch-status-sync', {
       method: 'POST',
       body: JSON.stringify({ invoiceIds: invoiceIds || [] }),
+    }),
+  // 2026-09-25: SENDING kilitli faturaları sağlayıcıyla mutabık kılar.
+  // Belge GÖNDERMEZ; yalnız sorgular. Zarf GİB'e iletildiyse (1300) kaydı
+  // SENT'e çeker, aksi halde DOKUNMAZ. `result` alanı üç durumludur:
+  // FOUND (düzeldi) / AT_PROVIDER (işlemde) / NOT_FOUND (sağlayıcı tanımıyor)
+  // / QUERY_FAILED (sorgu yapılamadı — 'yok' DEĞİLDİR).
+  reconcileSendingInvoices: (invoiceIds?: string[]) =>
+    request<{
+      success: boolean;
+      message: string;
+      checkedCount: number;
+      reconciledCount: number;
+      atProviderCount: number;
+      notFoundCount: number;
+      results: Array<{
+        invoiceId: string;
+        invoiceNo: string;
+        result: 'FOUND' | 'AT_PROVIDER' | 'NOT_FOUND' | 'QUERY_FAILED' | 'NO_UUID' | 'SKIPPED';
+        previousStatus: string;
+        newStatus?: string;
+        gibStatus?: string;
+        message: string;
+      }>;
+    }>('/efatura/reconcile-sending', {
+      method: 'POST',
+      body: JSON.stringify({ invoiceIds: invoiceIds || [] }),
+    }),
+  // 2026-09-25: SENDING kilidini KONTROLLÜ serbest bırakır. Sunucu, serbest
+  // bırakmadan ÖNCE sağlayıcıya taze sorgu yapar: belge işlemdeyse reddeder,
+  // bulunduysa SENT yazar, yalnız "bulunamadı" hâlinde ERROR'a çeker.
+  // `reason` zorunludur ve denetim kaydına geçer.
+  releaseSendingInvoice: (invoiceId: string, reason: string) =>
+    request<{
+      success: boolean;
+      released: boolean;
+      reconciled: boolean;
+      previousStatus?: string;
+      newStatus?: string;
+      message: string;
+      outcome?: any;
+    }>('/efatura/release-sending', {
+      method: 'POST',
+      body: JSON.stringify({ invoiceId, reason }),
     }),
   getIncomingEInvoices: () =>
     request<{ success: boolean; incomingInvoices: Invoice[] }>('/efatura/incoming'),
@@ -1061,18 +1124,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ documents }),
     }),
-  checkHizliGibUser: async (vkn: string) => {
-    const isVkn = vkn.length === 10;
-    const isGibUser = isVkn && !['1111111111', '2222222222'].includes(vkn);
-    return {
-      success: true,
-      vkn,
-      isGibUser,
-      pkEtiket: isGibUser ? `urn:mail:defaultpk@${vkn}.com.tr` : undefined,
-      gbEtiket: isGibUser ? `urn:mail:defaultgb@${vkn}.com.tr` : undefined,
-      title: isGibUser ? 'Kayıtlı GİB e-Fatura Mükellefi' : 'Bireysel / e-Arşiv Mükellefi',
-    };
-  },
+  // 2026-09-25: Burada `checkHizliGibUser` adında TAMAMEN UYDURMA bir sorgu vardı:
+  // sunucuya hiç gitmiyor, VKN uzunluğuna bakıp "mükellef" kararı veriyor ve
+  // posta kutusu etiketlerini `urn:mail:defaultpk@<vkn>.com.tr` diye üretiyordu.
+  // E-Dönüşüm Merkezi bunu kullanıp kullanıcıya "✓ e-Fatura mükellefidir!"
+  // gösteriyordu — yanlış belge tipi seçimine yol açan bir yalandı
+  // (CLAUDE.md md.1: "API response'u uydurmak yasak").
+  // Yerine gerçek uç kullanılır: `checkTaxpayer` → /efatura/taxpayer-check/:vkn
+  // (yerel cari kaydı VEYA canlı GİB sorgusu; doğrulanamazsa açıkça bildirir).
   // ── Yeni: Token & Mod Yönetimi ──────────────────────────────────────────────
 
   // Token durumunu kontrol et (sunucu-taraflı e-Connect token'ı)

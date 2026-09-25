@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
 import { dispatchHizliInvoice } from '../services/hizliInvoiceDispatch';
+import { reconcileSendingInvoice } from '../services/hizliInvoiceReconcile';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { getDataDirectory } from '../config/environment';
@@ -886,6 +887,227 @@ router.post('/batch-status-sync', requireRole('SUPER_ADMIN', 'platform_admin'), 
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+// POST /api/efatura/reconcile-sending - Takılı Kalan Gönderimlerin Mutabakatı
+//
+// 2026-09-25: `hizliInvoiceDispatch` ağ çağrısından önce `SENDING` yazıp
+// kalıcılaştırır; yanıt belirsizse kaydı orada bırakır. Bu, mükerrer belge
+// üretimini önleyen DOĞRU bir tasarımdır — ancak kilidi çözecek bir yol
+// olmadığı için transport kesintisinde fatura kalıcı olarak kilitli kalıyordu.
+//
+// Bu uç yalnız SORULAR ve gerçeği yazar; belge GÖNDERMEZ:
+//   • Belge sağlayıcıda zarfı başarıyla tamamlamış  → 'SENT' (GİB ayrıca sorgulanır)
+//   • Belge sağlayıcıda kayıtlı ama zarf bitmemiş   → durum DEĞİŞMEZ
+//   • Belge sağlayıcıda YOK                          → durum DEĞİŞMEZ
+// "Bulunamadı" asla "gönderilmedi" diye yorumlanmaz; sağlayıcı indeksi
+// gecikebilir ve yanlış sıfırlama mükerrer faturaya yol açardı.
+router.post('/reconcile-sending', requireRole('SUPER_ADMIN', 'platform_admin'), async (req: Request, res: Response) => {
+  const requestTenantId = req.tenantId;
+  if (!requestTenantId) {
+    return res.status(400).json({ success: false, message: 'Firma bağlamı çözümlenemedi.' });
+  }
+
+  const db = storage.getState();
+  const settings = (db.tenantEinvoiceSettings || []).find(s => s.tenantId === requestTenantId);
+  if (!settings) {
+    return res.status(409).json({ success: false, message: 'Firmanın e-Dönüşüm entegrasyon ayarı bulunamadı.' });
+  }
+
+  const { invoiceIds } = req.body || {};
+  const adaylar = db.invoices.filter(i => {
+    if (i.isDeleted) return false;
+    if (i.tenantId !== requestTenantId) return false;
+    if (Array.isArray(invoiceIds) && invoiceIds.length > 0 && !invoiceIds.includes(i.id)) return false;
+    return String(i.eInvoiceStatus) === 'SENDING';
+  });
+
+  const sonuclar: any[] = [];
+
+  for (const inv of adaylar) {
+    try {
+      const outcome = await reconcileSendingInvoice(inv, settings);
+      sonuclar.push(outcome);
+
+      // YALNIZ zarf başarıyla tamamlandıysa yaz. Diğer tüm hâllerde kayıt
+      // SENDING kalır — yanlış sıfırlama mükerrer fatura riskidir.
+      if (outcome.result === 'FOUND' && outcome.newStatus) {
+        await storage.runTransaction(draft => {
+          const target = draft.invoices.find(i => i.id === inv.id && i.tenantId === requestTenantId);
+          if (!target) return;
+          target.eInvoiceStatus = outcome.newStatus as any;
+          if (outcome.gibStatus) target.gibStatusCode = Number(outcome.gibStatus);
+          if (outcome.message) target.gibStatusDescription = outcome.message;
+          target.updatedAt = new Date().toISOString();
+        });
+      }
+    } catch (err: any) {
+      sonuclar.push({
+        invoiceId: inv.id,
+        invoiceNo: inv.invoiceNo,
+        result: 'SKIPPED',
+        previousStatus: String(inv.eInvoiceStatus || ''),
+        message: `Mutabakat yapılamadı: ${err.message}`,
+      });
+    }
+  }
+
+  const duzelen = sonuclar.filter(s => s.result === 'FOUND').length;
+  const bekleyen = sonuclar.filter(s => s.result === 'AT_PROVIDER').length;
+  const bulunamayan = sonuclar.filter(s => s.result === 'NOT_FOUND').length;
+
+  storage.addAuditLog({
+    userId: req.user?.id || 'bilinmeyen',
+    username: req.user?.username || req.user?.name || 'bilinmeyen-kullanici',
+    userRole: req.userRole || '',
+    action: 'UPDATE',
+    module: 'INVOICE',
+    documentNo: adaylar.map(i => i.invoiceNo).join(', ') || '-',
+    ipAddress: req.ip || '127.0.0.1',
+    details: `SENDING mutabakatı: ${duzelen} düzeldi, ${bekleyen} sağlayıcıda işlemde, ${bulunamayan} bulunamadı. Belge gönderilmedi.`,
+  });
+
+  res.json({
+    success: true,
+    message: `${sonuclar.length} fatura kontrol edildi. ${duzelen} tanesi sağlayıcıda doğrulandı. Belge gönderilmedi.`,
+    checkedCount: sonuclar.length,
+    reconciledCount: duzelen,
+    atProviderCount: bekleyen,
+    notFoundCount: bulunamayan,
+    results: sonuclar,
+  });
+});
+
+// POST /api/efatura/release-sending - Kilitli Gönderimi Kontrollü Serbest Bırakma
+//
+// 2026-09-25: `reconcile-sending` kaydı YALNIZ sağlayıcıda doğrulandığında
+// düzeltir; "bulunamadı" dediğinde kayıt SENDING kalır. Ancak gönderim kapısı
+// (`hizliInvoiceDispatch:9`) SENDING'i reddeder — yani sağlayıcı belgeyi
+// tanımıyorsa fatura SONSUZA DEK gönderilemez hale gelir. Bu uç o çıkmazı
+// kapatır; kilit sıfırlamaz, DENETLENEBİLİR biçimde serbest bırakır.
+//
+// Yanlış serbest bırakma MÜKERRER fatura riskidir. Bu yüzden:
+//   • Serbest bırakmadan ÖNCE sağlayıcıya TAZE sorgu yapılır (kullanıcı beyanı yetmez).
+//   • Belge sağlayıcıda İŞLEMDE ise serbest bırakma REDDEDİLİR.
+//   • Belge sağlayıcıda BULUNDUYSA serbest bırakma yerine SENT yazılır.
+//   • Gerekçe zorunludur ve kanıtla birlikte denetim kaydına geçer.
+// Kayıt DRAFT'a değil 'ERROR'a çekilir: "gönderilmedi" demek yanlış olurdu,
+// girişimin başarısız kaldığı ve elle incelenmesi gerektiği doğrudur.
+router.post('/release-sending', requireRole('SUPER_ADMIN', 'platform_admin'), async (req: Request, res: Response) => {
+  const requestTenantId = req.tenantId;
+  if (!requestTenantId) {
+    return res.status(400).json({ success: false, message: 'Firma bağlamı çözümlenemedi.' });
+  }
+
+  const { invoiceId, reason } = req.body || {};
+  if (!invoiceId) {
+    return res.status(400).json({ success: false, message: 'Serbest bırakılacak fatura (invoiceId) belirtilmelidir.' });
+  }
+  // Gerekçesiz serbest bırakma kabul edilmez: bu işlem mükerrer belge riski taşır
+  // ve sonradan "neden gönderildi" sorusu cevaplanabilmelidir.
+  const gerekce = typeof reason === 'string' ? reason.trim() : '';
+  if (gerekce.length < 10) {
+    return res.status(400).json({ success: false, message: 'Serbest bırakma gerekçesi zorunludur (en az 10 karakter).' });
+  }
+
+  const db = storage.getState();
+  const invoice = db.invoices.find(i => i.id === invoiceId && i.tenantId === requestTenantId);
+  if (!invoice) {
+    return res.status(404).json({ success: false, message: 'Fatura bulunamadı.' });
+  }
+  if (String(invoice.eInvoiceStatus) !== 'SENDING') {
+    return res.status(409).json({
+      success: false,
+      message: `Fatura SENDING durumunda değil (mevcut: ${invoice.eInvoiceStatus || 'yok'}). Serbest bırakma gerekmiyor.`,
+    });
+  }
+
+  const settings = (db.tenantEinvoiceSettings || []).find(s => s.tenantId === requestTenantId);
+  if (!settings) {
+    return res.status(409).json({ success: false, message: 'Firmanın e-Dönüşüm entegrasyon ayarı bulunamadı.' });
+  }
+
+  // ── Serbest bırakma ÖNCESİ taze doğrulama ────────────────────────────────
+  let outcome;
+  try {
+    outcome = await reconcileSendingInvoice(invoice, settings);
+  } catch (err: any) {
+    // Doğrulama yapılamıyorsa serbest bırakma da yapılmaz. Belirsizlik
+    // "gönderilmedi" sayılamaz.
+    return res.status(502).json({
+      success: false,
+      message: `Sağlayıcı durumu doğrulanamadığı için serbest bırakılmadı: ${err.message}`,
+    });
+  }
+
+  if (outcome.result === 'FOUND') {
+    await storage.runTransaction(draft => {
+      const target = draft.invoices.find(i => i.id === invoiceId && i.tenantId === requestTenantId);
+      if (!target) return;
+      target.eInvoiceStatus = 'SENT';
+      if (outcome.gibStatus) target.gibStatusCode = Number(outcome.gibStatus);
+      if (outcome.message) target.gibStatusDescription = outcome.message;
+      target.updatedAt = new Date().toISOString();
+    });
+    storage.addAuditLog({
+      userId: req.user?.id || 'bilinmeyen',
+      username: req.user?.username || req.user?.name || 'bilinmeyen-kullanici',
+      userRole: req.userRole || '', action: 'UPDATE', module: 'INVOICE',
+      documentNo: invoice.invoiceNo, ipAddress: req.ip || '127.0.0.1',
+      details: `Serbest bırakma istendi ancak belge sağlayıcıda BULUNDU (zarf 1300) — kayıt SENT yapıldı, yeniden gönderim yapılmadı. Gerekçe: ${gerekce}`,
+    });
+    return res.json({
+      success: true, released: false, reconciled: true, newStatus: 'SENT',
+      message: 'Belge sağlayıcıda bulundu; serbest bırakılmadı, kayıt SENT olarak güncellendi.',
+      outcome,
+    });
+  }
+
+  if (outcome.result === 'AT_PROVIDER') {
+    return res.status(409).json({
+      success: false, released: false,
+      message: `Belge sağlayıcıda İŞLEMDE (${outcome.gibStatus || 'durum bilinmiyor'}); serbest bırakılamaz, mükerrer fatura riski. Daha sonra tekrar deneyin.`,
+      outcome,
+    });
+  }
+
+  if (outcome.result === 'QUERY_FAILED') {
+    // Sorgu yapılamadıysa "belge yok" DENEMEZ. Doğrulanamayan bir gönderimi
+    // serbest bırakmak, belge gerçekten iletilmişse MÜKERRER fatura üretir.
+    return res.status(502).json({
+      success: false, released: false,
+      message: `${outcome.message} Sağlayıcıya ulaşılamadığı için serbest bırakılmadı; tekrar deneyin.`,
+      outcome,
+    });
+  }
+
+  // NOT_FOUND veya NO_UUID → kanıt kaydedilerek serbest bırakılır.
+  const kanit = outcome.result === 'NOT_FOUND'
+    ? 'Sağlayıcı sorgusu yapıldı ve bu ETTN için kayıt bulunamadı.'
+    : 'Kayıtta ETTN yok; sağlayıcı sorgusu yapılamadı.';
+
+  await storage.runTransaction(draft => {
+    const target = draft.invoices.find(i => i.id === invoiceId && i.tenantId === requestTenantId);
+    if (!target) return;
+    target.eInvoiceStatus = 'ERROR';
+    target.gibStatusCode = undefined;
+    target.gibStatusDescription = `Gönderim kilidi elle serbest bırakıldı. ${kanit} Gerekçe: ${gerekce}`;
+    target.updatedAt = new Date().toISOString();
+  });
+
+  storage.addAuditLog({
+    userId: req.user?.id || 'bilinmeyen',
+    username: req.user?.username || req.user?.name || 'bilinmeyen-kullanici',
+    userRole: req.userRole || '', action: 'UPDATE', module: 'INVOICE',
+    documentNo: invoice.invoiceNo, ipAddress: req.ip || '127.0.0.1',
+    details: `SENDING kilidi serbest bırakıldı (${outcome.result}). Kanıt: ${kanit} Gerekçe: ${gerekce} Belge gönderilmedi; yeniden gönderim ayrı onay gerektirir.`,
+  });
+
+  res.json({
+    success: true, released: true, reconciled: false, previousStatus: 'SENDING', newStatus: 'ERROR',
+    message: 'Kilit serbest bırakıldı; kayıt ERROR durumuna alındı (gönderilmedi olarak işaretlenmedi). Yeniden gönderim ayrı bir işlemdir.',
+    outcome,
+  });
 });
 
 // GET /api/efatura/incoming - Gelen e-Faturalar Listesi
