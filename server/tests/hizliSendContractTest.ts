@@ -29,9 +29,16 @@ const invoice = { tenantId: settings.tenantId, status: 'DRAFT', hizliModel: {
 try {
   setTenantTokenForTest(settings.tenantId, true, 'company-token');
   assert.equal((await H.sendInvoice(invoice, customer, company, { tenantSettings: settings }, 'wrong-global-token')).success, true);
-  assert.equal(sent[0].invoiceheader.Prefix, 'BTF');
-  assert.equal(sent[0].invoiceheader.Invoice_ID, null);
-  assert.equal(sent[0].invoiceheader.SourceUrn, settings.senderAliasGB);
+  assert.equal(sent[0].InvoiceModel.invoiceheader.Prefix, 'BTF');
+  assert.equal(sent[0].InvoiceModel.invoiceheader.Invoice_ID, null);
+  assert.equal(sent[0].SourceUrn, settings.senderAliasGB);
+  assert.equal(sent[0].AppType, 1);
+  assert.equal(sent[0].DestinationIdentifier, customer.taxNumber);
+  assert.equal(sent[0].IsDraft, false);
+  assert.equal((await H.sendInvoice({ ...invoice, customerCode: customer.taxNumber }, undefined, company, { tenantSettings: settings })).success, true);
+  const beforeMissingCustomer = calls;
+  assert.equal((await H.sendInvoice({ ...invoice, customerId: 'missing', customerCode: customer.taxNumber }, undefined, company, { tenantSettings: settings })).success, false);
+  assert.equal(calls, beforeMissingCustomer);
   assert.equal(sent[0].tenantId, undefined);
   assert.equal(invoice.hizliModel.invoiceheader.Invoice_ID, 'Otomatik');
   for (const inv of [{ ...invoice, tenantId: 'other' }, { ...invoice, hizliModel: undefined },

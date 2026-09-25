@@ -1596,7 +1596,7 @@ export class HizliConnectService {
         throw new Error('Sağlayıcıya uygun kayıtlı fatura modeli bulunamadı.');
       }
       if (model.supplier?.supplierParty?.IdentificationID !== settings.senderIdentifier ||
-          model.customer.IdentificationID !== customer?.taxNumber) {
+          model.customer.IdentificationID !== (customer?.taxNumber || (!invoice.customerId ? invoice.customerCode : undefined))) {
         throw new Error('Fatura modelindeki gönderici veya alıcı vergi numarası kayıtla uyuşmuyor.');
       }
       const prefix = settings.defaultInvoicePrefix;
@@ -1610,7 +1610,19 @@ export class HizliConnectService {
       const isTest = settings.environment !== 'PRODUCTION';
       const { ensureTenantToken } = await import('./hizliTenantCredentialRegistry');
       const active = await ensureTenantToken(settings, isTest);
-      return await this.sendInvoiceModel([payload], active.token, isTest);
+      return await this.sendInvoiceModel([{
+        AppType: payload.invoiceheader.ProfileID === 'EARSIVFATURA' ? 2 : 1,
+        SourceUrn: settings.senderAliasGB,
+        DestinationIdentifier: payload.customer.IdentificationID,
+        DestinationUrn: payload.invoiceheader.DestinationUrn,
+        InvoiceModel: payload,
+        LocalId: invoice.id,
+        UpdateDocument: false,
+        IsDraft: false,
+        IsDraftSend: false,
+        IsPreview: false,
+        IsXml: false,
+      }], active.token, isTest);
     } catch (err: any) {
       return { success: false, message: err.message, invoiceNumber: invoice?.invoiceNo, uuid: invoice?.eInvoiceUUID };
     }
