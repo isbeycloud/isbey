@@ -10,6 +10,7 @@ const suites = [
   'hizliSendingLockTest.ts',
   'hizliInvoiceNumberContractTest.ts',
   'hizliRegistryContractTest.ts',
+  'xsltSecurityTest.ts',
   'eInvoiceLivePreparationTest.ts',
   'eServicesTest.ts',
   'productionProvisioningTest.ts', 'productionTenantTest.ts', 'membershipIsolationTest.ts', 'credentialVaultRegressionTest.ts', 'credentialMaskRegressionTest.ts',

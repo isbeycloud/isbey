@@ -5,6 +5,8 @@ import { useApp } from '../../../context/AppContext';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
 import { Modal } from '../../common/Modal';
+import { XsltUploadPanel } from './XsltUploadPanel';
+import { transformXmlWithXsltInBrowser } from '../../../utils/xsltTransform';
 import type { DocumentType, DocumentTemplate, DocumentTemplateVersion } from '../../../types';
 import {
   FileText,
@@ -53,6 +55,10 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
   const [customXsltText, setCustomXsltText] = useState('');
   const [xsltValidating, setXsltValidating] = useState(false);
   const [xsltValidationMessage, setXsltValidationMessage] = useState<{ valid: boolean; text: string } | null>(null);
+  // 2026-09-26: Dosya yükleme için ayrı sekme. Kod yapıştırma (mevcut textarea)
+  // korunur; yükleme onun yerine geçmez, yanında durur.
+  const [xsltModalTab, setXsltModalTab] = useState<'code' | 'upload'>('code');
+  const [xsltSaving, setXsltSaving] = useState(false);
 
   const [versionHistoryTemplate, setVersionHistoryTemplate] = useState<DocumentTemplate | null>(null);
   const [versionsList, setVersionsList] = useState<DocumentTemplateVersion[]>([]);
@@ -116,13 +122,44 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
     }
   };
 
+  // 2026-09-26: Önizleme artık GERÇEKTEN yüklenen XSLT ile üretilir.
+  // Sunucu XSLT'yi hazırlar (`renderedBy: 'client'`), dönüşümü tarayıcının
+  // XSLTProcessor'ı yapar. XSLT hiç yoksa sunucu yedek HTML döner.
   const handleOpenPreview = async (template: DocumentTemplate) => {
     setPreviewTemplate(template);
     setLoadingPreview(true);
+    setPreviewHtml('');
     try {
-      const res = await api.previewDocumentTemplate(template.id);
-      if (res.success) {
-        setPreviewHtml(res.html);
+      const res: any = await api.previewDocumentTemplate(template.id);
+      if (!res.success) {
+        showToast('Önizleme oluşturulamadı.', 'error');
+        return;
+      }
+
+      if (res.renderedBy === 'fallback' || !res.xslt) {
+        setPreviewHtml(res.html || '');
+        if (res.unsupportedFeatures?.length) {
+          showToast(
+            `Tasarım yüklenen XSLT ile gösterilemiyor (desteklenmeyen: ${res.unsupportedFeatures.join(', ')}); yedek görünüm gösteriliyor.`,
+            'warning'
+          );
+        }
+        return;
+      }
+
+      const out = transformXmlWithXsltInBrowser(res.xml || '', res.xslt);
+      if (out.ok) {
+        setPreviewHtml(out.html);
+        if (res.adjustments?.length) {
+          showToast(`XSLT otomatik uyumlulaştırıldı: ${res.adjustments.join(' ')}`, 'info');
+        }
+      } else {
+        // Sessizce boş gösterme: nedenini kullanıcıya söyle.
+        setPreviewHtml(
+          `<div style="font-family:Arial,sans-serif;padding:24px;color:#b91c1c;">` +
+          `<strong>Önizleme oluşturulamadı.</strong><br><br>${out.error || ''}</div>`
+        );
+        showToast(out.error || 'XSLT dönüşümü başarısız.', 'error');
       }
     } catch (err: any) {
       showToast(err.message || 'Önizleme oluşturulamadı.', 'error');
@@ -135,6 +172,37 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
     setXsltViewTemplate(template);
     setCustomXsltText(template.xsltContent);
     setXsltValidationMessage(null);
+    setXsltModalTab('code');
+  };
+
+  // 2026-09-26: Dosya yükleyici için doğrulama sarmalayıcısı. Panel `onValidate`
+  // ile içeriği doğrular ve sonucu gösterir; burada doğrulama mesajı durumu da
+  // güncellenir ki kod sekmesindekiyle tutarlı kalsın.
+  const handleUploadValidate = async (content: string) => {
+    const res = await api.validateXslt(content);
+    setXsltValidationMessage({ valid: res.valid, text: res.message });
+    return { valid: res.valid, message: res.message, error: res.error };
+  };
+
+  const handleUploadSave = async (content: string, versionNote: string) => {
+    if (!xsltViewTemplate) return;
+    setXsltSaving(true);
+    try {
+      const res = await api.uploadDocumentTemplateXslt(xsltViewTemplate.id, {
+        xsltContent: content,
+        versionNote,
+      });
+      if (res.success) {
+        showToast(res.message, 'success');
+        setXsltViewTemplate(null);
+        loadTemplates();
+        triggerRefresh();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'XSLT yüklenemedi.', 'error');
+    } finally {
+      setXsltSaving(false);
+    }
   };
 
   const handleValidateXslt = async () => {
@@ -536,11 +604,46 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Sekme seçimi: kodu doğrudan düzenle ya da dosya yükle */}
+            <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-color)' }}>
+              {([
+                { id: 'code' as const, label: 'Kodu Düzenle', icon: <Code size={13} /> },
+                { id: 'upload' as const, label: 'Dosya Yükle', icon: <Upload size={13} /> },
+              ]).map(t => (
+                <button
+                  key={t.id}
+                  className="btn btn-sm"
+                  onClick={() => setXsltModalTab(t.id)}
+                  style={{
+                    fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '5px',
+                    padding: '6px 13px', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+                    background: xsltModalTab === t.id ? 'var(--primary-light)' : 'transparent',
+                    color: xsltModalTab === t.id ? 'var(--primary)' : 'var(--text-muted)',
+                    fontWeight: xsltModalTab === t.id ? 700 : 500,
+                    borderBottom: xsltModalTab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
+                  }}
+                >
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            {xsltModalTab === 'upload' && xsltViewTemplate && (
+              <XsltUploadPanel
+                currentContent={xsltViewTemplate.xsltContent}
+                onValidate={handleUploadValidate}
+                onSave={handleUploadSave}
+                saving={xsltSaving}
+              />
+            )}
+
+            {xsltModalTab === 'code' && (
             <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
               Bu alandan standart XSLT 1.0 kodunu doğrudan inceleyebilir, düzenleyebilir veya harici bir XSLT dosyasını yapıştırabilirsiniz.
             </div>
+            )}
 
-            {xsltValidationMessage && (
+            {xsltModalTab === 'code' && xsltValidationMessage && (
               <div
                 style={{
                   padding: '8px 12px',
@@ -559,6 +662,7 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
               </div>
             )}
 
+            {xsltModalTab === 'code' && (
             <textarea
               className="form-control"
               value={customXsltText}
@@ -578,6 +682,7 @@ export const DocumentTemplateListView: React.FC<DocumentTemplateListViewProps> =
                 overflowX: 'auto',
               }}
             />
+            )}
           </div>
         </Modal>
       )}

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { requireAuth } from '../middleware/authGuards';
 import { XsltEngineService } from '../services/xsltEngineService';
+import { normalizeXsltForBrowser } from '../services/xsltCompatibility';
 import type { DocumentType, DocumentTemplate, DocumentTemplateVersion, DocumentDesignConfig } from '../db/schema';
 
 export const documentTemplatesRouter = Router();
@@ -76,8 +77,10 @@ documentTemplatesRouter.post('/validate-xslt', requireAuth, (req: Request, res: 
     res.json({
       success: result.valid,
       valid: result.valid,
-      message: result.valid ? 'XSLT başarıyla doğrulandı.' : result.error,
+      message: result.valid ? (result.warning || 'XSLT başarıyla doğrulandı.') : result.error,
       error: result.error,
+      warning: result.warning,
+      unsupportedFeatures: result.unsupportedFeatures || [],
     });
   } catch (err: any) {
     res.status(400).json({ success: false, valid: false, message: err.message });
@@ -85,17 +88,30 @@ documentTemplatesRouter.post('/validate-xslt', requireAuth, (req: Request, res: 
 });
 
 // POST /api/document-templates/preview-custom - Generate live HTML preview using XML + config/XSLT
+//
+// 2026-09-26: Dönüşüm artık İSTEMCİDE yapılır (tarayıcının XSLTProcessor'ı).
+// Sunucu XSLT'yi hazırlar ve istemciye verir; XSLT hiç yoksa veya tarayıcıda
+// çalıştırılamıyorsa yedek HTML döner. Bu uç `renderedBy` alanıyla hangisinin
+// geçerli olduğunu bildirir — böylece istemci ne yapacağını bilir.
 documentTemplatesRouter.post('/preview-custom', requireAuth, async (req: Request, res: Response) => {
   try {
     const { documentType = 'EFATURA', customXml, config, customXslt } = req.body;
     const db = storage.getState();
     const xml = customXml || XsltEngineService.getSampleXml(documentType as DocumentType, db.company);
-    const html = await XsltEngineService.transformXmlWithXslt(
+    const out = await XsltEngineService.transformXmlWithXslt(
       xml,
       customXslt || '',
       config
     );
-    res.json({ success: true, html });
+    res.json({
+      success: true,
+      xml,
+      html: out.html,
+      xslt: out.xslt,
+      renderedBy: out.renderedBy,
+      adjustments: out.adjustments,
+      unsupportedFeatures: out.unsupportedFeatures,
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -349,7 +365,7 @@ documentTemplatesRouter.post('/:id/preview', requireAuth, async (req: Request, r
     }
 
     const xml = customXml || XsltEngineService.getSampleXml(template.documentType, db.company);
-    const html = await XsltEngineService.transformXmlWithXslt(
+    const out = await XsltEngineService.transformXmlWithXslt(
       xml,
       template.xsltContent,
       config || template.config
@@ -357,7 +373,12 @@ documentTemplatesRouter.post('/:id/preview', requireAuth, async (req: Request, r
 
     res.json({
       success: true,
-      html,
+      xml,
+      html: out.html,
+      xslt: out.xslt,
+      renderedBy: out.renderedBy,
+      adjustments: out.adjustments,
+      unsupportedFeatures: out.unsupportedFeatures,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -397,6 +418,15 @@ documentTemplatesRouter.post('/:id/upload-xslt', requireAuth, async (req: Reques
       return res.status(400).json({ success: false, message: `Geçersiz XSLT: ${val.error}` });
     }
 
+    // Yüklenen dosyayı tarayıcı motoru için normalleştir (XSLT 2.0 bildirimi →
+    // 1.0, desteklenmeyen çıktı yönergelerinin kaldırılması). Ham hâliyle
+    // saklanırsa önizlemede derlenemezdi.
+    const normalized = normalizeXsltForBrowser(xsltContent);
+    const storedXslt = normalized.content;
+    const adjustmentNote = normalized.adjustments.length > 0
+      ? ` Otomatik uyumlulaştırma: ${normalized.adjustments.join(' ')}`
+      : '';
+
     const db = storage.getState();
     const template = (db.documentTemplates || []).find(t => t.id === req.params.id);
     if (!template) {
@@ -405,12 +435,12 @@ documentTemplatesRouter.post('/:id/upload-xslt', requireAuth, async (req: Reques
 
     const nextVersion = (template.version || 1) + 1;
     const fileName = `${template.documentType.toLowerCase()}_custom_v${nextVersion}.xslt`;
-    const filePath = storage.saveXsltFile(template.documentType, fileName, xsltContent);
+    const filePath = storage.saveXsltFile(template.documentType, fileName, storedXslt);
 
     await storage.runTransaction(draft => {
       const target = draft.documentTemplates?.find(t => t.id === req.params.id);
       if (target) {
-        target.xsltContent = xsltContent;
+        target.xsltContent = storedXslt;
         target.xsltPath = filePath;
         target.version = nextVersion;
         target.updatedAt = new Date().toISOString();
@@ -422,9 +452,9 @@ documentTemplatesRouter.post('/:id/upload-xslt', requireAuth, async (req: Reques
         templateId: template.id,
         companyId: template.companyId,
         version: nextVersion,
-        xsltContent,
+        xsltContent: storedXslt,
         config: template.config,
-        notes: versionNote || `Dışarıdan yüklenen XSLT (v${nextVersion})`,
+        notes: (versionNote || `Dışarıdan yüklenen XSLT (v${nextVersion})`) + adjustmentNote,
         createdBy: req.user?.username || 'admin',
         createdAt: new Date().toISOString(),
       });
@@ -432,7 +462,10 @@ documentTemplatesRouter.post('/:id/upload-xslt', requireAuth, async (req: Reques
 
     res.json({
       success: true,
-      message: `Özel XSLT dosyası başarıyla yüklendi ve uygulandı (v${nextVersion}).`,
+      version: nextVersion,
+      adjustments: normalized.adjustments,
+      message:
+        `Özel XSLT dosyası başarıyla yüklendi ve uygulandı (v${nextVersion}).` + adjustmentNote,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });

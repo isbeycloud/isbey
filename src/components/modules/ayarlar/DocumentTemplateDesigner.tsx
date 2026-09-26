@@ -3,6 +3,8 @@ import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
 import { Modal } from '../../common/Modal';
+import { transformXmlWithXsltInBrowser } from '../../../utils/xsltTransform';
+import { XsltUploadPanel } from './XsltUploadPanel';
 import type { DocumentType, DocumentTemplate, DocumentDesignConfig } from '../../../types';
 import {
   ArrowLeft,
@@ -139,6 +141,8 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
   const [validating, setValidating] = useState(false);
   const [isXsltEditorOpen, setIsXsltEditorOpen] = useState(false);
   const [rawXsltCode, setRawXsltCode] = useState('');
+  // 2026-09-26: Kod düzenleme ve dosya yükleme ayrı sekmeler.
+  const [xsltEditorTab, setXsltEditorTab] = useState<'code' | 'upload'>('code');
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -176,10 +180,23 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      // Load sample XML first
-      const xml = await api.getSampleXml(docType);
-      setSampleXml(xml);
-      setCustomXmlText(xml);
+      // 2026-09-26: Örnek XML artık kimlik doğrulamalı olarak ve doğrulanarak
+      // alınır (bkz. api.getSampleXml). Alınamazsa tasarımcı AÇILMAYA DEVAM
+      // eder — kullanıcının yaptığı iş XSLT'dir; örnek veri yüzünden ekranı
+      // kilitlemek yanlış olur. Bunun yerine durum açıkça bildirilir ve
+      // önizleme, dönüşüm girdisi eksik olduğu için hata mesajı gösterir.
+      try {
+        const xml = await api.getSampleXml(docType);
+        setSampleXml(xml);
+        setCustomXmlText(xml);
+      } catch (xmlErr: any) {
+        setSampleXml('');
+        setCustomXmlText('');
+        showToast(
+          `Örnek fatura verisi alınamadı, önizleme sınırlı olacak: ${xmlErr?.message || xmlErr}`,
+          'warning'
+        );
+      }
 
       if (templateId) {
         const res = await api.getDocumentTemplate(templateId);
@@ -246,7 +263,60 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
     footerNote,
   });
 
+  /**
+   * 2026-09-26: Önizleme artık GERÇEKTEN XSLT ile üretilir.
+   *
+   * Önceden sunucu `transformXmlWithXslt` sabit bir HTML iskeleti döndürüyordu;
+   * çağrılan XSLT hiç çalıştırılmıyordu. Artık sunucu XSLT'yi hazırlar,
+   * dönüşümü tarayıcının XSLTProcessor'ı yapar (`renderedBy === 'client'`).
+   * XSLT yoksa ya da tarayıcıda çalıştırılamıyorsa sunucunun yedek görünümü
+   * gösterilir ve neden kullanıcıya bildirilir.
+   */
+  const applyPreviewResponse = (res: any, label: 'designer' | 'custom') => {
+    if (!res?.success) return false;
+
+    if (res.renderedBy === 'fallback' || !res.xslt) {
+      setPreviewHtml(res.html || '');
+      if (res.unsupportedFeatures?.length) {
+        showToast(
+          `Yüklenen XSLT tarayıcıda çalıştırılamıyor (desteklenmeyen: ${res.unsupportedFeatures.join(', ')}); yedek görünüm gösteriliyor.`,
+          'warning'
+        );
+      }
+      return true;
+    }
+
+    const out = transformXmlWithXsltInBrowser(res.xml || sampleXml || '', res.xslt);
+    if (out.ok) {
+      setPreviewHtml(out.html);
+      if (res.adjustments?.length) {
+        showToast(`XSLT otomatik uyumlulaştırıldı: ${res.adjustments.join(' ')}`, 'info');
+      }
+      return true;
+    }
+
+    // Sessizce boş gösterme — nedeni görünür olsun.
+    setPreviewHtml(
+      `<div style="font-family:Arial,sans-serif;padding:24px;color:#b91c1c;font-size:13px;">` +
+      `<strong>Önizleme oluşturulamadı.</strong><br><br>${out.error || ''}</div>`
+    );
+    if (label === 'custom') showToast(out.error || 'XSLT dönüşümü başarısız.', 'error');
+    return false;
+  };
+
   const updateLivePreview = async () => {
+    // Örnek XML yokken sunucuya gitmenin anlamı yok: dönüşüm girdisi eksikse
+    // XSLT boş belge üzerinde çalışır ve sonuç yanıltıcı olur.
+    if (!sampleXml?.trim()) {
+      setPreviewHtml(
+        `<div style="font-family:Arial,sans-serif;padding:24px;color:#b91c1c;font-size:13px;">` +
+        `<strong>Önizleme oluşturulamadı.</strong><br><br>` +
+        `Örnek fatura verisi (UBL XML) yüklenemediği için dönüşüm yapılamıyor. ` +
+        `Sayfayı yenileyin; sorun sürerse oturumunuzun süresi dolmuş olabilir.</div>`
+      );
+      return;
+    }
+
     try {
       const cfg = buildCurrentConfig();
       if (templateId) {
@@ -254,9 +324,7 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
           customXml: sampleXml,
           config: cfg,
         });
-        if (res.success) {
-          setPreviewHtml(res.html);
-        }
+        applyPreviewResponse(res, 'designer');
       } else {
         const res = await api.previewCustomDocumentTemplate({
           documentType: docType,
@@ -264,11 +332,13 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
           config: cfg,
           customXslt: rawXsltCode || undefined,
         });
-        if (res.success) {
-          setPreviewHtml(res.html);
-        }
+        applyPreviewResponse(res, 'custom');
       }
-    } catch (err) {
+    } catch (err: any) {
+      setPreviewHtml(
+        `<div style="font-family:Arial,sans-serif;padding:24px;color:#b91c1c;font-size:13px;">` +
+        `<strong>Önizleme oluşturulamadı.</strong><br><br>${err?.message || err}</div>`
+      );
       console.error('Preview error:', err);
     }
   };
@@ -1099,21 +1169,66 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
             </div>
           }
         >
-          <textarea
-            className="form-control"
-            value={rawXsltCode}
-            onChange={e => setRawXsltCode(e.target.value)}
-            rows={22}
-            style={{
-              fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-              fontSize: 'var(--fs-xs)',
-              background: 'var(--bg-surface-secondary)',
-              color: 'var(--text-main)',
-              border: '1px solid var(--border-color)',
-              padding: '12px',
-              borderRadius: 'var(--radius-sm)',
-            }}
-          />
+          {/* 2026-09-26: Dosyadan yükleme sekmesi. Uzun şablonları (3500 satır)
+              kopyala-yapıştır ile taşımak kullanılamazdı. */}
+          <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-color)', marginBottom: '10px' }}>
+            {([
+              { id: 'code' as const, label: 'Kodu Düzenle', icon: <Code size={13} /> },
+              { id: 'upload' as const, label: 'Dosya Yükle', icon: <Upload size={13} /> },
+            ]).map(t => (
+              <button
+                key={t.id}
+                className="btn btn-sm"
+                onClick={() => setXsltEditorTab(t.id)}
+                style={{
+                  fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '5px',
+                  padding: '6px 13px', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+                  background: xsltEditorTab === t.id ? 'var(--primary-light)' : 'transparent',
+                  color: xsltEditorTab === t.id ? 'var(--primary)' : 'var(--text-muted)',
+                  fontWeight: xsltEditorTab === t.id ? 700 : 500,
+                  borderBottom: xsltEditorTab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
+                }}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+
+          {xsltEditorTab === 'upload' ? (
+            <XsltUploadPanel
+              mode="editor"
+              currentContent={rawXsltCode}
+              onValidate={async (content: string) => {
+                const res = await api.validateXslt(content);
+                return { valid: res.valid, message: res.message, error: res.error };
+              }}
+              onSave={async (content: string) => {
+                // Tasarımcıda yükleme = kodu yükleyip önizlemeyi tazelemek.
+                // Kalıcı sürüm kaydı, "Kaydet" ile tasarım kaydedilince oluşur.
+                setRawXsltCode(content);
+                setXsltEditorTab('code');
+                setIsXsltEditorOpen(false);
+                updateLivePreview();
+                showToast('XSLT dosyası yüklendi ve önizlemeye uygulandı.', 'success');
+              }}
+            />
+          ) : (
+            <textarea
+              className="form-control"
+              value={rawXsltCode}
+              onChange={e => setRawXsltCode(e.target.value)}
+              rows={22}
+              style={{
+                fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                fontSize: 'var(--fs-xs)',
+                background: 'var(--bg-surface-secondary)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
+                padding: '12px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            />
+          )}
         </Modal>
       )}
 

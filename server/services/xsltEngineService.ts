@@ -1,4 +1,5 @@
 import type { DocumentType, DocumentDesignConfig } from '../db/schema';
+import { normalizeXsltForBrowser, parseXmlish } from './xsltCompatibility';
 
 export class XsltEngineService {
   /**
@@ -492,43 +493,141 @@ export class XsltEngineService {
   }
 
   /**
-   * Validates that an XSLT string is well-formed XML with stylesheet elements
+   * XSLT içeriğini doğrular.
+   *
+   * 2026-09-26: Önceki sürüm yalnız `<xsl:` etiketlerini SAYIYORDU ve
+   * `<![CDATA[...]]>` bloklarının içindeki metni ayırt etmiyordu. Hızlı Bilişim'in
+   * `general.xslt` dosyası ~100 KB gömülü QR (JS) kodu taşır; bu metin içinde
+   * `<xsl:` benzeri diziler geçebilir ve sayaç yöntemi yanlış sonuç verebilir.
+   *
+   * Artık XML olarak gerçekten ayrıştırılır (CDATA ve yorumlar doğru ele alınır),
+   * kök eleman ve şablon varlığı XML düzeyinde kontrol edilir, ayrıca tarayıcı
+   * motorunun çalıştıramayacağı XSLT 2.0 yapıları ayrıca bildirilir.
+   *
+   * Not: Bu doğrulama XSLT DERLEMEZ (sunucuda derleyici yok). XML geçerliliği
+   * ile kök/şablon yapısı kontrol edilir; kesin sonuç önizlemede alınır.
    */
-  public static validateXslt(xsltContent: string): { valid: boolean; error?: string } {
+  public static validateXslt(xsltContent: string): {
+    valid: boolean;
+    error?: string;
+    warning?: string;
+    unsupportedFeatures?: string[];
+  } {
     if (!xsltContent || typeof xsltContent !== 'string') {
       return { valid: false, error: 'XSLT içeriği boş olamaz.' };
     }
-
-    const trimmed = xsltContent.trim();
-    if (!trimmed.includes('<xsl:stylesheet') && !trimmed.includes('<stylesheet')) {
-      return { valid: false, error: 'Geçersiz XSLT: <xsl:stylesheet> kök elemanı bulunamadı.' };
+    if (!xsltContent.trim()) {
+      return { valid: false, error: 'XSLT içeriği boş olamaz.' };
     }
 
-    if (!trimmed.includes('<xsl:template') && !trimmed.includes('<template')) {
-      return { valid: false, error: 'Geçersiz XSLT: En az bir <xsl:template> bloğu tanımlanmalıdır.' };
+    // ── Gerçek XML ayrıştırması ────────────────────────────────────────────
+    // Ham metinde `<script>` / CDATA varken tarayıcı ve Node ayrıştırıcıları
+    // aynı sonucu verir; bu yüzden metin tarama yerine ayrıştırma esas alınır.
+    const parse = parseXmlish(xsltContent);
+    if (!parse.ok) {
+      return { valid: false, error: `XSLT XML ayrıştırma hatası: ${parse.error}` };
     }
 
-    // Basic tag balancing check
-    const openTags = (trimmed.match(/<xsl:[a-zA-Z0-9_-]+/g) || []).map(t => t.replace('<xsl:', ''));
-    const selfClosing = (trimmed.match(/<xsl:[a-zA-Z0-9_-]+[^>]*\/>/g) || []).length;
-    const closeTags = (trimmed.match(/<\/xsl:[a-zA-Z0-9_-]+>/g) || []).map(t => t.replace('</xsl:', '').replace('>', ''));
-
-    if (openTags.length - selfClosing !== closeTags.length) {
+    const rootName = parse.rootName;
+    if (rootName !== 'stylesheet' && rootName !== 'transform') {
       return {
         valid: false,
-        error: `XSLT XML Syntax Hatası: Açılan ve kapatılan <xsl:...> etiketleri uyuşmuyor (${openTags.length - selfClosing} açılan vs ${closeTags.length} kapatılan).`,
+        error: `Geçersiz XSLT: Kök eleman <xsl:stylesheet> olmalı, bulunan: <${rootName || 'yok'}>.`,
       };
     }
 
-    return { valid: true };
+    if (!parse.hasTemplate) {
+      return { valid: false, error: 'Geçersiz XSLT: En az bir <xsl:template> bloğu tanımlanmalıdır.' };
+    }
+
+    // ── Dış varlık / DTD girişimi (XXE) ────────────────────────────────────
+    // 2026-09-26: Uyarı DEĞİL, RED. Şablonun dosya sistemi veya ağ kaynağı
+    // gösterme girişimi kabul edilemez; bkz. EXTERNAL_ENTITY_PATTERNS.
+    const security = normalizeXsltForBrowser(xsltContent);
+    if (security.externalEntityViolations.length > 0) {
+      return {
+        valid: false,
+        error:
+          `Güvenlik: şablon dış kaynak erişimi içeriyor — ${security.externalEntityViolations.join(', ')}. ` +
+          `Dış varlık, DTD veya şablon içe aktarma kabul edilmez; şablonu kendi kendine yeterli hâle getirin.`,
+      };
+    }
+
+    // ── Tarayıcı motorunun çalıştıramayacağı yapılar ───────────────────────
+    const normalized = security;
+    if (normalized.unsupported) {
+      return {
+        valid: false,
+        error:
+          `Bu şablon tarayıcıda çalıştırılamayan XSLT 2.0 yapıları içeriyor: ` +
+          `${normalized.unsupportedFeatures.join(', ')}. XSLT 1.0 uyumlu bir şablon gerekir.`,
+        unsupportedFeatures: normalized.unsupportedFeatures,
+      };
+    }
+
+    // Uyumlulaştırma yapıldıysa kullanıcı bilgilendirilir (hata değil).
+    const warning = normalized.adjustments.length > 0
+      ? `XSLT geçerli. Otomatik uyumlulaştırma: ${normalized.adjustments.join(' ')}`
+      : undefined;
+
+    return { valid: true, warning, unsupportedFeatures: [] };
   }
 
   /**
-   * Transforms XML data with given XSLT or built-in renderer
+   * Yüklenen XSLT'yi önizleme için hazırlar.
+   *
+   * 2026-09-26: Önceden bu sınıf `transformXmlWithXslt` adıyla çağrılan XSLT'yi
+   * HİÇ çalıştırmıyor, sabit bir HTML iskeleti döndürüyordu (`xsltContent`
+   * parametresi fonksiyon gövdesinde kullanılmıyordu). Yani kullanıcının
+   * yüklediği tasarım önizlemede hiç görünmüyordu.
+   *
+   * Sunucuda XSLT 1.0 işleyicisi yoktur (libxslt bağımlılığı yok, host'ta
+   * native modül derlenemez). Bu yüzden dönüşüm İSTEMCİDE, tarayıcının
+   * `XSLTProcessor`'ı ile yapılır — Hızlı Bilişim portalının da kullandığı yol.
+   *
+   * Bu metot artık HTML ÜRETMEZ; istemcinin çalıştıracağı XSLT'yi hazırlar ve
+   * yalnızca XSLT yoksa/boşsa devreye girecek yedek HTML'i döner.
    */
   public static async transformXmlWithXslt(
     xmlContent: string,
     xsltContent: string,
+    config?: DocumentDesignConfig
+  ): Promise<{
+    html: string;
+    xslt: string;
+    renderedBy: 'client' | 'fallback';
+    adjustments: string[];
+    unsupportedFeatures: string[];
+  }> {
+    const normalized = normalizeXsltForBrowser(xsltContent || '');
+
+    // XSLT yoksa ya da tarayıcıda çalıştırılamıyorsa yedek görünümü üret.
+    if (!normalized.content?.trim() || normalized.unsupported) {
+      return {
+        html: await this.renderFallbackHtml(xmlContent, config),
+        xslt: '',
+        renderedBy: 'fallback',
+        adjustments: normalized.adjustments,
+        unsupportedFeatures: normalized.unsupportedFeatures,
+      };
+    }
+
+    // Gerçek dönüşümü istemci yapacak; sunucu XSLT'yi olduğu gibi iletir.
+    return {
+      html: '',
+      xslt: normalized.content,
+      renderedBy: 'client',
+      adjustments: normalized.adjustments,
+      unsupportedFeatures: [],
+    };
+  }
+
+  /**
+   * XSLT çalıştırılamadığında gösterilecek yerleşik (yedek) HTML görünümü.
+   * 2026-09-26 öncesinde `transformXmlWithXslt` gövdesiydi; artık YALNIZ yedek.
+   */
+  public static async renderFallbackHtml(
+    xmlContent: string,
     config?: DocumentDesignConfig
   ): Promise<string> {
     try {

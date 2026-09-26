@@ -105,6 +105,33 @@ function humanizeHttpError(status: number, serverMessage?: string): string {
   }
 }
 
+/**
+ * Belge tasarım önizlemesinin sunucu yanıtı.
+ *
+ * 2026-09-26: Dönüşüm istemciye taşındı. `renderedBy` alanı hangi tarafın
+ * çıktı ürettiğini söyler:
+ *   • 'client'   → `xslt` + `xml` alanları dolduruludur; dönüşümü istemci
+ *                  tarayıcının XSLTProcessor'ı ile yapar.
+ *   • 'fallback' → `html` alanı dolduruludur; yüklenen XSLT çalıştırılamadı
+ *                  (yok ya da XSLT 2.0 yapıları içeriyor) ve sunucunun yedek
+ *                  görünümü döndü. `unsupportedFeatures` nedenini taşır.
+ */
+export interface PreviewResponse {
+  success: boolean;
+  /** 'client' ise dönüşüm istemcide yapılmalı. */
+  renderedBy?: 'client' | 'fallback';
+  /** İstemcinin dönüştüreceği UBL XML. */
+  xml?: string;
+  /** İstemcinin çalıştıracağı (uyumlulaştırılmış) XSLT. */
+  xslt?: string;
+  /** `renderedBy === 'fallback'` iken gösterilecek hazır HTML. */
+  html?: string;
+  /** Yüklenen XSLT'de yapılan otomatik uyumlulaştırmalar. */
+  adjustments?: string[];
+  /** Tarayıcıda çalıştırılamayan XSLT 2.0 yapıları (varsa). */
+  unsupportedFeatures?: string[];
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   try {
     const token = localStorage.getItem('isbey_token');
@@ -974,23 +1001,26 @@ export const api = {
     }),
   deleteDocumentTemplate: (id: string) =>
     request<{ success: boolean; message: string }>(`/document-templates/${id}`, { method: 'DELETE' }),
+  // 2026-09-26: Önizleme dönüşümü istemcide yapılır. Sunucu, çalıştırılacak
+  // XSLT ile birlikte `renderedBy` alanını döner: 'client' ise dönüşümü
+  // tarayıcı yapar, 'fallback' ise sunucunun yedek HTML'i gösterilir.
   previewDocumentTemplate: (id: string, data?: { customXml?: string; config?: any }) =>
-    request<{ success: boolean; html: string }>(`/document-templates/${id}/preview`, {
+    request<PreviewResponse>(`/document-templates/${id}/preview`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
   previewCustomDocumentTemplate: (data: { documentType?: string; customXml?: string; config?: any; customXslt?: string }) =>
-    request<{ success: boolean; html: string }>('/document-templates/preview-custom', {
+    request<PreviewResponse>('/document-templates/preview-custom', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   validateXslt: (xsltContent: string) =>
-    request<{ success: boolean; valid: boolean; message: string; error?: string }>('/document-templates/validate-xslt', {
+    request<{ success: boolean; valid: boolean; message: string; error?: string; warning?: string; unsupportedFeatures?: string[] }>('/document-templates/validate-xslt', {
       method: 'POST',
       body: JSON.stringify({ xsltContent }),
     }),
   uploadDocumentTemplateXslt: (id: string, data: { xsltContent: string; versionNote?: string }) =>
-    request<{ success: boolean; message: string }>(`/document-templates/${id}/upload-xslt`, {
+    request<{ success: boolean; message: string; version?: number; adjustments?: string[] }>(`/document-templates/${id}/upload-xslt`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -1002,9 +1032,24 @@ export const api = {
     request<{ success: boolean; versions: any[] }>(`/document-templates/${id}/versions`),
   restoreDocumentTemplateVersion: (id: string, version: number) =>
     request<{ success: boolean; message: string }>(`/document-templates/${id}/restore/${version}`, { method: 'POST' }),
+  // 2026-09-26 DÜZELTME: Bu çağrı ham `fetch` kullanıyordu ve `Authorization`
+  // başlığını göndermiyordu. Sunucu 401 JSON'u dönüyor, o JSON "XML" sanılıp
+  // `sampleXml` olarak state'e yazılıyor ve önizleme dönüşümüne GİRDİ oluyordu
+  // (hatalı çıktı veya sessiz boş sayfa). Artık kimlik başlığı gönderilir ve
+  // JSON hata gövdesi XML olarak kabul edilmez: yanıt `<` ile başlamalıdır.
   getSampleXml: async (documentType: string = 'EFATURA'): Promise<string> => {
-    const res = await fetch(`/api/document-templates/sample-xml/${documentType}`);
-    return res.text();
+    const token = localStorage.getItem('isbey_token');
+    const res = await fetch(`${API_BASE}/document-templates/sample-xml/${encodeURIComponent(documentType)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new ApiError(`Örnek XML alınamadı (HTTP ${res.status}).`, res.status);
+    }
+    if (!text.trimStart().startsWith('<')) {
+      throw new ApiError('Örnek XML yerine geçersiz bir yanıt alındı.', res.status);
+    }
+    return text;
   },
 
   // Hızlı Bilişim e-Connect Belgeler & İşlemler

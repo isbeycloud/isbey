@@ -1,0 +1,41 @@
+# Satır sonu normalizasyonu
+# ═══════════════════════════════════════════════════════════════════════════
+# 2026-09-26: Depoda .gitattributes yoktu ve `core.autocrlf` ayarsızdı.
+# Geliştirme Windows'ta (D:\İŞBEY) yapıldığı için çalışma ağacındaki dosyalar
+# CRLF, HEAD'deki karşılıkları LF idi. Sonuç: `git status` 30 dosyayı
+# değişmiş gösteriyordu (8254 ekleme / 7870 silme) — oysa içerik aynıydı
+# (`git diff --ignore-all-space` yalnız 5 dosyada gerçek değişiklik).
+# Bu dosya, metin dosyalarının depoya DAİMA LF ile yazılmasını sağlar;
+# böylece satır sonu farkı bir daha gerçek değişiklik gibi görünmez.
+#
+# Not: Windows'ta düzenleyiciler LF ile sorunsuz çalışır (.editorconfig
+# gerekmez). İkili dosyalar etkilenmez.
+* text=auto eol=lf
+
+# İkili dosyalar — satır sonu dönüşümü YAPILMAMALI.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  text eol=lf
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.xlsx binary
+*.docx binary
+*.zip  binary
+
+# Windows'ta çalıştırılan betikler CRLF gerektirir.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Kabuk betikleri ve Docker girişleri LF olmalıdır.
+*.sh   text eol=lf
+Dockerfile text eol=lf
+
+# Kilit dosyaları — üretilir, diff gürültüsü istemeyiz.
+package-lock.json text eol=lf -diff
