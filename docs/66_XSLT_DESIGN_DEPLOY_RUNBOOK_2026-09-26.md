@@ -64,8 +64,11 @@ Bilinen ortam kısıtı: `phase32CreditLifecycleTest.ts` bu Linux VM'de `EPERM: 
 
 Dağıtımdan **önce** (SSH ile, hiçbiri silme değil — yalnız kopya):
 
+> Bu belge halka açık depoda saklanır. Sunucu kullanıcı adı, IP ve port bilinçli olarak
+> `<SUNUCU>` ile gösterilmiştir; gerçek değerler yalnız güvenli kanaldan paylaşılır.
+
 ```sh
-cd /home/u455582886/isbey-private
+cd <ISBEY_DATA_DIR>            # ör. /home/<SUNUCU>/isbey-private
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 
 # 1. Veritabanı
@@ -81,12 +84,29 @@ tar czf "backups/xslt-uploads.$TS.tar.gz" -C .  uploads/ 2>/dev/null || true
 tar czf "backups/xslt-files.$TS.tar.gz"   -C .  data/xslt data/storage 2>/dev/null || true
 
 # 4. Çalışan kod sürümü (geri dönüş noktası)
-git -C /home/u455582886/<uygulama-kökü> rev-parse HEAD > "backups/code-commit.$TS"
+git -C /home/<SUNUCU>/domains/bey360.com/hbuilds/last-source rev-parse HEAD > "backups/code-commit.$TS"
+
+# 5. Mevcut dağıtım sürümünün kimliği (Hostinger sürümlü dağıtım)
+readlink /home/<SUNUCU>/domains/bey360.com/hbuilds/current >> "backups/code-commit.$TS"
 ```
 
-`<uygulama-kökü>` dağıtımın açıldığı dizindir (public_html değil). Yedek dizini uygulama kökünün dışında olmalıdır.
+Yedek dizini veri dizininin **dışında** olmalıdır (bu runbook'ta `~/isbey-backups`) — dağıtım yalnız uygulama dizinini değiştirir, yedeği silmez.
 
-**Geri dönüş noktası:** canlı kod `34b9077`. Geri dönmek için o commit'e geri push edilir (Hostinger otomatik dağıtımı yeniden kurar) veya `hPanel → Yeniden Dağıt` ile önceki sürüm seçilir.
+**Geri dönüş noktası:** canlı kod `34b9077`, etkin dağıtım sürümü `01a0d93d-f9ff-7013-88a8-372f784252e7`. Geri dönmek için o commit'e geri push edilir (Hostinger otomatik dağıtımı yeniden kurar) veya `hPanel → Yeniden Dağıt` ile önceki sürüm seçilir.
+
+### Doğrulanmış canlı yol haritası (26 Eyl 2026)
+
+| Bileşen | Konum |
+|---|---|
+| Uygulama kökü (etkin) | `~/domains/bey360.com/hbuilds/current/nodejs` → `versions/01a0d93d-…` |
+| Sunucudaki git klonu | `~/domains/bey360.com/hbuilds/last-source` (detached HEAD `34b9077`) |
+| Veri dizini | `~/isbey-private` (`.env` → `ISBEY_DATA_DIR`) |
+| Veritabanı | `~/isbey-private/database.prod.json` |
+| XSLT şablon dosyaları | `~/isbey-private/storage/xslt/<tür>/<tür>_default.xslt` |
+| Çalışma zamanı env | `~/domains/bey360.com/hbuilds/config/.env` (yalnız `ISBEY_DATA_DIR`) |
+| Yedekler | `~/isbey-backups/` (veri dizini dışında) |
+
+**XSLT dosyaları yerinde kalır:** şablon dosyaları veri dizininde tutulur (`DATA_DIR/storage/xslt`), uygulama dizininde değil. Dağıtım `versions/` altına yeni bir sürüm açar ve `current` bağlantısını çevirir; `~/isbey-private` dokunulmaz. Bu yüzden yüklenmiş şablonlar ve veritabanı dağıtımdan etkilenmez.
 
 ---
 
