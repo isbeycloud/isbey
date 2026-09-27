@@ -57,8 +57,14 @@ const EXTERNAL_ENTITY_PATTERNS: Array<{ label: string; test: RegExp }> = [
   { label: 'XSLT dış şablon içe aktarma (xsl:include / xsl:import)', test: /<xsl:(?:include|import)[\s>]/i },
 ];
 
-/** Gerçekten XSLT 2.0/3.0'a özgü, tarayıcı motorunun desteklemediği yapılar. */
-const UNSUPPORTED_PATTERNS: Array<{ label: string; test: RegExp }> = [
+/**
+ * Gerçekten XSLT 2.0/3.0'a özgü, tarayıcı motorunun desteklemediği yapılar.
+ *
+ * 2026-09-27: `export` edildi — doğrulayıcı, bulduğu yapının dosyada KAÇINCI
+ * karakterde olduğunu bularak Monaco marker'ının doğru satıra düşmesini sağlar.
+ * Kalıpların kendisi değişmedi; yalnız görünürlük açıldı.
+ */
+export const UNSUPPORTED_PATTERNS: Array<{ label: string; test: RegExp }> = [
   { label: 'xsl:for-each-group', test: /<xsl:for-each-group[\s>]/ },
   { label: 'xsl:function', test: /<xsl:function[\s>]/ },
   { label: 'xsl:analyze-string', test: /<xsl:analyze-string[\s>]/ },
@@ -82,10 +88,43 @@ const UNSUPPORTED_PATTERNS: Array<{ label: string; test: RegExp }> = [
  * çağrıları geçer. Bunları XSLT 2.0 fonksiyonu sanmak yanlış teşhis olurdu.
  */
 function stripCodeBlocks(xslt: string): string {
+  // 2026-09-27: Bloklar SİLİNMEZ, AYNI UZUNLUKTA boşlukla değiştirilir.
+  // NEDEN: Silme işlemi sonraki karakterlerin ofsetini kaydırır ve editörde
+  // marker'ı yanlış satıra düşürür. Uzunluk korunduğunda `test.exec(...).index`
+  // doğrudan ÖZGÜN metindeki konuma karşılık gelir.
+  const blank = (m: string) => m.replace(/[^\n]/g, ' ');
   return xslt
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
-    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[\s\S]*?<\/style>/gi, '');
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, blank)
+    .replace(/<script\b[\s\S]*?<\/script>/gi, blank)
+    .replace(/<style\b[\s\S]*?<\/style>/gi, blank);
+}
+
+/**
+ * Tarayıcıda çalıştırılamayan XSLT 2.0 yapılarından İLK'ini dosyada bulur ve
+ * konumunu döndürür. `stripCodeBlocks` uzunluğu koruduğu için ofset özgün
+ * metinle birebir uyuşur.
+ *
+ * NEDEN: Kullanıcı "bu şablon 2.0 yapıları içeriyor" mesajını görünce hangi
+ * satırda olduğunu görmek ister; 368 KB'lık dosyada elle aramak gerçekçi değil.
+ */
+export function findUnsupportedFeatureLocation(
+  xsltContent: string,
+  labels?: string[]
+): { feature: string; line: number; column: number } | null {
+  const searchable = stripCodeBlocks(xsltContent);
+  let best: { feature: string; offset: number } | null = null;
+  for (const { label, test } of UNSUPPORTED_PATTERNS) {
+    if (labels && labels.length > 0 && !labels.includes(label)) continue;
+    const re = new RegExp(test.source, test.flags.includes('g') ? test.flags : test.flags + 'g');
+    const m = re.exec(searchable);
+    if (m && (best === null || m.index < best.offset)) {
+      best = { feature: label, offset: m.index };
+    }
+  }
+  if (!best) return null;
+  const before = xsltContent.slice(0, best.offset);
+  const breaks = before.split('\n');
+  return { feature: best.feature, line: breaks.length, column: breaks[breaks.length - 1].length + 1 };
 }
 
 /**
@@ -177,6 +216,15 @@ export interface XmlishParseResult {
   error?: string;
   rootName?: string;
   hasTemplate?: boolean;
+  /** 1 tabanlı satır numarası (hata varsa). */
+  line?: number;
+  /** 1 tabanlı kolon numarası (hata varsa). */
+  column?: number;
+  /**
+   * Hatanın ağırlığı: `error` = dosya kullanılamaz, `warning` = çalışır ama
+   * şüpheli. Editörde marker rengini belirler.
+   */
+  severity?: 'error' | 'warning';
 }
 
 export function parseXmlish(input: string): XmlishParseResult {
@@ -186,7 +234,33 @@ export function parseXmlish(input: string): XmlishParseResult {
   let i = 0;
   const n = input.length;
 
-  const fail = (msg: string): XmlishParseResult => ({ ok: false, error: msg });
+  /**
+   * Karakter ofsetini 1 tabanlı satır/kolon konumuna çevirir.
+   *
+   * NEDEN: Kullanıcı hatayı Monaco'da görebilmeli ve tıklayınca satıra
+   * gidebilmeli. `error` metninde konum olmadan mesaj yalnız "bir yerde
+   * kapatılmamış etiket var" diyordu; 368 KB'lık bir şablonda bu işe yaramaz.
+   *
+   * Performans: giriş 400 KB'a kadar olabilir; her `fail` çağrısında baştan
+   * satır saymak kabul edilebilir (hata yolu nadirdir, mutlu yol etkilenmez).
+   */
+  const positionAt = (offset: number): { line: number; column: number } => {
+    const upto = input.slice(0, Math.max(0, Math.min(offset, n)));
+    let line = 1;
+    let lastBreak = -1;
+    for (let k = 0; k < upto.length; k++) {
+      if (upto.charCodeAt(k) === 10 /* \n */) {
+        line++;
+        lastBreak = k;
+      }
+    }
+    return { line, column: offset - lastBreak };
+  };
+
+  const fail = (msg: string, offset: number = i, severity: 'error' | 'warning' = 'error'): XmlishParseResult => {
+    const { line, column } = positionAt(offset);
+    return { ok: false, error: msg, line, column, severity };
+  };
 
   while (i < n) {
     const lt = input.indexOf('<', i);
@@ -198,7 +272,7 @@ export function parseXmlish(input: string): XmlishParseResult {
     // <!-- yorum -->
     if (input.startsWith('<!--', i)) {
       const end = input.indexOf('-->', i + 4);
-      if (end === -1) return fail('Kapatılmamış yorum bloğu (<!-- ... -->).');
+      if (end === -1) return fail('Kapatılmamış yorum bloğu (<!-- ... -->).', i);
       i = end + 3;
       continue;
     }
@@ -206,7 +280,7 @@ export function parseXmlish(input: string): XmlishParseResult {
     // <![CDATA[ ... ]]>  — içerik XML olarak YORUMLANMAZ, atlanır.
     if (input.startsWith('<![CDATA[', i)) {
       const end = input.indexOf(']]>', i + 9);
-      if (end === -1) return fail('Kapatılmamış CDATA bloğu (<![CDATA[ ... ]]>) .');
+      if (end === -1) return fail('Kapatılmamış CDATA bloğu (<![CDATA[ ... ]]>) .', i);
       i = end + 3;
       continue;
     }
@@ -214,7 +288,7 @@ export function parseXmlish(input: string): XmlishParseResult {
     // <? ... ?> işlem yönergesi (XML bildirimi dahil)
     if (input.startsWith('<?', i)) {
       const end = input.indexOf('?>', i + 2);
-      if (end === -1) return fail('Kapatılmamış işlem yönergesi (<? ... ?>).');
+      if (end === -1) return fail('Kapatılmamış işlem yönergesi (<? ... ?>).', i);
       i = end + 2;
       continue;
     }
@@ -230,7 +304,7 @@ export function parseXmlish(input: string): XmlishParseResult {
         else if (ch === '>' && depth <= 0) break;
         j++;
       }
-      if (j >= n) return fail('Kapatılmamış <!DOCTYPE ...> bildirimi.');
+      if (j >= n) return fail('Kapatılmamış <!DOCTYPE ...> bildirimi.', i);
       i = j + 1;
       continue;
     }
@@ -238,14 +312,14 @@ export function parseXmlish(input: string): XmlishParseResult {
     // </kapanış>
     if (input.startsWith('</', i)) {
       const end = input.indexOf('>', i);
-      if (end === -1) return fail('Kapatılmamış bitiş etiketi.');
+      if (end === -1) return fail('Kapatılmamış bitiş etiketi.', i);
       const name = input.slice(i + 2, end).trim().split(/\s/)[0];
       const expected = stack.pop();
       if (expected === undefined) {
-        return fail(`Fazladan bitiş etiketi: </${name}>.`);
+        return fail(`Fazladan bitiş etiketi: </${name}>.`, i);
       }
       if (expected !== name) {
-        return fail(`Etiket eşleşmiyor: <${expected}> kapatılırken </${name}> bulundu.`);
+        return fail(`Etiket eşleşmiyor: <${expected}> kapatılırken </${name}> bulundu.`, i);
       }
       i = end + 1;
       continue;
@@ -253,15 +327,15 @@ export function parseXmlish(input: string): XmlishParseResult {
 
     // <açılış ...> veya <kendi-kendini-kapatan />
     const end = findTagEnd(input, i);
-    if (end === -1) return fail('Kapatılmamış etiket (> bulunamadı).');
+    if (end === -1) return fail('Kapatılmamış etiket (> bulunamadı).', i);
     const raw = input.slice(i + 1, end);
     const selfClosing = raw.trimEnd().endsWith('/');
     const name = raw.trim().replace(/\/$/, '').trim().split(/[\s/]/)[0];
 
-    if (!name) return fail('Etiket adı boş.');
+    if (!name) return fail('Etiket adı boş.', i);
     // XML adı kaba kontrolü (isim alanı öneki dahil).
     if (!/^[A-Za-z_:][\w.:-]*$/.test(name)) {
-      return fail(`Geçersiz etiket adı: <${name}>.`);
+      return fail(`Geçersiz etiket adı: <${name}>.`, i);
     }
 
     if (name === 'xsl:template' || name === 'template') hasTemplate = true;
@@ -273,10 +347,21 @@ export function parseXmlish(input: string): XmlishParseResult {
   }
 
   if (stack.length > 0) {
-    return fail(`Kapatılmayan etiket(ler): ${stack.slice(-3).map(t => `<${t}>`).join(', ')}.`);
+    // Açık etiketlerin en dıştakini göster: kullanıcının düzeltmesi gereken yer
+    // genellikle açılan ama kapanmayan etiketin TA KENDİSİDİR, dosyanın sonu
+    // değil. Konum için açılış etiketinin ofsetini yeniden buluruz.
+    const open = stack[stack.length - 1];
+    const escaped = open.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`<${escaped}(?=[\\s/>])`);
+    const m = re.exec(input);
+    const offset = m ? m.index : n;
+    return fail(
+      `Kapatılmayan etiket(ler): ${stack.slice(-3).map(t => `<${t}>`).join(', ')}.`,
+      offset
+    );
   }
   if (rootName === undefined) {
-    return fail('Hiç XML elemanı bulunamadı.');
+    return fail('Hiç XML elemanı bulunamadı.', 0);
   }
 
   return { ok: true, rootName: localName(rootName), hasTemplate };

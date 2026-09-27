@@ -10,6 +10,11 @@ Object.assign(process.env, {
   HIZLI_BILISIM_ALLOW_PROD: 'false', HIZLI_BILISIM_IS_TEST_MODE: 'true',
   HIZLI_BILISIM_API_KEY: '', HIZLI_BILISIM_WS_USERNAME: '', HIZLI_BILISIM_WS_PASSWORD: '',
   CORS_ALLOW_ORIGINS: 'http://127.0.0.1:4317', LOCAL_DEV_ALLOW: 'false', TRUST_PROXY: '',
+  // NOT: Giriş hız sınırı KASITLI olarak burada YÜKSELTİLMEZ. Üretim varsayılanı
+  // (15 dk / 20 deneme) aynen geçerli kalır; böylece `application.spec.ts` içindeki
+  // "login rate limit cannot be bypassed with forged X-Forwarded-For" testi gerçek
+  // sınırlayıcıyı sınayabilir. Koşudaki giriş sayısı bu bütçenin ALTINDA tutulur
+  // (bkz. tests/01-xslt-studio.spec.ts: oturum bir kez açılır ve paylaşılır).
 });
 const { initialDatabaseState } = await import('../server/db/seed.ts');
 const { adminStoredHash } = await import('../server/tests/fixtures/e2eCredentials.ts');

@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { requireAuth } from '../middleware/authGuards';
 import { XsltEngineService } from '../services/xsltEngineService';
-import { normalizeXsltForBrowser } from '../services/xsltCompatibility';
+import { normalizeXsltForBrowser, parseXmlish } from '../services/xsltCompatibility';
+import { UBL_TEST_SCENARIOS, buildScenarioXml, isUblTestScenario } from '../services/ublTestXmlScenarios';
 import type { DocumentType, DocumentTemplate, DocumentTemplateVersion, DocumentDesignConfig } from '../db/schema';
 
 export const documentTemplatesRouter = Router();
@@ -69,6 +70,52 @@ documentTemplatesRouter.get('/sample-xml/:documentType', requireAuth, (req: Requ
   }
 });
 
+// GET /api/document-templates/test-scenarios - XSLT Stüdyosu Test XML kataloğu
+//
+// 2026-09-27: Stüdyo "Test XML" modu bu listeyi gösterir. Liste bir SÖZLEŞMEDİR:
+// istemci yalnız burada bildirilen kimlikleri isteyebilir; sunucu da yalnız
+// bunları üretir (`isUblTestScenario` ile doğrulanır). Böylece kullanıcı
+// girdisiyle keyfî dosya/şablon üretimi mümkün olmaz.
+//
+// GÜVENLİK: Bu uç YALNIZ XML metni üretir. Hızlı Bilişim'e gönderim yapmaz,
+// kuyruğa kayıt atmaz, hiçbir belge durumunu değiştirmez.
+documentTemplatesRouter.get('/test-scenarios', requireAuth, (_req: Request, res: Response) => {
+  res.json({ success: true, scenarios: UBL_TEST_SCENARIOS });
+});
+
+// GET /api/document-templates/test-xml/:scenario - Senaryoya göre gerçekçi UBL-TR XML
+documentTemplatesRouter.get('/test-xml/:scenario', requireAuth, (req: Request, res: Response) => {
+  try {
+    const raw = String(req.params.scenario || '').toUpperCase();
+    if (!isUblTestScenario(raw)) {
+      return res.status(400).json({
+        success: false,
+        message: `Bilinmeyen test senaryosu: ${raw}. Geçerli değerler: ${UBL_TEST_SCENARIOS.map(s => s.id).join(', ')}`,
+      });
+    }
+
+    const db = storage.getState();
+    const company = db.company || db.tenants?.[0];
+    const xml = buildScenarioXml(raw, company);
+
+    // Üretilen metnin gerçekten ayrıştırılabildiğini doğrula. Bozuk XML'i
+    // önizlemeye göndermek, kullanıcıya "şablonun bozuk" dedirtirdi — hata
+    // şablonda değil test verisinde olurdu.
+    const parsed = parseXmlish(xml);
+    if (!parsed.ok) {
+      return res.status(500).json({
+        success: false,
+        message: `Test XML üretilemedi (senaryo: ${raw}): ${parsed.error}`,
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.send(xml);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/document-templates/validate-xslt - Validate XSLT Syntax
 documentTemplatesRouter.post('/validate-xslt', requireAuth, (req: Request, res: Response) => {
   try {
@@ -81,6 +128,12 @@ documentTemplatesRouter.post('/validate-xslt', requireAuth, (req: Request, res: 
       error: result.error,
       warning: result.warning,
       unsupportedFeatures: result.unsupportedFeatures || [],
+      // 2026-09-27: Editörün Monaco marker'ı koyabilmesi için konum/ağırlık.
+      // Konum bilinemiyorsa alanlar hiç gönderilmez (undefined) — istemci
+      // uydurma satır numarası göstermemeli.
+      line: result.line,
+      column: result.column,
+      severity: result.severity,
     });
   } catch (err: any) {
     res.status(400).json({ success: false, valid: false, message: err.message });

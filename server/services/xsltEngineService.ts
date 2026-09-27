@@ -1,5 +1,50 @@
 import type { DocumentType, DocumentDesignConfig } from '../db/schema';
-import { normalizeXsltForBrowser, parseXmlish } from './xsltCompatibility';
+import { normalizeXsltForBrowser, parseXmlish, findUnsupportedFeatureLocation } from './xsltCompatibility';
+
+/**
+ * Metindeki bir ofseti 1 tabanlı satır/kolon konumuna çevirir.
+ *
+ * NEDEN: Doğrulayıcı hatayı yalnız metin olarak döndürdüğünde kullanıcı
+ * 368 KB'lık bir şablonda hatayı bulamıyordu. Editörde marker göstermek için
+ * konum şart (bkz. validateXslt dönüş tipi).
+ */
+function toLineColumn(text: string, offset: number): { line: number; column: number } {
+  const before = text.slice(0, Math.max(0, offset));
+  const breaks = before.split('\n');
+  return { line: breaks.length, column: breaks[breaks.length - 1].length + 1 };
+}
+
+/**
+ * Güvenlik ihlalinin (dış varlık/DTD/içe aktarma) dosyadaki ilk görüldüğü yeri
+ * bulur. Kalıplar `normalizeXsltForBrowser` içindedir; burada yalnız aynı
+ * kalıpların konumunu çıkarırız ki marker doğru satıra düşsün.
+ */
+function locateFirstViolation(xsltContent: string): { line?: number; column?: number } {
+  const patterns = [
+    /<!ENTITY\s+[^>]*\b(?:SYSTEM|PUBLIC)\b/i,
+    /<!DOCTYPE[^>]*\b(?:SYSTEM|PUBLIC)\b/i,
+    /<xsl:(?:include|import)[\s>]/i,
+  ];
+  let best = -1;
+  for (const re of patterns) {
+    const m = re.exec(xsltContent);
+    if (m && (best === -1 || m.index < best)) best = m.index;
+  }
+  if (best === -1) return {};
+  return toLineColumn(xsltContent, best);
+}
+
+/**
+ * Desteklenmeyen XSLT 2.0 yapılarından ilkinin konumunu döndürür.
+ * Konum bulunamazsa boş nesne döner — uydurma satır numarası verilmez.
+ */
+function locateUnsupportedFeature(
+  xsltContent: string,
+  features: string[]
+): { line?: number; column?: number } {
+  const loc = findUnsupportedFeatureLocation(xsltContent, features);
+  return loc ? { line: loc.line, column: loc.column } : {};
+}
 
 export class XsltEngineService {
   /**
@@ -512,6 +557,15 @@ export class XsltEngineService {
     error?: string;
     warning?: string;
     unsupportedFeatures?: string[];
+    /**
+     * 2026-09-27: Hatanın dosyadaki YERİ. Editör bunu Monaco marker'ı olarak
+     * gösterir ve kullanıcı tıklayınca ilgili satıra gider. Konum bilinemiyorsa
+     * (ör. kök eleman yanlış — dosyanın herhangi bir yerinde olabilir) boş kalır
+     * ve marker konulmaz; uydurma bir satır numarası verilmez.
+     */
+    line?: number;
+    column?: number;
+    severity?: 'error' | 'warning';
   } {
     if (!xsltContent || typeof xsltContent !== 'string') {
       return { valid: false, error: 'XSLT içeriği boş olamaz.' };
@@ -525,14 +579,33 @@ export class XsltEngineService {
     // aynı sonucu verir; bu yüzden metin tarama yerine ayrıştırma esas alınır.
     const parse = parseXmlish(xsltContent);
     if (!parse.ok) {
-      return { valid: false, error: `XSLT XML ayrıştırma hatası: ${parse.error}` };
+      return {
+        valid: false,
+        error: `XSLT XML ayrıştırma hatası: ${parse.error}`,
+        line: parse.line,
+        column: parse.column,
+        severity: parse.severity || 'error',
+      };
     }
 
     const rootName = parse.rootName;
     if (rootName !== 'stylesheet' && rootName !== 'transform') {
+      // Kök elemanın konumu kesin olarak bilinir: belgedeki ilk eleman.
+      const firstTag = /<([A-Za-z_:][\w.:-]*)/.exec(xsltContent);
+      let line: number | undefined;
+      let column: number | undefined;
+      if (firstTag) {
+        const before = xsltContent.slice(0, firstTag.index);
+        const breaks = before.split('\n');
+        line = breaks.length;
+        column = breaks[breaks.length - 1].length + 1;
+      }
       return {
         valid: false,
         error: `Geçersiz XSLT: Kök eleman <xsl:stylesheet> olmalı, bulunan: <${rootName || 'yok'}>.`,
+        line,
+        column,
+        severity: 'error',
       };
     }
 
@@ -550,6 +623,8 @@ export class XsltEngineService {
         error:
           `Güvenlik: şablon dış kaynak erişimi içeriyor — ${security.externalEntityViolations.join(', ')}. ` +
           `Dış varlık, DTD veya şablon içe aktarma kabul edilmez; şablonu kendi kendine yeterli hâle getirin.`,
+        ...locateFirstViolation(xsltContent),
+        severity: 'error',
       };
     }
 
@@ -562,6 +637,8 @@ export class XsltEngineService {
           `Bu şablon tarayıcıda çalıştırılamayan XSLT 2.0 yapıları içeriyor: ` +
           `${normalized.unsupportedFeatures.join(', ')}. XSLT 1.0 uyumlu bir şablon gerekir.`,
         unsupportedFeatures: normalized.unsupportedFeatures,
+        ...locateUnsupportedFeature(xsltContent, normalized.unsupportedFeatures),
+        severity: 'error',
       };
     }
 

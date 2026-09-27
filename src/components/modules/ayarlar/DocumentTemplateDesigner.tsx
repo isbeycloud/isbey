@@ -5,6 +5,7 @@ import { useApp } from '../../../context/AppContext';
 import { Modal } from '../../common/Modal';
 import { transformXmlWithXsltInBrowser } from '../../../utils/xsltTransform';
 import { XsltUploadPanel } from './XsltUploadPanel';
+import { XsltStudio } from './xslt-studio/XsltStudio';
 import type { DocumentType, DocumentTemplate, DocumentDesignConfig } from '../../../types';
 import {
   ArrowLeft,
@@ -145,6 +146,20 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
   const [xsltEditorTab, setXsltEditorTab] = useState<'code' | 'upload'>('code');
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null);
 
+  // 2026-09-27: XSLT / Fatura Tasarım Stüdyosu (görsel + kod + test XML + A4).
+  // Eski "XSLT Görüntüle / Düzenle" modalı KORUNUR; stüdyo ek bir katmandır.
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
+  /**
+   * En son KAYDEDİLEN (veya sunucudan yüklenen) XSLT. Kirli durum bununla
+   * karşılaştırılarak bulunur — kullanıcı "kaydettim mi?" diye düşünmesin.
+   */
+  const [savedXsltCode, setSavedXsltCode] = useState('');
+  /** Stüdyo Test XML modunda seçili senaryo kimliği. */
+  const [testScenario, setTestScenario] = useState('');
+  /** Stüdyo için ayrı XML: Test XML modunda senaryo seçilirse buraya yazılır.
+      Boşken önizleme yine `sampleXml` ile çalışır (mevcut davranış korunur). */
+  const [studioXml, setStudioXml] = useState('');
+
   useEffect(() => {
     loadInitialData();
   }, [templateId]);
@@ -209,6 +224,8 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
           setIsDefault(t.isDefault);
           setVersion(t.version || 1);
           setRawXsltCode(t.xsltContent);
+          // Kirli durum karşılaştırmasının temeli: sunucudaki içerik.
+          setSavedXsltCode(t.xsltContent || '');
 
           if (t.config) {
             setPrimaryColor(t.config.primaryColor || '#0284c7');
@@ -304,10 +321,16 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
     return false;
   };
 
-  const updateLivePreview = async () => {
+  /**
+   * @param overrideXml Stüdyo Test XML modundan gelen XML. Verilmezse mevcut
+   *   davranış AYNEN korunur (`sampleXml`). Bu sayede stüdyo, önizleme yolunu
+   *   değiştirmeden farklı senaryoları sınayabilir.
+   */
+  const updateLivePreview = async (overrideXml?: string) => {
+    const effectiveXml = (overrideXml ?? studioXml ?? '').trim() || sampleXml;
     // Örnek XML yokken sunucuya gitmenin anlamı yok: dönüşüm girdisi eksikse
     // XSLT boş belge üzerinde çalışır ve sonuç yanıltıcı olur.
-    if (!sampleXml?.trim()) {
+    if (!effectiveXml?.trim()) {
       setPreviewHtml(
         `<div style="font-family:Arial,sans-serif;padding:24px;color:#b91c1c;font-size:13px;">` +
         `<strong>Önizleme oluşturulamadı.</strong><br><br>` +
@@ -321,14 +344,14 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
       const cfg = buildCurrentConfig();
       if (templateId) {
         const res = await api.previewDocumentTemplate(templateId, {
-          customXml: sampleXml,
+          customXml: effectiveXml,
           config: cfg,
         });
         applyPreviewResponse(res, 'designer');
       } else {
         const res = await api.previewCustomDocumentTemplate({
           documentType: docType,
-          customXml: sampleXml,
+          customXml: effectiveXml,
           config: cfg,
           customXslt: rawXsltCode || undefined,
         });
@@ -458,6 +481,8 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
         if (res.success) {
           showToast(`✓ "${templateName}" tasarımı başarıyla kaydedildi! (v${res.template.version})`, 'success');
           setVersion(res.template.version);
+          // Kirli durumu sıfırla — kaydedilen içerik artık sunucudaki içeriktir.
+          setSavedXsltCode(res.template?.xsltContent ?? rawXsltCode);
           triggerRefresh();
         }
       } else {
@@ -513,6 +538,24 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* 2026-09-27: Yeni stüdyo girişi. Eski düzenleyici düğmesi KORUNUR
+              (dosya yükleme sekmesi yalnız orada) — stüdyo ek bir katmandır. */}
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="open-studio"
+            onClick={() => setIsStudioOpen(true)}
+            title="Görsel tasarım + Monaco kod editörü + Test XML + A4 önizleme"
+            style={{ fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Sparkles size={13} /> Tasarım Stüdyosu
+            {rawXsltCode !== savedXsltCode && (
+              <span
+                title="Kaydedilmemiş XSLT değişikliği var"
+                style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--warning)', display: 'inline-block' }}
+              />
+            )}
+          </button>
+
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setIsXsltEditorOpen(true)}
@@ -523,7 +566,7 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
 
           <button
             className="btn btn-primary btn-sm"
-            onClick={updateLivePreview}
+            onClick={() => updateLivePreview()}
             style={{ fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
           >
             <Eye size={13} /> Önizle
@@ -1079,7 +1122,7 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className="btn btn-primary"
-            onClick={updateLivePreview}
+            onClick={() => updateLivePreview()}
             style={{
               // 2026-09-13: '#0284c7' (mavi) kaldırıldı — buton artık marka token'ı.
               fontWeight: 700,
@@ -1131,6 +1174,28 @@ export const DocumentTemplateDesigner: React.FC<DocumentTemplateDesignerProps> =
           </button>
         </div>
       </div>
+
+      {/* ─── XSLT / FATURA TASARIM STÜDYOSU ─── */}
+      <XsltStudio
+        isOpen={isStudioOpen}
+        onClose={() => setIsStudioOpen(false)}
+        templateId={templateId}
+        templateName={templateName}
+        docType={docType}
+        code={rawXsltCode}
+        onCodeChange={setRawXsltCode}
+        previewHtml={previewHtml}
+        onRefreshPreview={() => updateLivePreview()}
+        previewBusy={loading}
+        testXml={studioXml || sampleXml}
+        onTestXmlChange={setStudioXml}
+        onScenarioChange={setTestScenario}
+        selectedScenario={testScenario}
+        onSave={handleSave}
+        saving={saving}
+        dirty={rawXsltCode !== savedXsltCode}
+        version={version}
+      />
 
       {/* ─── XSLT KAYNAK KOD DÜZENLEME MODALI ─── */}
       {isXsltEditorOpen && (

@@ -132,6 +132,58 @@ export interface PreviewResponse {
   unsupportedFeatures?: string[];
 }
 
+/**
+ * XSLT doğrulama yanıtı.
+ *
+ * 2026-09-27: `line`/`column`/`severity` eklendi. Editör bunları Monaco marker'ı
+ * olarak kullanır. Konum sunucuda bulunamadıysa alanlar `undefined` gelir ve
+ * istemci marker KOYMAZ — uydurma satır numarası gösterilmez.
+ */
+export interface XsltValidationResponse {
+  success: boolean;
+  valid: boolean;
+  message: string;
+  error?: string;
+  warning?: string;
+  unsupportedFeatures?: string[];
+  /** 1 tabanlı satır numarası (hataysa). */
+  line?: number;
+  /** 1 tabanlı kolon numarası (hataysa). */
+  column?: number;
+  severity?: 'error' | 'warning';
+}
+
+/**
+ * XML gövdeli uçlar için ortak alıcı.
+ *
+ * 2026-09-27: `getSampleXml` içindeki mantık buraya taşındı; Test XML de
+ * aynı kurallara uyar. Kural: kimlik başlığı GÖNDERİLİR ve JSON hata gövdesi
+ * XML sanılmaz — yanıt `<` ile başlamalıdır. Aksi hâlde hata JSON'u
+ * dönüşüm girdisi olarak kullanılır ve önizleme sessizce bozulur.
+ */
+async function fetchXmlText(endpoint: string, label: string): Promise<string> {
+  const token = localStorage.getItem('isbey_token');
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    // Sunucu JSON hata gövdesi döndüyse mesajı kullanıcıya taşı.
+    let detail = '';
+    try {
+      const j = JSON.parse(text);
+      if (j?.message) detail = ` ${j.message}`;
+    } catch {
+      /* gövde JSON değil — sorun değil */
+    }
+    throw new ApiError(`${label} alınamadı (HTTP ${res.status}).${detail}`, res.status);
+  }
+  if (!text.trimStart().startsWith('<')) {
+    throw new ApiError(`${label} yerine geçersiz bir yanıt alındı.`, res.status);
+  }
+  return text;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   try {
     const token = localStorage.getItem('isbey_token');
@@ -1015,7 +1067,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   validateXslt: (xsltContent: string) =>
-    request<{ success: boolean; valid: boolean; message: string; error?: string; warning?: string; unsupportedFeatures?: string[] }>('/document-templates/validate-xslt', {
+    request<XsltValidationResponse>('/document-templates/validate-xslt', {
       method: 'POST',
       body: JSON.stringify({ xsltContent }),
     }),
@@ -1037,20 +1089,18 @@ export const api = {
   // `sampleXml` olarak state'e yazılıyor ve önizleme dönüşümüne GİRDİ oluyordu
   // (hatalı çıktı veya sessiz boş sayfa). Artık kimlik başlığı gönderilir ve
   // JSON hata gövdesi XML olarak kabul edilmez: yanıt `<` ile başlamalıdır.
-  getSampleXml: async (documentType: string = 'EFATURA'): Promise<string> => {
-    const token = localStorage.getItem('isbey_token');
-    const res = await fetch(`${API_BASE}/document-templates/sample-xml/${encodeURIComponent(documentType)}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new ApiError(`Örnek XML alınamadı (HTTP ${res.status}).`, res.status);
-    }
-    if (!text.trimStart().startsWith('<')) {
-      throw new ApiError('Örnek XML yerine geçersiz bir yanıt alındı.', res.status);
-    }
-    return text;
-  },
+  getSampleXml: (documentType: string = 'EFATURA') =>
+    fetchXmlText(`/document-templates/sample-xml/${encodeURIComponent(documentType)}`, 'Örnek XML'),
+
+  // 2026-09-27: XSLT Stüdyosu "Test XML" modu. Sunucu kataloğu tek kaynaktır;
+  // istemci yalnız buradaki kimlikleri ister. Şablon BOZULMADAN farklı
+  // senaryolar (iade, istisna, çok satır) sınanabilir.
+  getTestScenarios: () =>
+    request<{ success: boolean; scenarios: Array<{ id: string; label: string; description: string; highlights: string[] }> }>(
+      '/document-templates/test-scenarios'
+    ),
+  getTestXml: (scenario: string) =>
+    fetchXmlText(`/document-templates/test-xml/${encodeURIComponent(scenario)}`, 'Test XML'),
 
   // Hızlı Bilişim e-Connect Belgeler & İşlemler
   getCompanyInvoiceHistory: (startDate: string, endDate: string) => request<{ success: boolean; documents: import('../components/modules/edonusum/InvoiceHistory').HistoryDocument[] }>(`/e-services/invoice-history?${new URLSearchParams({ startDate, endDate })}`),

@@ -17,6 +17,7 @@ const suites = [
   'faz252bPermissionRegistryTest.mjs', 'faz252dFrontendMatrixAlignmentTest.mjs',
   'faz27EnvironmentConfigTest.ts', 'phase19GuidFindUnitTest.ts',
   'faz29UatScenarioSuite.ts', 'phase32CreditLifecycleTest.ts', 'productionReadinessTest.ts', 'storageWriteFailureTest.ts',
+  'xsltStudioScenarioTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {
