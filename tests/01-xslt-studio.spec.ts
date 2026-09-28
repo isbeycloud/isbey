@@ -540,6 +540,12 @@ test('15 · geri al / ileri al düğmeleri durumu gerçekten değiştirir', asyn
     return el ? Number((el as HTMLElement).dataset.chars || 0) : 0;
   });
 
+  // Şablon sunucudan ASENKRON yüklenir; geçmiş tabanının bu içerikle
+  // tazelendiğini (2026-09-28 onarımı) doğrulayabilmek için başlangıç
+  // uzunluğunu ÖNCEDEN kaydediyoruz. Boş kalırsa test anlamsızlaşır.
+  const baselineChars = await codeOf();
+  expect(baselineChars, 'şablon yüklenmedi — geçmiş tabanı ölçülemez').toBeGreaterThan(1000);
+
   // SÖZLEŞME NOTU: Geri al/ileri al, XSLT *kod* geçmişini yönetir. Görsel
   // tuvalde blok eklemek kodu değiştirmez (ayrı katman) ve bu yüzden tek
   // başına geçmiş adımı üretmez; kod ancak "XSLT'yi Bu Tasarımdan Üret" ile
@@ -554,15 +560,22 @@ test('15 · geri al / ileri al düğmeleri durumu gerçekten değiştirir', asyn
   await page.waitForTimeout(900);
 
   await expect.poll(() => off(undo), { timeout: 10000 }).toBe(false);
-  const beforeUndo = await codeOf();
+  const afterCompile = await codeOf();
 
   await undo.click();
   await expect.poll(() => off(redo), { timeout: 10000 }).toBe(false);
 
-  // Geri alma kodun GERÇEKTEN değiştiğini göstermeli.
-  await expect.poll(codeOf, { timeout: 10000 }).not.toBe(beforeUndo);
+  // 2026-09-28 — KESİN EŞİTLİK (eski `.not.toBe` iddiası hatalıydı).
+  // "Öncekinden farklı" demek, editörün BOŞALMASINI da geçirir; canlıda olan
+  // tam buydu: 20230 → Geri Al → 0 karakter, yani veri kaybı. Doğru iddia,
+  // geri almanın TAM olarak derleme ÖNCESİ içeriğe dönmesidir.
+  await expect.poll(codeOf, { timeout: 10000 }).toBe(baselineChars);
+  // Boşalma regresyonu için açık ve okunur bir kilit.
+  expect(await codeOf(), 'Geri Al editörü boşalttı — veri kaybı').toBeGreaterThan(1000);
 
+  // İleri al da simetrik olmalı: TAM olarak derleme sonrası içeriğe dönmeli.
   await redo.click();
+  await expect.poll(codeOf, { timeout: 10000 }).toBe(afterCompile);
   await expect.poll(() => off(redo), { timeout: 10000 }).toBe(true);
 });
 

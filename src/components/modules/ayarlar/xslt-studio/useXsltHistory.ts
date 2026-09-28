@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * XSLT Geri Al / İleri Al geçmişi.
@@ -19,6 +19,14 @@ import { useCallback, useRef, useState } from 'react';
  *   • sınır aşılırsa EN ESKİ adımlar atılır (yeni iş kaybedilmez).
  *
  * KURAL: Bu hook metni ASLA kendiliğinden değiştirmez; yalnız kaydeder.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 2026-09-28 — VERİ KAYBI ONARIMI (bkz. aşağıdaki "DIŞARIDAN GELEN İÇERİK").
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Eski davranış: geçmiş tabanı yalnız `initial` (yani hook ilk çağrıldığı andaki
+ * metin) ile kuruluyordu. Şablon sunucudan ASENKRON geldiği için o an metin
+ * `''` idi → 20 KB'lik şablon yüklendikten sonra "Geri Al"a basmak, geçmişteki
+ * boş tabana dönüyor ve editörü TAMAMEN BOŞALTIYORDU.
  */
 export interface HistoryEntry {
   /** Adımın içeriği. */
@@ -42,8 +50,15 @@ export interface XsltHistoryApi {
   undo: () => string | null;
   /** Bir adım ileri gider; yeni içeriği döndürür (yoksa null). */
   redo: () => string | null;
-  /** Geçmişi sıfırlar (yeni şablon yüklendiğinde). */
+  /** Geçmişi sıfırlar (kullanıcı bir sürümü geri yüklediğinde). */
   reset: (text: string, label?: string) => void;
+  /**
+   * DIŞARIDAN GELEN İÇERİK — kullanıcı düzenlemesi DEĞİL (şablon yükleme,
+   * sunucudan tazeleme). Yeni içeriği geçmişin TABANI yapar; böylece "Geri Al"
+   * bir sonraki adımda boş/eski sunucu hâline değil, gerçekten bir önceki
+   * düzenlemeye döner. Kullanıcı düzenlemelerinde ÇAĞRILMAMALIDIR.
+   */
+  syncExternal: (text: string, label?: string) => void;
   /** Kaç adım geri gidilebilir / ileri gidilebilir. */
   counts: { undo: number; redo: number };
 }
@@ -127,6 +142,47 @@ export function useXsltHistory(initial: string, initialLabel = 'Başlangıç'): 
     notify();
   }, [notify]);
 
+  const syncExternal = useCallback((text: string, label = 'Yüklendi') => {
+    /**
+     * Dışarıdan gelen içerik: tabanı tazele. Kullanıcının bu oturumda yaptığı
+     * düzenlemeler geçmişten SİLİNMEZ; yalnız en alttaki (taban) adım yeni
+     * içerikle değiştirilir. Böylece:
+     *   • Geri Al artık boş metne dönemez (asıl hata buydu),
+     *   • bir önceki kullanıcı düzenlemesine dönmek yine mümkündür.
+     */
+    const base = past.current[0];
+    if (base && base.text === text) {
+      // Taban zaten bu içerik — etiket tazelenir, geçmiş bozulmaz.
+      base.label = label;
+      base.at = Date.now();
+      notify();
+      return;
+    }
+    past.current[0] = { text, label, at: Date.now() };
+    lastPushAt.current = 0;
+    notify();
+  }, [notify]);
+
+  /**
+   * DIŞARIDAN GELEN İÇERİK TAKİBİ (2026-09-28 onarımı).
+   * ═══════════════════════════════════════════════════════════════════════════
+   * `initial` yalnız mount anında değil, SONRADAN da değişebilir (şablonun
+   * sunucudan asenkron yüklenmesi bu hatanın kök nedeniydi).
+   *
+   * Neden kullanıcı düzenlemesini yanlışlıkla "dış" saymıyoruz: kullanıcı
+   * kaynaklı TÜM değişiklikler önce `push`/`flush` ile geçmişe yazılır, yani
+   * render anında üstteki adım ile `initial` EŞİT olur. Undo/redo da aynı
+   * şekilde üstteki adımı `initial`e eşitler. Dolayısıyla "üstteki adım
+   * `initial`'e eşit değilse bu değişiklik dışarıdan geldi" çıkarımı güvenli;
+   * efekt kendini yeniden tetiklemez.
+   */
+  useEffect(() => {
+    if (!initial) return; // boş içerik zaten geçmişin doğal tabanı
+    const top = past.current[past.current.length - 1];
+    if (top && top.text === initial) return;
+    syncExternal(initial, 'Şablon yüklendi');
+  }, [initial, syncExternal]);
+
   return {
     push,
     flush,
@@ -135,6 +191,7 @@ export function useXsltHistory(initial: string, initialLabel = 'Başlangıç'): 
     undo,
     redo,
     reset,
+    syncExternal,
     counts: { undo: past.current.length - 1, redo: future.current.length },
   };
 }
