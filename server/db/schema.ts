@@ -1644,6 +1644,7 @@ export interface DatabaseState {
   tenantEinvoiceSettings?: TenantEinvoiceSettings[];
   electronicDocuments?: ElectronicDocument[];
   incomingInvoices?: IncomingInvoice[];
+  incomingDespatches?: IncomingDespatch[];
   taxpayerCache?: TaxpayerCacheItem[];
   integrationLogs?: IntegrationLog[];
   electronicDocumentUsage?: ElectronicDocumentUsage[];
@@ -1997,12 +1998,89 @@ export interface IncomingInvoice {
   vatAmount: number;
   grandTotal: number;
   currency: string;
-  status: 'RECEIVED' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_PURCHASE';
+  status: 'RECEIVED' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_PURCHASE' | 'UNREADABLE';
   rejectionReason?: string;
   convertedPurchaseInvoiceId?: string;
   xmlStoragePath?: string;
   pdfStoragePath?: string;
   items: IncomingInvoiceItem[];
+  /**
+   * 2026-09-28 — Belgenin KENDİ bildirdiği toplamlar (kalemlerden hesaplanan
+   * `subTotal`/`vatAmount`/`grandTotal` alanlarından AYRI). Onay ekranı ikisini
+   * yan yana gösterir; uyuşmazlık kullanıcıya `parseWarnings` ile bildirilir.
+   */
+  declaredSubTotal?: number;
+  declaredVatTotal?: number;
+  declaredPayable?: number;
+  /**
+   * Belge içeriği okunamadıysa (XML yok/bozuk) nedenleri. Boş değilse içeri
+   * aktarma ENGELLENİR — eksik belge uydurulmaz.
+   */
+  parseErrors?: string[];
+  /** Okumayı engellemeyen ama kullanıcının görmesi gereken durumlar. */
+  parseWarnings?: string[];
+  /** Belge türü: 'INVOICE' | 'DESPATCH'. */
+  documentKind?: 'INVOICE' | 'DESPATCH';
+  /** Eşleştirmede seçilen tedarikçi (cari) kaydı. */
+  matchedSupplierId?: string;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Gelen e-İrsaliye Kalemi
+ *
+ * İrsaliyede fiyat/KDV BULUNMAZ (sevk belgesidir). `unitPrice`/`vatRate` bu
+ * yüzden tanımsızdır; 0 yazmak "bedava mal" izlenimi verirdi. Fiyat, irsaliyeye
+ * bağlı fatura kesilirken kullanıcı tarafından girilir.
+ */
+export interface IncomingDespatchItem {
+  id: string;
+  incomingDespatchId: string;
+  supplierProductCode?: string;
+  name: string;
+  barcode?: string;
+  quantity: number;
+  unit: string;
+  /** İrsaliyede yoktur; onay ekranında kullanıcı girer. */
+  unitPrice?: number;
+  /** İrsaliyede yoktur; onay ekranında kullanıcı seçer. */
+  vatRate?: number;
+  /** Eşleştirmede seçilen stok kartı. */
+  mappedProductId?: string;
+}
+
+/**
+ * Gelen e-İrsaliye (e-DespatchAdvice)
+ *
+ * 2026-09-28 eklendi. e-Fatura akışıyla AYNI disiplini izler: içerik çözümlenir,
+ * eşleştirme önerilir, stok YALNIZ onaydan sonra hareket eder.
+ *
+ * ÖNEMLİ FARK: İrsaliye bir MAL HAREKETİ belgesidir, mali belge DEĞİLDİR.
+ * Bu yüzden onaylandığında cari borç OLUŞMAZ — yalnız stok girişi olur ve
+ * satıcı faturası geldiğinde `IncomingInvoice` üzerinden kapatılır.
+ */
+export interface IncomingDespatch {
+  id: string;
+  tenantId: string;
+  /** ETTN. */
+  uuid: string;
+  despatchNo: string;
+  supplierTaxNumber: string;
+  supplierTitle: string;
+  issueDate: string;
+  /** Çözümlenen belge türü — her zaman 'DESPATCH'. */
+  documentKind: 'DESPATCH';
+  status: 'RECEIVED' | 'APPROVED' | 'REJECTED' | 'UNREADABLE';
+  /** Onaylandığında oluşan mal giriş hareketlerinin belge numarası. */
+  convertedMovementRef?: string;
+  rejectionReason?: string;
+  xmlStoragePath?: string;
+  items: IncomingDespatchItem[];
+  parseErrors?: string[];
+  parseWarnings?: string[];
+  matchedSupplierId?: string;
   receivedAt: string;
   createdAt: string;
   updatedAt: string;

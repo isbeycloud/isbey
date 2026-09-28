@@ -98,6 +98,18 @@ const ACCOUNTANT_PERMISSIONS: readonly PermissionCode[] = [
   PERMISSIONS.EXPENSES_UPDATE,
   PERMISSIONS.REPORTS_VIEW,
   PERMISSIONS.COMPANY_VIEW,
+  // ── Gelen e-Fatura / e-İrsaliye içeri aktarma (2026-09-28) ────────────────
+  // EN AZ YETKİ: Muhasebecinin bu ekranı kullanması için gereken iki izin
+  // eklendi; başka hiçbir yetki eklenmedi. Özellikle VERİLMEYENLER:
+  //   - products.create → gelen mal için ürün kartı açmak onay akışının
+  //     PARÇASIDIR; ayrıca vermek stok modülünü serbest bırakırdı.
+  //   - waybills.update/delete → muhasebe gelen malı KAYDEDER, sevk belgesi
+  //     düzenlemez/silmez.
+  //   - users.*, company.update, tenants.manage → admin yetkileridir.
+  PERMISSIONS.EINVOICE_VIEW, // gelen kutusu + senkron + eşleştirme planı
+  // Gelen irsaliyeyi ONAYLA (stok girişi) / reddet. `waybills.create` DEĞİL:
+  // o, giden sevk irsaliyesi kesmektir ve muhasebeye verilmemelidir.
+  PERMISSIONS.WAYBILLS_APPROVE,
 ];
 
 /** Personel / Satış (seed employeeCodes — birebir). */

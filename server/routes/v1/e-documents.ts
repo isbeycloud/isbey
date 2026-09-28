@@ -3,6 +3,7 @@ import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { ElectronicDocumentService } from '../../services/electronicDocumentService';
 import { IncomingInvoiceService } from '../../services/incomingInvoiceService';
+import { IncomingDespatchService } from '../../services/incomingDespatchService';
 import { DocumentStorageService } from '../../services/documentStorageService';
 import { ProviderConfigurationError, ProviderTransportError } from '../../services/providers/providerFactory';
 
@@ -294,29 +295,224 @@ v1EDocumentsRouter.post('/incoming/sync', requirePermission(PERMISSIONS.EINVOICE
 });
 
 /**
+ * GET /api/v1/e-documents/incoming/:id/plan
+ *
+ * Onay ekranının verisini üretir: belgenin çözümlenmiş içeriği + tedarikçi ve
+ * ürün eşleştirme ÖNERİLERİ. **Hiçbir şey yazmaz.**
+ *
+ * 2026-09-28: Ayrı bir uç olmasının nedeni, kullanıcının stok/cari üzerinde
+ * etki yaratmadan eşleştirmeyi gözden geçirebilmesidir.
+ */
+v1EDocumentsRouter.get(
+  '/incoming/:id/plan',
+  requirePermission(PERMISSIONS.EINVOICE_VIEW),
+  (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    try {
+      const plan = IncomingInvoiceService.getIngestionPlan(String(req.params.id), tenantId);
+      res.json({ success: true, plan });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+/**
  * POST /api/v1/e-documents/incoming/:id/convert
- * Gelen e-Faturayı Alış Faturasına Dönüştürür
+ *
+ * Gelen belgeyi ONAYLANAN eşleştirmelerle alış faturasına dönüştürür.
+ * Stok girişi ve tedarikçi borcu YALNIZ bu çağrıda oluşur.
+ *
+ * Gövde (hepsi isteğe bağlı; verilmeyen kalemler için otomatik eşleşme
+ * kullanılır, eşleşme de yoksa yeni kart açılır):
+ *   { supplierId?, createSupplier?, lines?: [{ lineNo, productId?, createProduct? }] }
  */
 v1EDocumentsRouter.post('/incoming/:id/convert', requirePermission(PERMISSIONS.INVOICES_CREATE), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
+  const { supplierId, createSupplier, lines } = req.body || {};
 
   try {
-    const invoice = await IncomingInvoiceService.convertToPurchaseInvoice(
+    const invoice = await IncomingInvoiceService.approveAndConvert(
       String(req.params.id),
       tenantId,
       user.id,
-      user.fullName || user.username
+      user.fullName || user.username,
+      { supplierId, createSupplier, lines }
     );
     res.status(201).json({
       success: true,
-      message: 'Gelen fatura başarıyla alış faturasına dönüştürüldü.',
+      message: 'Gelen fatura onaylandı; alış faturası, stok girişi ve tedarikçi borcu oluşturuldu.',
       invoice,
     });
   } catch (err: any) {
     res.status(400).json({ success: false, message: err.message });
   }
 });
+
+// ──────────────────────────────────────────────────────────
+// GELEN e-İRSALİYE (e-DespatchAdvice) — 2026-09-28
+//
+// e-Fatura akışıyla AYNI üç aşama, ama farklı sonuç: onay STOK GİRİŞİ yapar,
+// CARİ BORÇ OLUŞTURMAZ (irsaliye mali belge değildir). Uçlar ayrı tutulur ki
+// iki akışın yetkileri ve yan etkileri karışmasın.
+// ──────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/e-documents/incoming-despatches/list
+ *
+ * 2026-09-28: Sayfalama sözleşmesi gelen e-Fatura ucuyla (`/incoming/list`)
+ * BİREBİR eşitlendi: `page / limit / total / totalPages`. Önceden bu uç tüm
+ * listeyi tek yanıtta döndürüyordu; gelen kutusu büyüdükçe yanıt sınırsız
+ * şişiyor ve iki sekme farklı davranıyordu.
+ *
+ * Geriye dönük uyum: `incomingDespatches` alanı KORUNUR (sayfalanmış dilim).
+ * Böylece eski istemciler kırılmaz; yalnız `data` + `pagination` eklenir.
+ */
+v1EDocumentsRouter.get(
+  '/incoming-despatches/list',
+  requirePermission(PERMISSIONS.WAYBILLS_VIEW),
+  (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    const { page = '1', limit = '25', status, search = '' } = req.query as Record<string, string>;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 25));
+
+    const db = storage.getState();
+    let list = (db.incomingDespatches || []).filter(
+      d => d.tenantId === tenantId || (tenantId === 'tnt-isbey' && !d.tenantId)
+    );
+
+    if (status && status !== 'ALL') list = list.filter(d => d.status === status);
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        d =>
+          d.despatchNo?.toLowerCase().includes(q) ||
+          d.supplierTitle?.toLowerCase().includes(q) ||
+          d.supplierTaxNumber?.includes(q) ||
+          d.uuid?.toLowerCase().includes(q)
+      );
+    }
+
+    list = [...list].sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+
+    const total = list.length;
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginated = list.slice(startIndex, startIndex + limitNum);
+
+    res.json({
+      success: true,
+      data: paginated,
+      incomingDespatches: paginated,
+      pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
+      total,
+    });
+  }
+);
+
+/**
+ * POST /api/v1/e-documents/incoming-despatches/sync
+ */
+v1EDocumentsRouter.post(
+  '/incoming-despatches/sync',
+  requirePermission(PERMISSIONS.WAYBILLS_VIEW),
+  async (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    const { startDate } = req.body || {};
+    try {
+      const result = await IncomingDespatchService.syncIncomingDespatches(tenantId, startDate);
+      res.json({
+        success: true,
+        message: `${result.syncedCount} gelen irsaliye senkronize edildi (${result.duplicateCount} mükerrer atlandı, ${result.unreadableCount} okunamadı).`,
+        result,
+      });
+    } catch (err: any) {
+      return entegratorHatasi(res, err);
+    }
+  }
+);
+
+/**
+ * GET /api/v1/e-documents/incoming-despatches/:id/plan — YAZMAZ.
+ */
+v1EDocumentsRouter.get(
+  '/incoming-despatches/:id/plan',
+  requirePermission(PERMISSIONS.WAYBILLS_VIEW),
+  (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    try {
+      const plan = IncomingDespatchService.getIngestionPlan(String(req.params.id), tenantId);
+      res.json({ success: true, plan });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/e-documents/incoming-despatches/:id/approve
+ *
+ * Onaylanan irsaliye için STOK GİRİŞİ oluşturur. Cari borç OLUŞMAZ.
+ *
+ * 2026-09-28: Yetki `waybills.create`'ten `waybills.approve`'a alındı. `create`
+ * GİDEN sevk irsaliyesi kesmektir; bura ise gelen malı kaydetmektir. Aynı kod
+ * kullanılınca muhasebeciye gelen malı onaylatmak için sevk irsaliyesi kesme
+ * yetkisi de verilmiş oluyordu (en az yetki ihlali).
+ */
+v1EDocumentsRouter.post(
+  '/incoming-despatches/:id/approve',
+  requirePermission(PERMISSIONS.WAYBILLS_APPROVE),
+  async (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    const user = req.user!;
+    const { supplierId, createSupplier, lines } = req.body || {};
+    try {
+      const sonuc = await IncomingDespatchService.approveDespatch(
+        String(req.params.id),
+        tenantId,
+        user.id,
+        user.fullName || user.username,
+        { supplierId, createSupplier, lines }
+      );
+      res.status(201).json({
+        success: true,
+        message: `İrsaliye onaylandı: ${sonuc.movements.length} kalem için stok girişi yapıldı. Cari borç oluşturulmadı.`,
+        despatch: sonuc.despatch,
+        movements: sonuc.movements,
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/e-documents/incoming-despatches/:id/reject
+ */
+v1EDocumentsRouter.post(
+  '/incoming-despatches/:id/reject',
+  requirePermission(PERMISSIONS.WAYBILLS_APPROVE),
+  async (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    const user = req.user!;
+    const { reason } = req.body || {};
+    try {
+      const kayit = await IncomingDespatchService.rejectDespatch(
+        String(req.params.id),
+        tenantId,
+        reason || 'Belirtilmedi',
+        user.id,
+        user.fullName || user.username
+      );
+      res.json({ success: true, message: 'Gelen irsaliye reddedildi; stok hareketi oluşmadı.', despatch: kayit });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
 
 /**
  * POST /api/v1/e-documents/incoming/:id/respond

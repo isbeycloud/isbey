@@ -20,6 +20,13 @@
  *    (bank.view, bank.create, collections.create, collections.cancel,
  *     einvoice.view, warehouses.view, warehouses.update) — docs/12 §6.
  *  - 'accounting.*' ve 'backup.*' onaylı scope listesi uyarınca rezerve eklendi.
+ *
+ * 2026-09-28 düzeltmesi:
+ *  - `einvoice.view` KATALOĞA alındı (bkz. dizinin sonundaki not). 25.2-B'de
+ *    "resmileştirildi" denmiş ama kataloğa yazılmamıştı; bu yüzden DB rol
+ *    kayıtlarına hiç girmiyor ve platform admin dışında kimse gelen e-Fatura
+ *    ucunu kullanamıyordu. Katalog 38 girdiye çıktı (perm-1..37 KORUNDU,
+ *    yeni kod perm-38).
  */
 
 /** Permission kodları — kanonik sabitler (string literal birliği türetilir). */
@@ -56,6 +63,12 @@ export const PERMISSIONS = {
   WAYBILLS_CREATE: 'waybills.create',
   WAYBILLS_UPDATE: 'waybills.update',
   WAYBILLS_DELETE: 'waybills.delete',
+  // 2026-09-28: GELEN (alış) irsaliyeyi onaylama/reddetme. `waybills.create`'ten
+  // AYRI tutulur çünkü anlamları farklıdır: `create` GİDEN sevk irsaliyesi
+  // KESMEKTİR (mal sevk edersin), `approve` gelen malı KAYDETMEKTİR (stok girişi;
+  // cari borç doğmaz). Muhasebeciye `create` verilseydi müşteriye sevk irsaliyesi
+  // kesebilirdi — en az yetki ilkesinin ihlali. Muhasebe yalnız `approve` alır.
+  WAYBILLS_APPROVE: 'waybills.approve',
 
   // ── Finans: Kasa & Banka (FINANS) ───────────────────────────────────────
   CASH_VIEW: 'cash.view',
@@ -143,11 +156,16 @@ export const isKnownPermission = (code: string): boolean =>
 
 // ─── FAZ 25.3-E (B-2): Seed katalog meta'sı — TEK KAYNAK buraya taşındı ────
 /**
- * storage.ts seedDefaultRolesAndPermissions içindeki 37 katalog girdisinin
+ * storage.ts seedDefaultRolesAndPermissions içindeki katalog girdilerinin
  * birebir meta kopyası (module/action/name/description + sıra). db.permissions
  * seed'i bu diziden türetilir; id şeması `perm-<sıra>` aynı kalır.
- * NOT: Yalnızca 37 katalog kodu DB'ye yazılır (mevcut davranış korunur) —
- * resmileştirilen 7 ve rezerve 5 kod meta'sız katalog üyesi olarak yaşar.
+ *
+ * 2026-09-28: Katalog 37 → 39. `einvoice.view` + `waybills.approve` SONA
+ * eklendi; ilk 37 kodun SIRASI korunur (perm-1..perm-37 kimlikleri kaymadı).
+ * Artık katalog = DB'ye yazılan kodlar (önceki "yalnız 37 yazılır" sınırı
+ * kaldırıldı — o sınır yüzünden route'larda kullanılan kodlar DB rol
+ * kayıtlarına hiç girmiyordu ve COMPANY_ADMIN dahil herkes 403 alıyordu).
+ * Rezerve 5 kod hâlâ meta'sızdır ve route'lara bağlanmaz.
  */
 export const PERMISSION_CATALOG: ReadonlyArray<{
   module: string;
@@ -204,6 +222,21 @@ export const PERMISSION_CATALOG: ReadonlyArray<{
   { module: 'AYARLAR', action: 'update', code: PERMISSIONS.COMPANY_UPDATE, name: 'Firma Ayarlarını Güncelle', description: 'Firma bilgileri, logo ve e-Dönüşüm ayarlarını günceller' },
   // Platform Süper Admin
   { module: 'PLATFORM', action: 'manage', code: PERMISSIONS.TENANTS_MANAGE, name: 'Tüm Şirketleri Yönet', description: 'Platform Admin: Tüm şirketleri, paketleri ve bayi ağını yönetir' },
+  // e-Dönüşüm (2026-09-28)
+  //
+  // ⚠️ NEDEN SONA EKLENDİ: `perm-<sıra>` kimlikleri bu dizinin SIRASINA bağlıdır.
+  // Sona eklemek, mevcut 37 kodun kimliğini (perm-1..perm-37) birebir korur;
+  // araya eklemek tüm kimlikleri kaydırır ve var olan veritabanlarındaki
+  // referansları bozardı.
+  //
+  // ⚠️ NEDEN KATALOĞA GİRDİ: 25.2-B'de `einvoice.view` "resmileştirilen 7 kod"
+  // arasında sayılmış ama DB kataloğuna yazılmamıştı. Sonuç sessiz bir kilitlenmeydi:
+  // `companyIdentity()` izinleri DB rol kayıtlarından okur, DB kayıtları da katalogla
+  // sınırlıdır → platform admin DIŞINDA hiçbir rol (COMPANY_ADMIN dahil) gelen
+  // e-Fatura ucunu kullanamıyordu. Route kaydı registry'de olduğu için hiçbir
+  // tutarlılık testi bunu yakalamıyordu; ancak gerçek HTTP çağrısıyla görüldü.
+  { module: 'EDONUSUM', action: 'view', code: PERMISSIONS.EINVOICE_VIEW, name: 'e-Belgeleri Görüntüle', description: 'Giden ve gelen e-Fatura/e-Arşiv belgelerini ve gelen kutusunu görüntüler' },
+  { module: 'IRSALIYE', action: 'approve', code: PERMISSIONS.WAYBILLS_APPROVE, name: 'Gelen İrsaliyeyi Onayla', description: 'Gelen (alış) e-İrsaliyeyi onaylar veya reddeder; onay stok girişi yapar, cari borç oluşturmaz' },
 ];
 
 /** Seed kataloğunun kodları (sıra korunur — db perm-1..37 id şeması buna bağlı). */

@@ -322,18 +322,28 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
       // 2026-09-12 (uydurma temizliği): `xmlContent` yoksa `'<Invoice/>'` gibi
       // boş bir XML yazılıyordu; bu, olmayan bir belgeyi varmış gibi işleme sokar.
       // XML yoksa boş string bırakılır; çağıran taraf "belge içeriği yok" görür.
-      return (Array.isArray(documents) ? documents : []).map((inv: any) => ({
-        uuid: inv.uuid || inv.ettn,
-        invoiceNo: inv.invoiceNo || inv.faturaNo,
-        supplierVkn: inv.supplierVkn || inv.senderVkn,
-        supplierTitle: inv.supplierTitle || inv.senderTitle,
-        issueDate: inv.issueDate || inv.tarih,
-        subTotal: inv.subTotal || 0,
-        vatAmount: inv.vatAmount || 0,
-        grandTotal: inv.grandTotal || inv.odenecekTutar || 0,
-        currency: inv.currency || 'TRY',
-        xmlContent: inv.xmlContent || '',
-      }));
+      return (Array.isArray(documents) ? documents : []).map((inv: any) => {
+        // 2026-09-28: Belge türü listeden de gelebilir; gelmezse varsayılan
+        // e-Fatura'dır (AppType 1). İrsaliye (3) akışı farklı olduğu için bu
+        // ayrımın kaybolmaması gerekir.
+        const appType = Number(inv.appType ?? inv.AppType ?? inv.belgeTuru) || 1;
+        const documentKind: 'INVOICE' | 'DESPATCH' = appType === 3 ? 'DESPATCH' : 'INVOICE';
+        return {
+          uuid: inv.uuid || inv.ettn,
+          invoiceNo: inv.invoiceNo || inv.faturaNo,
+          supplierVkn: inv.supplierVkn || inv.senderVkn,
+          supplierTitle: inv.supplierTitle || inv.senderTitle,
+          issueDate: inv.issueDate || inv.tarih,
+          subTotal: inv.subTotal || 0,
+          vatAmount: inv.vatAmount || 0,
+          grandTotal: inv.grandTotal || inv.odenecekTutar || 0,
+          currency: inv.currency || 'TRY',
+          xmlContent: inv.xmlContent || '',
+          documentKind,
+          appType,
+          ...(inv.readState || inv.okundu !== undefined ? { readState: String(inv.readState ?? '') } : {}),
+        };
+      });
     } catch (err: any) {
       // 2026-09-12 (sessiz yanlış cevap kapatıldı): Önceden bu catch boş liste
       // döndürüyordu. Çağıran (`IncomingInvoiceService.syncIncomingInvoices`) bu
@@ -345,6 +355,43 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
       // fırlatmak burada 400 üretirdi — istemci kusuru gibi görünürdü.
       if (ProviderTransportError.is(err)) throw err;
       throw new ProviderTransportError(err?.message || 'Gelen belgeler entegratörden alınamadı.');
+    }
+  }
+
+  /**
+   * Gelen belgenin XML içeriğini indirir (`GetDocumentFile`, Tur=XML).
+   *
+   * 2026-09-28: Liste ucu (`GetDocumentReceiverAllList`) YALNIZ meta veri
+   * döndürdüğü için gelen fatura/irsaliye akışı içeriksiz kalıyordu. İçerik
+   * ayrı bir çağrıyla alınır.
+   *
+   * Token bayatlarsa (401) `invalidateStaleTokenIfUnauthorized` ile o firmanın
+   * token'ı geçersizleştirilir; istek BURADA yeniden DENENMEZ (yan etkisiz bir
+   * okuma olsa da tutarlılık için gönderimdeki kurala uyulur).
+   */
+  public async getIncomingDocumentContent(
+    uuid: string,
+    appType: number,
+    settings: TenantEinvoiceSettings
+  ): Promise<{ success: boolean; content: string; message?: string }> {
+    const isTest = settings.environment !== 'PRODUCTION';
+    try {
+      const { token } = await ensureTenantToken(settings, isTest);
+      const res = await HizliConnectService.getDocumentFile(appType, uuid, 'XML', false, token, isTest);
+      invalidateStaleTokenIfUnauthorized(res, settings, isTest);
+      if (!res.success) {
+        return { success: false, content: '', message: res.message || 'Belge içeriği indirilemedi.' };
+      }
+      // `content` bir dize olabilir ya da (bazı dönüşlerde) sarmalanmış nesne.
+      const raw = typeof res.content === 'string' ? res.content : (res.content?.content ?? res.content?.Content ?? '');
+      if (typeof raw !== 'string' || raw.trim() === '') {
+        // Boş içerik "boş belge" DEĞİLDİR; çağıran bunu okunamadı saymalıdır.
+        return { success: false, content: '', message: 'Entegratör belge içeriğini boş döndürdü.' };
+      }
+      return { success: true, content: raw };
+    } catch (err: any) {
+      if (ProviderTransportError.is(err)) throw err;
+      throw new ProviderTransportError(err?.message || 'Gelen belge içeriği indirilemedi.');
     }
   }
 

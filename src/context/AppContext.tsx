@@ -18,6 +18,7 @@ export type AppView =
   | 'alis'
   | 'edonusum'
   | 'edonusummerkezi'
+  | 'gelen-belgeler'
   | 'irsaliye'
   | 'teklif'
   | 'gider'

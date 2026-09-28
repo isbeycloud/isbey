@@ -70,6 +70,17 @@ export interface ProviderIncomingInvoice {
   grandTotal: number;
   currency: string;
   xmlContent: string;
+  /**
+   * 2026-09-28 — Belge türü. Gelen kutusu e-Fatura (AppType 1) ve e-İrsaliye
+   * (AppType 3) belgelerini birlikte döndürebilir; ikisinin ayrıştırma ve
+   * eşleştirme akışı FARKLIDIR (irsaliyede fiyat/KDV yoktur). Sağlayıcı
+   * entegratörün `appType`/`belgeTuru` alanından bunu bildirir.
+   */
+  documentKind?: 'INVOICE' | 'DESPATCH';
+  /** Entegratörün belgeye verdiği tür kodu (1=e-Fatura, 3=e-İrsaliye). */
+  appType?: number;
+  /** Belgenin entegratördeki okunma durumu (ör. 'OKUNDU'). */
+  readState?: string;
 }
 
 export interface ElectronicDocumentProvider {
@@ -115,8 +126,30 @@ export interface ElectronicDocumentProvider {
 
   /**
    * Gelen e-Faturaları Listeleme
+   *
+   * ⚠️ Bu uç yalnız **meta veri** döndürür: entegratörün liste servisi belgenin
+   * XML içeriğini göndermez. Gerçek içerik `getIncomingDocumentContent` ile
+   * ayrıca indirilir. Bu ayrım önemlidir: metadata'yı "belge okundu" sanmak,
+   * hiç okunmamış bir belgeyi okunmuş gibi işleme sokar.
    */
   getIncomingInvoices(startDate: string, settings: TenantEinvoiceSettings): Promise<ProviderIncomingInvoice[]>;
+
+  /**
+   * Gelen bir belgenin XML içeriğini indirir.
+   *
+   * 2026-09-28 eklendi. Liste ucu içerik vermediği için gelen fatura/irsaliye
+   * akışı bunsuz ÇALIŞAMAZ; eskiden `xmlContent` boş geliyor ve servis bunu
+   * tek satırlık uydurma bir kalemle dolduruyordu.
+   *
+   * `appType`: 1 = e-Fatura, 3 = e-İrsaliye.
+   * Dönen `content` boşsa belge içeriği ALINAMAMIŞTIR — çağıran bunu "boş
+   * belge" değil "okunamadı" olarak işlemelidir.
+   */
+  getIncomingDocumentContent(
+    uuid: string,
+    appType: number,
+    settings: TenantEinvoiceSettings
+  ): Promise<{ success: boolean; content: string; message?: string }>;
 
   /**
    * Belge İptal Bildirimi

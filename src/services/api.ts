@@ -75,6 +75,9 @@ import type {
   WebhookSubscriptionItem,
   WhiteLabelBrandProfile,
   SystemHealthIndicator,
+  IncomingInvoice,
+  IncomingDespatch,
+  IngestionPlan,
 } from '../types';
 
 const API_BASE = '/api';
@@ -742,6 +745,115 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // GELEN ELEKTRONİK BELGELER — /api/v1/e-documents/incoming* (2026-09-28)
+  //
+  // Üç aşamalı akış: senkron (çeker) → plan (önerir, YAZMAZ) → onay (hareket
+  // ettirir). Stok ve cari YALNIZ onay çağrısında değişir; bu yüzden burada
+  // "sync sonrası stok güncellenir" gibi bir varsayım YAPILMAMALIDIR.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Gelen e-Faturaları listeler (sayfalanmış). */
+  getIncomingDocuments: (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    return request<{
+      success: boolean;
+      data: IncomingInvoice[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+    }>(`/v1/e-documents/incoming/list${query}`);
+  },
+
+  /** Entegratörden gelen faturaları çeker. STOK/CARİ DEĞİŞMEZ. */
+  syncIncomingDocuments: (startDate?: string) =>
+    request<{
+      success: boolean;
+      message: string;
+      result: { syncedCount: number; duplicateCount: number; unreadableCount: number };
+    }>('/v1/e-documents/incoming/sync', { method: 'POST', body: JSON.stringify({ startDate }) }),
+
+  /** Onay ekranı verisi — SALT OKUNUR, hiçbir kayıt açmaz. */
+  getIncomingDocumentPlan: (id: string) =>
+    request<{ success: boolean; plan: IngestionPlan }>(`/v1/e-documents/incoming/${id}/plan`),
+
+  /**
+   * Gelen faturayı ONAYLANAN eşleştirmelerle alış faturasına dönüştürür.
+   * Stok girişi ve tedarikçi borcu yalnız burada oluşur.
+   */
+  convertIncomingDocument: (
+    id: string,
+    decisions?: {
+      supplierId?: string;
+      createSupplier?: boolean;
+      lines?: Array<{ lineNo: string; productId?: string; createProduct?: boolean }>;
+    }
+  ) =>
+    request<{ success: boolean; message: string; invoice: Invoice }>(
+      `/v1/e-documents/incoming/${id}/convert`,
+      { method: 'POST', body: JSON.stringify(decisions || {}) }
+    ),
+
+  /** Gelen faturayı kabul/red olarak yanıtlar (GİB'e ticari yanıt). */
+  respondIncomingDocument: (id: string, data: { action: 'ACCEPTED' | 'REJECTED'; reason?: string }) =>
+    request<{ success: boolean; message: string; invoice: IncomingInvoice }>(
+      `/v1/e-documents/incoming/${id}/respond`,
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
+  /**
+   * Gelen e-İrsaliyeleri listeler.
+   *
+   * 2026-09-28: Sayfalama sözleşmesi gelen e-Fatura ucuyla eşitlendi
+   * (`page/limit/total/totalPages`). Önceden uç TÜM listeyi döndürüyordu.
+   */
+  getIncomingDespatches: (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    return request<{
+      success: boolean;
+      data: IncomingDespatch[];
+      incomingDespatches: IncomingDespatch[];
+      pagination: { total: number; page: number; limit: number; totalPages: number };
+      total: number;
+    }>(`/v1/e-documents/incoming-despatches/list${query}`);
+  },
+
+  /** Entegratörden gelen irsaliyeleri çeker. STOK/CARİ DEĞİŞMEZ. */
+  syncIncomingDespatches: (startDate?: string) =>
+    request<{
+      success: boolean;
+      message: string;
+      result: { syncedCount: number; duplicateCount: number; unreadableCount: number };
+    }>('/v1/e-documents/incoming-despatches/sync', { method: 'POST', body: JSON.stringify({ startDate }) }),
+
+  /** İrsaliye eşleştirme planı — SALT OKUNUR. */
+  getIncomingDespatchPlan: (id: string) =>
+    request<{ success: boolean; plan: IngestionPlan }>(`/v1/e-documents/incoming-despatches/${id}/plan`),
+
+  /**
+   * Onaylanan irsaliye için STOK GİRİŞİ oluşturur.
+   * ⚠️ CARİ BORÇ OLUŞMAZ — irsaliye mali belge değildir; borç satıcı
+   * faturasıyla doğar. Mesaj bu yüzden bunu açıkça söyler.
+   */
+  approveIncomingDespatch: (
+    id: string,
+    decisions?: {
+      supplierId?: string;
+      createSupplier?: boolean;
+      lines?: Array<{ lineNo: string; productId?: string; createProduct?: boolean }>;
+    }
+  ) =>
+    request<{ success: boolean; message: string; despatch: IncomingDespatch; movements: any[] }>(
+      `/v1/e-documents/incoming-despatches/${id}/approve`,
+      { method: 'POST', body: JSON.stringify(decisions || {}) }
+    ),
+
+  /** Gelen irsaliyeyi reddeder — stok hareketi oluşmaz. */
+  rejectIncomingDespatch: (id: string, reason: string) =>
+    request<{ success: boolean; message: string; despatch: IncomingDespatch }>(
+      `/v1/e-documents/incoming-despatches/${id}/reject`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+
 
   // Hızlı Bilişim Müşteri & Üye Entegrasyonu
   getHizliCustomers: (params?: { status?: string; search?: string }) => {

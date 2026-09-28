@@ -178,6 +178,25 @@ export class MockElectronicDocumentProvider implements ElectronicDocumentProvide
   }
 
   /**
+   * Gelen belge İÇERİĞİ indirme — MOCK hiçbir içerik ÜRETMEZ.
+   *
+   * `success: false` döner. Uydurma bir XML döndürmek, olmayan bir belgeyi
+   * gerçekmiş gibi içeri aktarma akışına sokardı (bkz. `getIncomingInvoices`
+   * içindeki aynı ilke). MOCK'un gelen kutusu yoktur.
+   */
+  public async getIncomingDocumentContent(
+    uuid: string,
+    _appType: number,
+    _settings: TenantEinvoiceSettings
+  ): Promise<{ success: boolean; content: string; message?: string }> {
+    return {
+      success: false,
+      content: '',
+      message: `[MOCK] Gelen belge içeriği indirilemez (MOCK entegratörünün gelen kutusu yok). UUID: ${uuid}`,
+    };
+  }
+
+  /**
    * Gelen e-Faturaya uygulama yanıtı (KABUL / RED).
    *
    * ⚠️ MOCK hiçbir yere bildirim GÖNDERMEZ. `dogrulandi: undefined` —

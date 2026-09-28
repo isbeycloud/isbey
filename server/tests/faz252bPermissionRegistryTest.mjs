@@ -133,9 +133,25 @@ const seedLiteralCodes = [...seedBlock.matchAll(/code:\s*'([^']+)'/g)].map(m => 
 ok(seedLiteralCodes.length === 0,
   `Seed bloğunda literal permission tanımı kalmadı (duplicate tanım 0) — kalan: ${seedLiteralCodes.join(', ') || 'YOK'}`);
 
-// Seed katalog meta'sı registry ile birebir: 37 girdi, kodları registry üyesi
-ok(reg.SEED_CATALOG_CODES && reg.SEED_CATALOG_CODES.length === 37,
-  `SEED_CATALOG_CODES 37 girdi (${reg.SEED_CATALOG_CODES ? reg.SEED_CATALOG_CODES.length : 'yok'})`);
+// Seed katalog meta'sı registry ile birebir.
+// 2026-09-28: Sayı 37'de SABİTLENMEZ. `einvoice.view` kataloğa alınınca katalog
+// büyüdü; sabit sayı kontrolü meşru bir eklemeyi "regresyon" gibi gösterirdi.
+// Korunması gereken asıl değişmez: katalog = PERMISSION_CATALOG, ve mevcut
+// perm-1..37 kimlik şemasının kaymaması (yeni kodlar SONA eklenir).
+ok(reg.SEED_CATALOG_CODES && reg.SEED_CATALOG_CODES.length === reg.PERMISSION_CATALOG.length,
+  `SEED_CATALOG_CODES katalog ile birebir (${reg.SEED_CATALOG_CODES ? reg.SEED_CATALOG_CODES.length : 'yok'} = ${reg.PERMISSION_CATALOG.length})`);
+// İlk 37 kodun sırası SABİT olmalı: db'deki perm-1..perm-37 kimlikleri buna bağlı.
+const ILK_37 = ['customers.view','customers.create','customers.update','customers.delete',
+  'products.view','products.create','products.update','products.delete',
+  'invoices.view','invoices.create','invoices.update','invoices.delete','invoices.send',
+  'quotes.view','quotes.create','quotes.update','quotes.delete',
+  'waybills.view','waybills.create','waybills.update','waybills.delete',
+  'cash.view','cash.create','cash.update','cash.delete',
+  'expenses.view','expenses.create','expenses.update','expenses.delete',
+  'reports.view','users.view','users.create','users.update','users.delete',
+  'company.view','company.update','tenants.manage'];
+ok(JSON.stringify((reg.SEED_CATALOG_CODES || []).slice(0, 37)) === JSON.stringify(ILK_37),
+  'İlk 37 katalog kodu ve SIRASI korunuyor (perm-1..perm-37 kimlik şeması kaymadı)');
 const seedCatUnknown = (reg.SEED_CATALOG_CODES || []).filter(c => !reg.isKnownPermission(c));
 ok(seedCatUnknown.length === 0,
   `Seed katalog kodlarının tamamı registry'de — dışarıda: ${seedCatUnknown.join(', ') || 'YOK'}`);
@@ -149,8 +165,29 @@ const S = reg.ROLE_SLUGS;
 const arr = s => [...new Set(s)].sort();
 
 // Onaylı referans sayılar (docs/13): accountant=20, employee=11, viewer=9
-ok(reg.ROLE_PERMISSIONS[S.ACCOUNTANT].length === 20 && arr(reg.ROLE_PERMISSIONS[S.ACCOUNTANT]).length === 20,
-  `accountant matrisi 20 izin (onaylı referans)`);
+//
+// 2026-09-28: accountant 20 → 22 (gelen e-Fatura/e-İrsaliye içeri aktarma).
+// Sayı sabitlemek yerine "en az yetki" DEĞİŞMEZLERİ sınanır: artış yalnızca
+// bu iki kodla olabilir. Aksi hâlde sessiz bir yetki genişlemesi (ör. admin
+// yetkisi sızması) sayı testini geçerdi.
+const ACC_20 = ['cash.create','cash.delete','cash.update','cash.view','company.view',
+  'customers.create','customers.update','customers.view','expenses.create','expenses.update',
+  'expenses.view','invoices.create','invoices.delete','invoices.send','invoices.update',
+  'invoices.view','products.view','quotes.view','reports.view','waybills.view'];
+const accMatrix = [...reg.ROLE_PERMISSIONS[S.ACCOUNTANT]];
+const accFazlalik = accMatrix.filter(c => !ACC_20.includes(c)).sort();
+const accEksik = ACC_20.filter(c => !accMatrix.includes(c));
+ok(accEksik.length === 0, `accountant onaylı 20 izni KORUYOR — kayıp: ${accEksik.join(', ') || 'YOK'}`);
+ok(JSON.stringify(accFazlalik) === JSON.stringify(['einvoice.view', 'waybills.approve']),
+  `accountant fazladan YALNIZ gelen belge izinleri (${accFazlalik.join(', ') || 'yok'})`);
+ok(arr(accMatrix).length === accMatrix.length, 'accountant matrisi tekrarsız');
+// Admin ve sevk yetkileri muhasebeye SIZMAMALI (en az yetki).
+// NOT: 'cash.view' listede DEĞİL — muhasebecide zaten vardır (onaylı 20'nin üyesi).
+const ACC_YASAK = ['tenants.manage','users.view','users.create','users.update','users.delete',
+  'company.update','products.create','products.update','products.delete',
+  'waybills.create','waybills.update','waybills.delete'];
+const accSizinti = ACC_YASAK.filter(c => accMatrix.includes(c));
+ok(accSizinti.length === 0, `accountant'ta admin/sevk yetkisi YOK — sızan: ${accSizinti.join(', ') || 'YOK'}`);
 ok(reg.ROLE_PERMISSIONS[S.EMPLOYEE].length === 11 && arr(reg.ROLE_PERMISSIONS[S.EMPLOYEE]).length === 11,
   `employee matrisi 11 izin (onaylı referans)`);
 ok(reg.ROLE_PERMISSIONS[S.VIEWER].length === 9 && arr(reg.ROLE_PERMISSIONS[S.VIEWER]).length === 9,

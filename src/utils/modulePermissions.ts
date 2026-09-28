@@ -18,6 +18,10 @@ const MEMBERSHIP_MODULE_RESOURCES: Record<string, string[]> = {
   faturalar: ['invoices'], kasa: ['cash'], banka: ['bank'], finans: ['cash', 'bank'],
   irsaliye: ['waybills'], teklif: ['quotes'], gider: ['expenses'], raporlar: ['reports'],
   edonusum: ['einvoice'], muhasebe: ['accounting'],
+  // 2026-09-28: Gelen e-Fatura/e-İrsaliye ekranı. Sunucudaki uçlar
+  // `e-documents` kaynağındadır ve `erpMenus` bunu `edonusum` menüsüne bağlar;
+  // kaynak eşlemesi de aynı olmalı ki menü kısıtlaması tutarlı kalsın.
+  'gelen-belgeler': ['e-documents', 'einvoice'],
 };
 
 export function canAccessMembershipModule(roles: string[], codes: string[] | undefined, moduleId: string): boolean {
@@ -88,6 +92,18 @@ const MODULE_ACCESS_MATRIX: Record<string, 'ALL' | string[]> = {
   vergi: ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'],
   edonusum: ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'],
   edonusummerkezi: ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'],
+  // 2026-09-28: Gelen belge içeri aktarma.
+  //
+  // ÖNCEKİ DURUM (düzeltildi): matris yalnız SUPER_ADMIN/ADMIN/COMPANY_ADMIN
+  // içeriyordu ve gerekçe "MUHASEBE'de izin yok, 403 gizlenmesin" idi. Ölçüm
+  // bunun YANLIŞ olduğunu gösterdi: `einvoice.view` DB katalogunda olmadığı için
+  // COMPANY_ADMIN de 403 alıyordu (admin=200, firmaadmin/muhasebe/rapor=403).
+  // Yani ekran pratikte yalnız platform adminlere açıktı.
+  //
+  // Düzeltme hem sunucuda (einvoice.view kataloğa alındı; MUHASEBE'ye
+  // einvoice.view + waybills.approve verildi) hem burada yapıldı. İki taraf
+  // AYNI davranışı gösterir: MUHASEBE artık gelen belgeleri görür ve onaylar.
+  'gelen-belgeler': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'],
   // ── Firma Yönetimi (company_admin + admin)
   ayarlar: ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   companies: ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],

@@ -1,11 +1,11 @@
 {
   "$schema": "isbey-permission-map/v1",
-  "generatedAt": "2026-09-08T15:48:05.289Z",
+  "generatedAt": "2026-09-28T17:48:44.457Z",
   "source": "server/security (FAZ 25.2-B registry — TEK KAYNAK)",
   "generator": "server/scripts/generatePermissionMap.mjs",
   "counts": {
-    "permissions": 49,
-    "catalogEntries": 37,
+    "permissions": 50,
+    "catalogEntries": 39,
     "roles": 5
   },
   "reserved": [
@@ -313,6 +313,22 @@
       "catalog": true
     },
     {
+      "code": "einvoice.view",
+      "module": "EDONUSUM",
+      "action": "view",
+      "name": "e-Belgeleri Görüntüle",
+      "description": "Giden ve gelen e-Fatura/e-Arşiv belgelerini ve gelen kutusunu görüntüler",
+      "catalog": true
+    },
+    {
+      "code": "waybills.approve",
+      "module": "IRSALIYE",
+      "action": "approve",
+      "name": "Gelen İrsaliyeyi Onayla",
+      "description": "Gelen (alış) e-İrsaliyeyi onaylar veya reddeder; onay stok girişi yapar, cari borç oluşturmaz",
+      "catalog": true
+    },
+    {
       "code": "warehouses.view",
       "module": null,
       "action": null,
@@ -354,14 +370,6 @@
     },
     {
       "code": "collections.cancel",
-      "module": null,
-      "action": null,
-      "name": null,
-      "description": null,
-      "catalog": false
-    },
-    {
-      "code": "einvoice.view",
       "module": null,
       "action": null,
       "name": null,
@@ -434,6 +442,7 @@
       "waybills.create",
       "waybills.update",
       "waybills.delete",
+      "waybills.approve",
       "cash.view",
       "cash.create",
       "cash.update",
@@ -485,6 +494,7 @@
       "waybills.create",
       "waybills.update",
       "waybills.delete",
+      "waybills.approve",
       "cash.view",
       "cash.create",
       "cash.update",
@@ -531,7 +541,9 @@
       "expenses.create",
       "expenses.update",
       "reports.view",
-      "company.view"
+      "company.view",
+      "einvoice.view",
+      "waybills.approve"
     ],
     "employee": [
       "customers.view",

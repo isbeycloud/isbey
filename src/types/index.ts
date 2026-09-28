@@ -2174,5 +2174,195 @@ export interface SystemHealthIndicator {
   lastCheckedAt: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GELEN ELEKTRONİK BELGELER — 2026-09-28
+//
+// Sunucudaki `IncomingInvoice` / `IncomingDespatch` tiplerinin istemci karşılığı
+// (bkz. `server/db/schema.ts`). Ayrı dosyada değil burada tutuluyor çünkü
+// `api.ts` yanıtlarını bu tiplerle imzalıyor ve `IngestionPlan` sunucudaki
+// `incomingDocumentMapper` ile BİREBİR aynı olmak zorunda.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface IncomingInvoiceItem {
+  id: string;
+  incomingInvoiceId: string;
+  supplierProductCode?: string;
+  name: string;
+  barcode?: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  vatRate: number;
+  vatAmount: number;
+  lineTotal: number;
+  mappedProductId?: string;
+}
+
+export type IncomingInvoiceStatus =
+  | 'RECEIVED' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_PURCHASE' | 'UNREADABLE';
+
+export interface IncomingInvoice {
+  id: string;
+  tenantId: string;
+  /** ETTN. */
+  uuid: string;
+  invoiceNo: string;
+  supplierTaxNumber: string;
+  supplierTitle: string;
+  issueDate: string;
+  subTotal: number;
+  vatAmount: number;
+  grandTotal: number;
+  currency: string;
+  status: IncomingInvoiceStatus;
+  rejectionReason?: string;
+  convertedPurchaseInvoiceId?: string;
+  xmlStoragePath?: string;
+  pdfStoragePath?: string;
+  items: IncomingInvoiceItem[];
+  /** Belgenin KENDİ bildirdiği toplamlar (kalemlerden hesaplanandan ayrı). */
+  declaredSubTotal?: number;
+  declaredVatTotal?: number;
+  declaredPayable?: number;
+  /** Doluysa içeri aktarma ENGELLENİR — eksik belge uydurulmaz. */
+  parseErrors?: string[];
+  /** Engellemeyen ama kullanıcının görmesi gereken durumlar. */
+  parseWarnings?: string[];
+  documentKind?: 'INVOICE' | 'DESPATCH';
+  matchedSupplierId?: string;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Gelen e-İrsaliye kalemi.
+ *
+ * ⚠️ `unitPrice` / `vatRate` TANIMSIZ olabilir: irsaliye sevk belgesidir, fiyat
+ * ve KDV içermez. `0` yazmak "bedelsiz mal" izlenimi verirdi; bu yüzden
+ * `number` değil `number | undefined`.
+ */
+export interface IncomingDespatchItem {
+  id: string;
+  incomingDespatchId: string;
+  supplierProductCode?: string;
+  name: string;
+  barcode?: string;
+  quantity: number;
+  unit: string;
+  unitPrice?: number;
+  vatRate?: number;
+  mappedProductId?: string;
+}
+
+export type IncomingDespatchStatus = 'RECEIVED' | 'APPROVED' | 'REJECTED' | 'UNREADABLE';
+
+export interface IncomingDespatch {
+  id: string;
+  tenantId: string;
+  uuid: string;
+  despatchNo: string;
+  supplierTaxNumber: string;
+  supplierTitle: string;
+  issueDate: string;
+  documentKind: 'DESPATCH';
+  status: IncomingDespatchStatus;
+  convertedMovementRef?: string;
+  rejectionReason?: string;
+  xmlStoragePath?: string;
+  items: IncomingDespatchItem[];
+  parseErrors?: string[];
+  parseWarnings?: string[];
+  matchedSupplierId?: string;
+  receivedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Belgeden çözülen taraf (satıcı/alıcı). */
+export interface ParsedUblParty {
+  taxNumber: string;
+  scheme: string;
+  title: string;
+  taxOffice?: string;
+  city?: string;
+  district?: string;
+}
+
+/** Belgeden çözülen tek satır. */
+export interface ParsedUblLine {
+  lineNo: string;
+  sellerProductCode?: string;
+  buyerProductCode?: string;
+  barcode?: string;
+  name: string;
+  quantity: number;
+  unitCode?: string;
+  unitName: string;
+  unitPrice: number;
+  vatRate: number;
+  vatAmount: number;
+  lineTotal: number;
+  grossLineTotal: number;
+}
+
+/** Çözümlenmiş belge (sunucudaki `ParsedUblDocument`). */
+export interface ParsedUblDocument {
+  kind: 'INVOICE' | 'DESPATCH';
+  uuid: string;
+  documentNo: string;
+  issueDate: string;
+  currency: string;
+  profile?: string;
+  typeCode?: string;
+  supplier: ParsedUblParty;
+  customer: ParsedUblParty;
+  lines: ParsedUblLine[];
+  subTotal: number;
+  vatTotal: number;
+  grandTotal: number;
+  declaredPayable?: number;
+  declaredSubTotal?: number;
+  declaredVatTotal?: number;
+  errors: string[];
+  warnings: string[];
+}
+
+/** Eşleştirme yöntemi — kullanıcı önerinin NEDENİNİ görsün. */
+export type MatchMethod = 'SELLER_CODE' | 'BARCODE' | 'BUYER_CODE' | 'NAME';
+
+export interface PartyMatchSuggestion {
+  /** VKN birebir eşleşti mi. `false` ise öneri doğrulanmalıdır. */
+  exact: boolean;
+  customer?: Customer;
+  reason?: string;
+}
+
+export interface LineMatchSuggestion {
+  line: ParsedUblLine;
+  product?: Product;
+  matchedBy?: MatchMethod;
+  needsNewProduct: boolean;
+}
+
+/**
+ * Onay ekranının verisi. `blockedReason` doluysa "İçeri Al" düğmesi KAPALI
+ * tutulmalıdır — sunucu da aynı koşulu ayrıca doğrular.
+ */
+export interface IngestionPlan {
+  document: ParsedUblDocument;
+  party: PartyMatchSuggestion;
+  lines: LineMatchSuggestion[];
+  totals: {
+    computedSubTotal: number;
+    computedVatTotal: number;
+    computedGrandTotal: number;
+    declaredSubTotal?: number;
+    declaredVatTotal?: number;
+    declaredPayable?: number;
+  };
+  blockedReason?: string;
+}
+
 export * from '../components/formdesigner/formDesignerTypes';
 

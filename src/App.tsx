@@ -47,6 +47,7 @@ import { CompanyManagementView } from './components/modules/companies/CompanyMan
 import { AdminPanelView } from './components/modules/yonetim/AdminPanelView';
 import { EDonusumView } from './components/modules/edonusum/EDonusumView';
 import { EDonusumMerkeziView } from './components/modules/edonusummerkezi/EDonusumMerkeziView';
+import { IncomingDocumentsView } from './components/modules/edonusum/IncomingDocumentsView';
 import { HizliBayiYonetimeView } from './components/modules/hizlibilisim/HizliBayiYonetimeView';
 import { RolesPermissionsView } from './components/modules/RolesPermissionsView';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
@@ -186,6 +187,7 @@ const MainLayout: React.FC = () => {
       case 'admin': return guard('admin', <AdminPanelView />);
       case 'edonusum': return guard('edonusum', <EDonusumView />);
       case 'edonusummerkezi': return guard('edonusummerkezi', <EDonusumMerkeziView />);
+      case 'gelen-belgeler': return guard('gelen-belgeler', <IncomingDocumentsView />);
       case 'support': return <SupportView />;
       case 'form-designer': return (
         <FormDesignerView

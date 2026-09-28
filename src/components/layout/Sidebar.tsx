@@ -30,6 +30,7 @@ import {
   Bot,
   Workflow,
   Users2,
+  Inbox,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
@@ -67,6 +68,7 @@ const MODULE_META: Record<string, ModuleMeta> = {
   muhasebe:           { id: 'muhasebe',           ribbonTab: 'RAPORLAR',    orderNumber: '14', label: 'Muhasebe',             icon: <BookOpen size={18} /> },
   edonusum:           { id: 'edonusum',           ribbonTab: 'SATIS',       orderNumber: '15', label: 'e-Belge & GİB',        icon: <Zap size={18} />,         badge: 'GİB',     badgeColor: '#d97706' },
   edonusummerkezi:    { id: 'edonusummerkezi',    ribbonTab: 'SATIS',       orderNumber: '15', label: 'e-Dönüşüm Merkezi',   icon: <Zap size={18} />,         badge: 'e-D',     badgeColor: '#d97706' },
+  'gelen-belgeler':   { id: 'gelen-belgeler',     ribbonTab: 'ALIS',        orderNumber: '15', label: 'Gelen e-Belgeler',    icon: <Inbox size={18} />,       badge: 'GELEN',   badgeColor: '#2563eb' },
   vergi:              { id: 'vergi',              ribbonTab: 'RAPORLAR',    orderNumber: '16', label: 'KDV / Beyanname',      icon: <FileText size={18} /> },
   raporlar:           { id: 'raporlar',           ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Raporlar',             icon: <BarChart3 size={18} /> },
   'rapor-tasarimci':  { id: 'rapor-tasarimci',    ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Rapor Tasarım Merkezi', icon: <BarChart3 size={18} />, badge: 'NEW',  badgeColor: '#059669' },

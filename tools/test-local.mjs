@@ -18,6 +18,13 @@ const suites = [
   'faz27EnvironmentConfigTest.ts', 'phase19GuidFindUnitTest.ts',
   'faz29UatScenarioSuite.ts', 'phase32CreditLifecycleTest.ts', 'productionReadinessTest.ts', 'storageWriteFailureTest.ts',
   'xsltStudioScenarioTest.ts',
+  'ublParserTest.ts',
+  'incomingDocumentIngestionTest.ts',
+  // 2026-09-28: Gelen belge YETKİ + SAYFALAMA sözleşmesi. Gerçek router'ı mount
+  // edip HTTP isteği atar — `einvoice.view` katalogda olmadığı için COMPANY_ADMIN
+  // dahil herkesin 403 aldığı hata, statik/registry testleri YEŞİLKEN ortaya
+  // çıkmıştı; yalnız gerçek istek bunu yakalayabilir.
+  'incomingDocumentAuthzTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {

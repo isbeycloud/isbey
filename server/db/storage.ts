@@ -174,25 +174,23 @@ class StorageManager {
 
     // 2. Sistem Varsayılan Roller — TEK KAYNAK security/roles.ts
     //    ROLE_DEFINITIONS (metadata) + ROLE_PERMISSIONS (izin matrisi) türetilir.
-    //    Davranış notu: platform_admin/company_admin tüm izinler alır; ancak seed
-    //    yalnızca DB kataloğuna yazılan (perm-1..37) kodlarla sınırlı kalır —
-    //    registry'deki resmileştirilen 7 kod DB'ye yazılmaz (mevcut davranış birebir).
+    //
+    //    2026-09-28 DÜZELTMESİ: platform_admin/company_admin artık DB kataloğuyla
+    //    SINIRLANMAZ; registry matrisi (ALL_PERMISSION_CODES) esas alınır.
+    //    Eski "katalogla sınırla" kuralı, katalogda bulunmayan ama route'larda
+    //    kullanılan kodları (ör. einvoice.view) sessizce düşürüyordu: route kaydı
+    //    registry'de olduğu için tutarlılık testleri yeşil kalıyor, ama
+    //    `companyIdentity()` izinleri DB rol kayıtlarından okuduğu için
+    //    COMPANY_ADMIN bile 403 alıyordu. Ölçülen belirti:
+    //      admin=200, firmaadmin=403, muhasebe=403, rapor=403, kasiyer=403.
+    //    Kural kaldırıldığı için iki liste (registry matrisi = seed) birebir eşit.
     if (!state.roles || state.roles.length === 0) {
-      // DB kataloğu (perm-1..37) — platform_admin & company_admin bu listeyle sınırlı
-      const dbCatalogCodes = (state.permissions || []).map(p => p.code);
-      // PLATFORM_ADMIN_PERMISSIONS / COMPANY_ADMIN_PERMISSIONS registry ALL_PERMISSION_CODES
-      // içerir; DB kataloğu alt küme olduğundan kesişim = eski allCodes davranışı.
-      const allCodes = dbCatalogCodes;
-      const companyAdminCodes = allCodes.filter(c => c !== 'tenants.manage');
-
       const slugOrder = ['platform_admin', 'company_admin', 'accountant', 'employee', 'viewer'] as const;
       state.roles = slugOrder.map(slug => {
         const def = ROLE_DEFINITIONS[slug];
-        // platform_admin/company_admin: DB kataloğuyla sınırlı (eski davranış);
-        // diğer roller: registry matrisi (kod listesi birebir aynıydı).
-        const perms = (slug === 'platform_admin' || slug === 'company_admin')
-          ? allCodes
-          : [...ROLE_PERMISSIONS[slug]];
+        // Tüm roller registry matrisinden gelir; seed ile registry arasında
+        // ikinci bir süzgeç kalmadı (tek kaynak ilkesi).
+        const perms = [...ROLE_PERMISSIONS[slug]];
         return {
           id: def.id,
           tenantId: null as string | null,
@@ -205,6 +203,62 @@ class StorageManager {
           updatedAt: now,
         };
       });
+    }
+
+    // 3. MEVCUT VERİTABANI UZLAŞTIRMASI (2026-09-28) — EKLEMELİ (additive).
+    //
+    // ⚠️ NEDEN GEREKLİ: Yukarıdaki iki blok yalnız koleksiyon BOŞKEN çalışır.
+    // Kurulu bir veritabanı (production dahil) yeni bir izin kodu eklendiğinde
+    // onu HİÇ görmez. `einvoice.view` kataloğa alındığında canlı veritabanı
+    // bunu almazsa düzeltme yalnız yeni kurulumlarda işe yarardı.
+    //
+    // ⚠️ NEDEN SİLME YOK: Bu blok yalnız EKLER. Bir koddan izin geri almak
+    // (revocation) operasyonel bir karardır ve sessizce yapılmamalıdır; ayrıca
+    // kullanıcıların `roles-permissions` ekranından yaptığı bilinçli
+    // daraltmaları ezmemek için yalnızca sistem rollerine dokunulur.
+    this.reconcileSystemRoles(state, now);
+  }
+
+  /**
+   * Sistem rollerini registry matrisiyle EKLEMELİ olarak uzlaştırır.
+   *
+   * Kapsam: yalnız `isSystem === true` roller (kiracıya özel kopyalar dahil).
+   * Kullanıcı tanımlı özel roller (`isSystem === false`) ELLENMEZ — onların
+   * izinleri kullanıcının kendi kararıdır.
+   *
+   * Idempotent: ikinci çağrı hiçbir şey değiştirmez.
+   */
+  private reconcileSystemRoles(state: DatabaseState, now: string) {
+    // 3a. Katalog tablosuna eksik kodları ekle (id şeması sıraya bağlı —
+    //     mevcutların kimliği KORUNUR, yeniler sona eklenir).
+    if (Array.isArray(state.permissions)) {
+      const mevcutKodlar = new Set(state.permissions.map(p => p.code));
+      for (const p of PERMISSION_CATALOG) {
+        if (!mevcutKodlar.has(p.code)) {
+          state.permissions.push({
+            id: `perm-${state.permissions.length + 1}`,
+            module: p.module,
+            action: p.action,
+            code: p.code as string,
+            name: p.name,
+            description: p.description,
+            createdAt: now,
+          } as (typeof state.permissions)[number]);
+        }
+      }
+    }
+
+    // 3b. Sistem rollerine eksik izinleri ekle.
+    for (const rol of state.roles || []) {
+      if (!rol.isSystem) continue;
+      const matris = ROLE_PERMISSIONS[rol.slug as keyof typeof ROLE_PERMISSIONS];
+      if (!matris) continue; // bilinmeyen slug (ör. eski özel sistem rolü) — dokunma
+      const mevcut = new Set(rol.permissions || []);
+      const eksikler = matris.filter(code => !mevcut.has(code));
+      if (eksikler.length > 0) {
+        rol.permissions = [...(rol.permissions || []), ...eksikler];
+        rol.updatedAt = now;
+      }
     }
   }
 
@@ -320,6 +374,9 @@ class StorageManager {
           tenantEinvoiceSettings: parsed.tenantEinvoiceSettings || [],
           electronicDocuments: parsed.electronicDocuments || [],
           incomingInvoices: parsed.incomingInvoices || [],
+          // 2026-09-28: Gelen e-İrsaliye deposu. Eski kayıt dosyalarında bu alan
+          // yoktur; `|| []` ile geriye dönük uyumlu okunur.
+          incomingDespatches: parsed.incomingDespatches || [],
           taxpayerCache: parsed.taxpayerCache || [],
           integrationLogs: parsed.integrationLogs || [],
           electronicDocumentUsage: parsed.electronicDocumentUsage || [],
