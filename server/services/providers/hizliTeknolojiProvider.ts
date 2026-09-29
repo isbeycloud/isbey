@@ -64,6 +64,68 @@ function gunSonuIso(tarih: string): string {
   return Number.isNaN(tam.getTime()) ? new Date().toISOString() : tam.toISOString();
 }
 
+/**
+ * Gelen belge LİSTE satırını sağlayıcı sözleşmesine çevirir.
+ *
+ * ⚠️ 2026-09-30 ÖLÇÜLDÜ (salt okunur, canlı econnect `GetDocumentReceiverAllList`):
+ * gövde `{ documents: [ { UUID, DocumentId, TargetIdentifier, TargetTitle,
+ * IssueDate, TaxTotal, PayableAmount, DocumentCurrencyCode, AppType, IsRead,
+ * EnvelopeStatus, Status, ... } ], IsSucceeded, Message }` biçimindedir —
+ * TÜM alan adları **PascalCase**'dir. `docs/48` §7'de "yanıt şeması ölçülmedi"
+ * diye açık bırakılan soru buydu.
+ *
+ * ⚠️ NEDEN SESSİZ BOZULMA ÜRETİYORDU: eşleme yalnız camelCase okuyordu;
+ * `inv.uuid` DAİMA `undefined` geliyordu. Mükerrer kontrolü `uuid` üzerinden
+ * yapıldığı için İLK belge kaydediliyor, kalan TÜM belgeler "mükerrer" sayılıp
+ * atlanıyordu (canlı ölçüm: "1 yeni, 15 mükerrer" — oysa 16 belge yeniydi).
+ * Ayrıca `invoiceNo`/`supplierTitle`/`grandTotal` boş kalıyordu.
+ *
+ * Her iki yazım da kabul edilir: sağlayıcı yarın camelCase'e dönerse akış
+ * bozulmaz, ama BUGÜN ölçülen gerçek adlar önce denenir. Saf fonksiyondur —
+ * ağ/DB erişimi yoktur, bu yüzden doğrudan test edilebilir.
+ */
+export function gelenBelgeSatiriCevir(inv: any): ProviderIncomingInvoice {
+  const alan = (pascal: string, camel: string): any =>
+    inv[pascal] !== undefined && inv[pascal] !== null ? inv[pascal] : inv[camel];
+
+  // Belge türü listeden de gelebilir; gelmezse varsayılan e-Fatura'dır
+  // (AppType 1). İrsaliye (3) akışı farklı olduğu için (fiyat/KDV yok) bu
+  // ayrımın kaybolmaması gerekir.
+  const appType = Number(alan('AppType', 'appType') ?? inv.belgeTuru) || 1;
+  const documentKind: 'INVOICE' | 'DESPATCH' = appType === 3 ? 'DESPATCH' : 'INVOICE';
+
+  const vatAmount = Number(alan('TaxTotal', 'vatAmount')) || 0;
+  const grandTotal = Number(alan('PayableAmount', 'grandTotal') ?? inv.odenecekTutar) || 0;
+  // `subTotal` liste ucunda AYRI bir alan olarak YOKTUR. İki değer de sayıysa
+  // çıkarma ile türetilir (uydurma değil, verilen alanlardan aritmetik);
+  // değilse 0 bırakılır. Kayıt oluşturulurken belgenin KENDİ UBL'inden
+  // ayrıştırılan değer bu meta veriye zaten TERCİH EDİLİR.
+  const altToplamHam = alan('SubTotal', 'subTotal');
+  const subTotal =
+    altToplamHam !== undefined
+      ? Number(altToplamHam) || 0
+      : grandTotal && vatAmount
+      ? Math.round((grandTotal - vatAmount) * 100) / 100
+      : 0;
+
+  const okundu = alan('IsRead', 'readState');
+  return {
+    uuid: alan('UUID', 'uuid') || inv.ettn || '',
+    invoiceNo: alan('DocumentId', 'invoiceNo') || inv.faturaNo || '',
+    supplierVkn: alan('TargetIdentifier', 'supplierVkn') || inv.senderVkn || '',
+    supplierTitle: alan('TargetTitle', 'supplierTitle') || inv.senderTitle || '',
+    issueDate: alan('IssueDate', 'issueDate') || inv.tarih || '',
+    subTotal,
+    vatAmount,
+    grandTotal,
+    currency: alan('DocumentCurrencyCode', 'currency') || 'TRY',
+    xmlContent: inv.xmlContent || '',
+    documentKind,
+    appType,
+    ...(okundu !== undefined ? { readState: String(okundu) } : {}),
+  };
+}
+
 export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
   public readonly providerId = 'HIZLI_TEKNOLOJI';
   public readonly name = 'Hızlı Teknoloji e-Connect';
@@ -349,28 +411,7 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
       // 2026-09-12 (uydurma temizliği): `xmlContent` yoksa `'<Invoice/>'` gibi
       // boş bir XML yazılıyordu; bu, olmayan bir belgeyi varmış gibi işleme sokar.
       // XML yoksa boş string bırakılır; çağıran taraf "belge içeriği yok" görür.
-      return (Array.isArray(documents) ? documents : []).map((inv: any) => {
-        // 2026-09-28: Belge türü listeden de gelebilir; gelmezse varsayılan
-        // e-Fatura'dır (AppType 1). İrsaliye (3) akışı farklı olduğu için bu
-        // ayrımın kaybolmaması gerekir.
-        const appType = Number(inv.appType ?? inv.AppType ?? inv.belgeTuru) || 1;
-        const documentKind: 'INVOICE' | 'DESPATCH' = appType === 3 ? 'DESPATCH' : 'INVOICE';
-        return {
-          uuid: inv.uuid || inv.ettn,
-          invoiceNo: inv.invoiceNo || inv.faturaNo,
-          supplierVkn: inv.supplierVkn || inv.senderVkn,
-          supplierTitle: inv.supplierTitle || inv.senderTitle,
-          issueDate: inv.issueDate || inv.tarih,
-          subTotal: inv.subTotal || 0,
-          vatAmount: inv.vatAmount || 0,
-          grandTotal: inv.grandTotal || inv.odenecekTutar || 0,
-          currency: inv.currency || 'TRY',
-          xmlContent: inv.xmlContent || '',
-          documentKind,
-          appType,
-          ...(inv.readState || inv.okundu !== undefined ? { readState: String(inv.readState ?? '') } : {}),
-        };
-      });
+      return (Array.isArray(documents) ? documents : []).map(gelenBelgeSatiriCevir);
     } catch (err: any) {
       // 2026-09-12 (sessiz yanlış cevap kapatıldı): Önceden bu catch boş liste
       // döndürüyordu. Çağıran (`IncomingInvoiceService.syncIncomingInvoices`) bu
@@ -409,8 +450,13 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
       if (!res.success) {
         return { success: false, content: '', message: res.message || 'Belge içeriği indirilemedi.' };
       }
-      // `content` bir dize olabilir ya da (bazı dönüşlerde) sarmalanmış nesne.
-      const raw = typeof res.content === 'string' ? res.content : (res.content?.content ?? res.content?.Content ?? '');
+      // 2026-09-30: Sarmalayıcı (`{ DocumentFile: "<base64>" }`) ve base64
+      // çözümü artık `HizliConnectService.getDocumentFile` İÇİNDE, TEK yerde
+      // yapılır (`belgeGovdesiCoz`). Burada ikinci bir normalleştirme
+      // yazılmaz: iki ayrı çözümleyici, biri düzeltilip diğeri unutulduğunda
+      // sessiz bozulma üretir. Buraya gelen `content` ya gerçek belge
+      // metnidir ya da boş dizedir.
+      const raw = res.content;
       if (typeof raw !== 'string' || raw.trim() === '') {
         // Boş içerik "boş belge" DEĞİLDİR; çağıran bunu okunamadı saymalıdır.
         return { success: false, content: '', message: 'Entegratör belge içeriğini boş döndürdü.' };

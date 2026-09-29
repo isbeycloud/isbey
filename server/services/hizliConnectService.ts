@@ -91,6 +91,61 @@ export function isSeviyesiMesaji(veri: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * `GetDocumentFile` gövdesini düz metin içeriğe çözer.
+ *
+ * ⚠️ 2026-09-30 ÖLÇÜLDÜ (salt okunur, canlı econnect): yanıt gövdesi
+ * `{ "DocumentFile": "<base64>" }` biçimindedir. Eski kod
+ * `res.data?.content || res.data?.Content || res.data` okuyordu; hiçbiri
+ * yoktu, dolayısıyla `content` TÜM NESNE olarak dönüyor ve çağıran
+ * (`hizliTeknolojiProvider.getIncomingDocumentContent`) onu `''` sayıp
+ * "boş içerik" muamelesi yapıyordu — belge listesi geliyor ama İÇERİK
+ * hiçbir koşulda alınamıyordu.
+ *
+ * Çözüm SIRASI sabittir: bilinen sarmalayıcı anahtarları → düz metin →
+ * base64. Base64 çözümü yalnız içerik `<` ile BAŞLAMIYORSA denenir; aksi
+ * hâlde zaten XML/metin olan bir gövde yanlışlıkla çözülüp bozulurdu.
+ * Çözülemeyen içerik `''` döner (uydurma içerik ÜRETİLMEZ).
+ *
+ * `export`: saf fonksiyondur (ağ/DB yok). Dışa açılmasının nedeni, bu
+ * sözleşmenin CANLI YANIT ŞEKLİYLE regresyon testine bağlanabilmesidir —
+ * kopya bir "test ikizi" yazılırsa asıl kod ondan sessizce ayrışır.
+ */
+export function belgeGovdesiCoz(veri: any): string {
+  if (veri === undefined || veri === null) return '';
+  let ham: any = veri;
+  if (typeof ham === 'string') {
+    const t = ham.trim();
+    if (t.startsWith('{')) {
+      try {
+        const j = JSON.parse(t);
+        ham = j?.DocumentFile ?? j?.documentFile ?? j?.content ?? j?.Content ?? ham;
+      } catch {
+        /* JSON değilse aşağıda düz metin olarak ele alınır */
+      }
+    }
+  }
+  if (ham && typeof ham === 'object') {
+    ham = ham.DocumentFile ?? ham.documentFile ?? ham.content ?? ham.Content ?? '';
+  }
+  if (typeof ham !== 'string' || ham.trim() === '') return '';
+  const t = ham.trim();
+  // Zaten belge metni ise (XML/HTML) base64 çözümü DENENMEZ.
+  if (t.startsWith('<')) return ham;
+  // Base64 mü? Alfabe + uzunluk kontrolü; değilse düz metin kabul edilir.
+  if (/^[A-Za-z0-9+/=\r\n]+$/.test(t) && t.replace(/[\r\n]/g, '').length % 4 === 0) {
+    try {
+      const cozulen = Buffer.from(t, 'base64').toString('utf8');
+      if (cozulen.trim().startsWith('<') || cozulen.trim().startsWith('{') || !cozulen.includes('�')) {
+        return cozulen;
+      }
+    } catch {
+      /* çözülemedi — düz metin olarak döner */
+    }
+  }
+  return ham;
+}
+
 export class HizliConnectService {
   public static getBaseUrl(isTest: boolean): string {
     if (!isTest && process.env.HIZLI_BILISIM_ALLOW_PROD !== 'true') throw new Error('Hızlı Bilişim canlı ortam kilidi kapalı.');
@@ -787,7 +842,7 @@ export class HizliConnectService {
         `${baseUrl}/HizliApi/RestApi/GetDocumentFile?AppType=${appType}&Uuid=${uuid}&Tur=${format}&IsDraft=${isDraft}`,
         { headers: { 'Authorization': `Bearer ${token}` }, timeout: 25000 }
       );
-      return { success: true, content: res.data?.content || res.data?.Content || res.data, format };
+      return { success: true, content: belgeGovdesiCoz(res.data), format };
     } catch (err: any) {
       // FAZ 12: Simüle belge içeriği ÜRETİLMEZ — bozuk/eksik PDF kullanıcıya gösterilmez
       console.warn('[HIZLI_CONNECT] GetDocumentFile hatası:', err?.response?.data?.Message || err?.message);

@@ -41,6 +41,13 @@ const suites = [
   // tarih aralığının sunucuda 90 güne sınırlanması ve her senkron sonrası
   // stok/cari/fatura/stok hareketinin DEĞİŞMEMESİ.
   'incomingProviderSyncTest.ts',
+  // 2026-09-30: SAĞLAYICI YANIT SÖZLEŞMESİ. Canlıda "1 yeni / 15 mükerrer"
+  // üreten ve havuzda içeriği okunamayan TEK kayıt bırakan sessiz bozulmanın
+  // regresyonu. Ölçülen gerçek şekil: liste PascalCase (`UUID`, `DocumentId`,
+  // `TargetIdentifier`, …), içerik ise `{ DocumentFile: "<base64>" }`.
+  // 28 yerel suite + 33 Playwright spec YEŞİLKEN bu hata canlıdaydı; bu dosya
+  // yalnız o boşluğu kapatır. Ağa ÇIKMAZ.
+  'providerResponseContractTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {
