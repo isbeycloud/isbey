@@ -4,7 +4,55 @@ export interface XmlValidationResult {
   warnings: string[];
 }
 
+/**
+ * GELEN belge için yalnız GÜVENLİK kapısı sonucu.
+ *
+ * 2026-09-29 eklendi. Neden ayrı: `validateUblXml` aynı zamanda İŞ KURALI
+ * denetler (UBLVersionID tam `2.1`, CustomizationID tam `TR1.2`, en az bir
+ * `<cac:InvoiceLine>`). Bu koşullar İŞBEY'in KENDİ ürettiği belge için
+ * doğrudur, ama GELEN bir belge için fazla katıdır: tedarikçi farklı bir
+ * özelleştirme kimliği kullanıyorsa GERÇEK bir fatura "geçersiz" sayılıp
+ * reddedilirdi. Gelen akışta reddedilmesi gereken tek şey GÜVENLİK ihlalidir.
+ */
+export interface XmlSecurityResult {
+  safe: boolean;
+  /** Güvenlik ihlali varsa gerekçe (kullanıcıya gösterilir). */
+  reason?: string;
+}
+
+/** XXE/DTD göstergesi arayan desenler — tek kaynak, iki kapı da bunu kullanır. */
+const XXE_MARKERS = ['<!doctype', '<!entity', 'system "', 'public "'];
+
+/** Harici DTD veya ENTITY tanımı içeriyor mu (XXE koruması)? */
+export function hasXxeMarkers(xmlContent: string): boolean {
+  if (!xmlContent || typeof xmlContent !== 'string') return false;
+  const lower = xmlContent.toLowerCase();
+  return XXE_MARKERS.some(m => lower.includes(m));
+}
+
+/** Kullanıcıya gösterilen XXE reddi gerekçesi — tek kaynak. */
+export const XXE_ERROR_MESSAGE =
+  'Güvenlik İhlali: XML içinde harici DTD veya ENTITY tanımlamalarına izin verilmez (XXE Koruması).';
+
 export class XmlValidatorService {
+  /**
+   * GELEN belge için GÜVENLİK kapısı — yalnız XXE/DTD denetimi.
+   *
+   * Neden `validateUblXml` değil: o metot İŞBEY'in kendi ürettiği belgeye
+   * yönelik İŞ KURALI koşulları da arar (tam `2.1`, tam `TR1.2`). Gelen bir
+   * belgeyi onlarla reddetmek, farklı özelleştirme kimliği kullanan GERÇEK
+   * faturaları düşürürdü. Bkz. `XmlSecurityResult` açıklaması.
+   */
+  public static validateIncomingXml(xmlContent: string): XmlSecurityResult {
+    if (!xmlContent || typeof xmlContent !== 'string' || xmlContent.trim().length === 0) {
+      return { safe: false, reason: 'Belge içeriği boş.' };
+    }
+    if (hasXxeMarkers(xmlContent)) {
+      return { safe: false, reason: XXE_ERROR_MESSAGE };
+    }
+    return { safe: true };
+  }
+
   /**
    * Güvenli XML ve UBL-TR İş Kuralı Doğrulayıcısı (XXE Korumalı)
    */
@@ -17,11 +65,10 @@ export class XmlValidatorService {
     }
 
     // 1. XXE (XML External Entity) ve DTD Injection Koruması
-    const lower = xmlContent.toLowerCase();
-    if (lower.includes('<!doctype') || lower.includes('<!entity') || lower.includes('system "') || lower.includes('public "')) {
+    if (hasXxeMarkers(xmlContent)) {
       return {
         valid: false,
-        errors: ['Güvenlik İhlali: XML içinde harici DTD veya ENTITY tanımlamalarına izin verilmez (XXE Koruması).'],
+        errors: [XXE_ERROR_MESSAGE],
         warnings: [],
       };
     }

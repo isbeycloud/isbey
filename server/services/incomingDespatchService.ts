@@ -9,7 +9,15 @@ import {
 import { ProviderFactory } from './providers/providerFactory';
 import { DocumentStorageService } from './documentStorageService';
 import { parseUblDocument } from './ubl/ublParser';
-import { matchSupplier, matchLine, draftProductFromLine, type IngestionPlan } from './ubl/incomingDocumentMapper';
+import { XmlValidatorService } from './ubl/xmlValidatorService';
+import { IncomingDocumentError } from '../errors/incomingDocumentError';
+import {
+  matchSupplier,
+  matchLine,
+  draftProductFromLine,
+  buildMappingRecords,
+  type IngestionPlan,
+} from './ubl/incomingDocumentMapper';
 
 /**
  * GELEN e-İRSALİYE SERVİSİ
@@ -37,7 +45,9 @@ export class IncomingDespatchService {
    */
   public static async syncIncomingDespatches(
     tenantId: string,
-    startDate?: string
+    startDate?: string,
+    /** 2026-09-29 — Denetim izi için işlemi yapan kullanıcı (bkz. fatura akışı). */
+    actor?: { userId: string; username: string }
   ): Promise<{ syncedCount: number; duplicateCount: number; unreadableCount: number }> {
     const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
 
@@ -70,13 +80,20 @@ export class IncomingDespatchService {
         if (indirilen.success) xmlContent = indirilen.content;
       }
 
+      // ── GÜVENLİK KAPISI (2026-09-29) — bkz. incomingInvoiceService'teki not.
+      // İçerik dışarıdan gelir; XXE/DTD içeren belge diske yazılmaz/çözülmez.
+      const guvenlik = XmlValidatorService.validateIncomingXml(xmlContent);
+      const guvenlikIhlali = xmlContent.trim() && !guvenlik.safe;
+
       let xmlPath: string | undefined;
-      if (xmlContent.trim()) {
+      if (xmlContent.trim() && !guvenlikIhlali) {
         xmlPath = DocumentStorageService.saveXml(tenantId, 'incoming_despatch', item.uuid, xmlContent);
       }
 
-      const doc = xmlContent.trim() ? parseUblDocument(xmlContent) : undefined;
-      const parseErrors: string[] = doc
+      const doc = xmlContent.trim() && !guvenlikIhlali ? parseUblDocument(xmlContent) : undefined;
+      const parseErrors: string[] = guvenlikIhlali
+        ? [guvenlik.reason || 'Belge güvenlik denetiminden geçemedi.']
+        : doc
         ? [...doc.errors]
         : ['Belge içeriği entegratörden alınamadı; irsaliye kalemleri okunamadı.'];
 
@@ -146,7 +163,73 @@ export class IncomingDespatchService {
         if ((yeni.parseErrors || []).length > 0) unreadableCount++;
       }
 
+      storage.addAuditLog({
+        userId: actor?.userId || 'system',
+        username: actor?.username || 'Zamanlanmış görev',
+        companyId: tenantId,
+        action: 'INCOMING_DESPATCH_SYNC',
+        module: 'E_DESPATCH',
+        ipAddress: '127.0.0.1',
+        details:
+          `Gelen e-İrsaliye senkronu: ${syncedCount} yeni, ${duplicateCount} mükerrer atlandı` +
+          (unreadableCount > 0 ? `, ${unreadableCount} belge okunamadı (UNREADABLE).` : '.'),
+      });
+
       return { syncedCount, duplicateCount, unreadableCount };
+    });
+  }
+
+  /**
+   * Detay — çözümlenmiş belge içeriği (2026-09-29, bkz. fatura akışındaki not).
+   * SALT OKUNUR.
+   */
+  public static getDocumentDetail(
+    incomingDespatchId: string,
+    tenantId: string
+  ): { record: IncomingDespatch; document: ReturnType<typeof parseUblDocument> } {
+    const kayit = this.find(incomingDespatchId, tenantId);
+    if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
+
+    const xml = kayit.xmlStoragePath ? DocumentStorageService.readXml(tenantId, kayit.xmlStoragePath) : null;
+    if (!xml) {
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
+        kayit.parseErrors?.length
+          ? `İrsaliye içeriği okunamadı: ${kayit.parseErrors[0]}`
+          : 'İrsaliye içeriği diskte bulunamadı; detay gösterilemez. Belgeyi yeniden senkronize edin.'
+      );
+    }
+
+    return { record: kayit, document: parseUblDocument(xml) };
+  }
+
+  /** Ham XML — `[XML]` sekmesi için. İçerik değiştirilmez. */
+  public static getDocumentXml(
+    incomingDespatchId: string,
+    tenantId: string
+  ): { xml: string; record: IncomingDespatch } {
+    const kayit = this.find(incomingDespatchId, tenantId);
+    if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
+    const xml = kayit.xmlStoragePath ? DocumentStorageService.readXml(tenantId, kayit.xmlStoragePath) : null;
+    if (!xml) {
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
+        'İrsaliye XML içeriği diskte bulunamadı; yeniden senkronize edin.'
+      );
+    }
+    return { xml, record: kayit };
+  }
+
+  /** Kullanıcının belgeyi incelediğini işaretler (bkz. fatura akışındaki not). */
+  public static async markReviewed(incomingDespatchId: string, tenantId: string): Promise<IncomingDespatch> {
+    return storage.runTransaction(draft => {
+      const kayit = this.find(incomingDespatchId, tenantId);
+      if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
+      if (!kayit.reviewedAt) {
+        kayit.reviewedAt = new Date().toISOString();
+        kayit.updatedAt = kayit.reviewedAt;
+      }
+      return kayit;
     });
   }
 
@@ -168,16 +251,26 @@ export class IncomingDespatchService {
   public static getIngestionPlan(incomingDespatchId: string, tenantId: string): IngestionPlan {
     const db = storage.getState();
     const kayit = this.find(incomingDespatchId, tenantId);
-    if (!kayit) throw new Error('Gelen irsaliye kaydı bulunamadı.');
+    if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
 
     const xml = kayit.xmlStoragePath ? DocumentStorageService.readXml(tenantId, kayit.xmlStoragePath) : null;
     if (!xml) {
-      throw new Error('İrsaliye içeriği diskte bulunamadı; eşleştirme yapılamaz. Belgeyi yeniden senkronize edin.');
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
+        'İrsaliye içeriği diskte bulunamadı; eşleştirme yapılamaz. Belgeyi yeniden senkronize edin.'
+      );
     }
 
     const doc = parseUblDocument(xml);
     const party = matchSupplier(doc, db.customers || [], tenantId);
-    const lines = doc.lines.map(l => matchLine(l, db.products || [], tenantId));
+    // 2026-09-29: Öğrenilmiş eşleştirme hafızası BURADA DA okunur. Aksi hâlde
+    // aynı tedarikçinin aynı ürünü, faturada hatırlanırken irsaliyede
+    // hatırlanmazdı; kullanıcı aynı kararı her sevk belgesinde yeniden verirdi.
+    const lines = doc.lines.map(l =>
+      matchLine(l, db.products || [], tenantId, db.productSupplierMappings || [], doc.supplier.taxNumber)
+    );
+
+    const matchedCount = lines.filter(l => !!l.product).length;
 
     return {
       document: doc,
@@ -187,6 +280,12 @@ export class IncomingDespatchService {
         computedSubTotal: 0,
         computedVatTotal: 0,
         computedGrandTotal: 0,
+      },
+      matchSummary: {
+        total: lines.length,
+        matched: matchedCount,
+        highConfidence: lines.filter(l => l.confidence === 'HIGH' && !!l.product).length,
+        pending: lines.length - matchedCount,
       },
       ...(doc.errors.length > 0 ? { blockedReason: doc.errors[0] } : {}),
     };
@@ -221,10 +320,17 @@ export class IncomingDespatchService {
     // olduğundan akış baştan transaction içine alındı.
     return storage.runTransaction(draft => {
       const kayit = this.find(incomingDespatchId, tenantId);
-      if (!kayit) throw new Error('Gelen irsaliye kaydı bulunamadı.');
-      if (kayit.status === 'APPROVED') throw new Error('Bu irsaliye zaten onaylanmış.');
+      if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
+      // ⚠️ 409: Aynı irsaliyeyi ikinci kez onaylamak KALICI bir çakışmadır —
+      // stok iki kez girer ve hata stok defterine kalıcı olarak işlenir.
+      if (kayit.status === 'APPROVED') {
+        throw new IncomingDocumentError('ALREADY_INGESTED', 'Bu irsaliye zaten onaylanmış.');
+      }
       if (kayit.status === 'UNREADABLE') {
-        throw new Error('İçeriği okunamayan irsaliye onaylanamaz: ' + (kayit.parseErrors?.[0] || 'belge okunamadı.'));
+        throw new IncomingDocumentError(
+          'NOT_INGESTIBLE',
+          'İçeriği okunamayan irsaliye onaylanamaz: ' + (kayit.parseErrors?.[0] || 'belge okunamadı.')
+        );
       }
 
       const plan = this.getIngestionPlan(incomingDespatchId, tenantId);
@@ -266,6 +372,8 @@ export class IncomingDespatchService {
 
       const kararlar = new Map((decisions?.lines || []).map(l => [l.lineNo, l]));
       const movements: StockMovement[] = [];
+      // Öğrenilecek eşleştirmeler — bkz. `buildMappingRecords` açıklaması.
+      const ogrenilecek: Array<{ lineNo: string; supplierItemCode: string; barcode?: string; productId: string }> = [];
 
       for (const lm of plan.lines) {
         const karar = kararlar.get(lm.line.lineNo);
@@ -274,6 +382,16 @@ export class IncomingDespatchService {
         if (karar?.productId) {
           product = (draft.products || []).find(p => p.id === karar.productId);
           if (!product) throw new Error(`Seçilen ürün kartı bulunamadı (satır ${lm.line.lineNo}).`);
+          // Yalnız KULLANICININ açıkça seçtiği eşleştirme öğrenilir.
+          const kod = lm.line.sellerProductCode || lm.line.barcode || '';
+          if (kod) {
+            ogrenilecek.push({
+              lineNo: lm.line.lineNo,
+              supplierItemCode: kod,
+              ...(lm.line.barcode ? { barcode: lm.line.barcode } : {}),
+              productId: product.id,
+            });
+          }
         } else if (lm.product && !karar?.createProduct) {
           product = lm.product;
         }
@@ -341,6 +459,30 @@ export class IncomingDespatchService {
       kayit.matchedSupplierId = supplierId;
       kayit.updatedAt = now;
 
+      // ── Eşleştirme hafızası (2026-09-29) ───────────────────────────────
+      // Fatura akışıyla AYNI kural: yalnız kullanıcının açıkça seçtiği
+      // satırlar öğrenilir, tedarikçi kapsamlıdır, silinmiş ürünün kaydı
+      // geçersiz sayılır (bkz. `matchLine`).
+      if (ogrenilecek.length > 0 && plan.document.supplier.taxNumber) {
+        const yeniKayitlar = buildMappingRecords(
+          ogrenilecek,
+          draft.productSupplierMappings || [],
+          {
+            tenantId,
+            supplierTaxNumber: plan.document.supplier.taxNumber,
+            now,
+          }
+        );
+        if (yeniKayitlar.length > 0) {
+          if (!draft.productSupplierMappings) draft.productSupplierMappings = [];
+          for (const k of yeniKayitlar) {
+            const idx = draft.productSupplierMappings.findIndex(m => m.id === k.id);
+            if (idx >= 0) draft.productSupplierMappings[idx] = k;
+            else draft.productSupplierMappings.push(k);
+          }
+        }
+      }
+
       storage.addAuditLog({
         userId,
         username,
@@ -372,8 +514,10 @@ export class IncomingDespatchService {
     // yansımazdı. Bkz. `approveDespatch` başındaki ayrıntılı not.
     return storage.runTransaction(draft => {
       const kayit = this.find(incomingDespatchId, tenantId);
-      if (!kayit) throw new Error('Gelen irsaliye kaydı bulunamadı.');
-      if (kayit.status === 'APPROVED') throw new Error('Onaylanmış irsaliye reddedilemez.');
+      if (!kayit) throw new IncomingDocumentError('NOT_FOUND', 'Gelen irsaliye kaydı bulunamadı.');
+      if (kayit.status === 'APPROVED') {
+        throw new IncomingDocumentError('INVALID_STATE', 'Onaylanmış irsaliye reddedilemez.');
+      }
 
       kayit.status = 'REJECTED';
       kayit.rejectionReason = reason;

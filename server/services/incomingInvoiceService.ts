@@ -11,12 +11,16 @@ import { ProviderFactory } from './providers/providerFactory';
 import { DocumentStorageService } from './documentStorageService';
 import { DocumentConversionService } from './documentConversionService';
 import { parseUblDocument } from './ubl/ublParser';
+import { XmlValidatorService } from './ubl/xmlValidatorService';
 import {
   buildIngestionPlan,
+  buildMappingRecords,
+  discountPercentForLine,
   draftProductFromLine,
   draftSupplierFromDocument,
   type IngestionPlan,
 } from './ubl/incomingDocumentMapper';
+import { IncomingDocumentError } from '../errors/incomingDocumentError';
 
 /**
  * GELEN e-BELGE SERVİSİ
@@ -52,7 +56,14 @@ export class IncomingInvoiceService {
    */
   public static async syncIncomingInvoices(
     tenantId: string,
-    startDate?: string
+    startDate?: string,
+    /**
+     * 2026-09-29 — Denetim izi için işlemi YAPAN kullanıcı. İsteğe bağlıdır
+     * çünkü arka plan/zamanlanmış çağrılar da bu metodu kullanır; o durumda
+     * kayıt "Zamanlanmış görev" olarak düşer. Hiçbir koşulda token/parola
+     * yazılmaz — yalnız kimlik ve sayılar.
+     */
+    actor?: { userId: string; username: string }
   ): Promise<{ syncedCount: number; duplicateCount: number; unreadableCount: number }> {
     const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
     const fromDate = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -89,15 +100,25 @@ export class IncomingInvoiceService {
         if (indirilen.success) xmlContent = indirilen.content;
       }
 
+      // ── GÜVENLİK KAPISI (2026-09-29) ─────────────────────────────────────
+      // ⚠️ BURASI SALDIRGANIN DENETLEYEBİLDİĞİ TEK YERDİR: içerik bizden değil,
+      // entegratörden (yani dışarıdan) gelir. XXE/DTD içeren belge DİSKE HİÇ
+      // YAZILMAZ ve ÇÖZÜMLENMEZ; yalnız `UNREADABLE` olarak kayda geçer ki
+      // kullanıcı belgenin geldiğini ama reddedildiğini görsün.
+      const guvenlik = XmlValidatorService.validateIncomingXml(xmlContent);
+      const guvenlikIhlali = xmlContent.trim() && !guvenlik.safe;
+
       let xmlPath: string | undefined;
-      if (xmlContent.trim()) {
+      if (xmlContent.trim() && !guvenlikIhlali) {
         xmlPath = DocumentStorageService.saveXml(tenantId, 'incoming_invoice', item.uuid, xmlContent);
       }
 
-      const doc = xmlContent.trim() ? parseUblDocument(xmlContent) : undefined;
+      const doc = xmlContent.trim() && !guvenlikIhlali ? parseUblDocument(xmlContent) : undefined;
 
       // Çözümleme başarısızsa `errors`, kalem hiç yoksa da hata üretilir.
-      const parseErrors: string[] = doc
+      const parseErrors: string[] = guvenlikIhlali
+        ? [guvenlik.reason || 'Belge güvenlik denetiminden geçemedi.']
+        : doc
         ? [...doc.errors]
         : ['Belge içeriği entegratörden alınamadı; fatura kalemleri okunamadı.'];
 
@@ -186,7 +207,105 @@ export class IncomingInvoiceService {
         if (h.parseErrors.length > 0) unreadableCount++;
       }
 
+      // ── DENETİM İZİ (2026-09-29) ────────────────────────────────────────
+      // Senkron "kim, ne zaman, kaç belge" sorusunun cevabını bırakmalıdır.
+      // Yalnız SAYILAR yazılır: belge içeriği, ETTN listesi veya kimlik bilgisi
+      // denetim kaydına girmez (bkz. CLAUDE.md md.16 — secret loglamama).
+      storage.addAuditLog({
+        userId: actor?.userId || 'system',
+        username: actor?.username || 'Zamanlanmış görev',
+        companyId: tenantId,
+        action: 'INCOMING_INVOICE_SYNC',
+        module: 'E_INVOICE',
+        ipAddress: '127.0.0.1',
+        details:
+          `Gelen e-Fatura senkronu: ${syncedCount} yeni, ${duplicateCount} mükerrer atlandı` +
+          (unreadableCount > 0 ? `, ${unreadableCount} belge okunamadı (UNREADABLE).` : '.'),
+      });
+
       return { syncedCount, duplicateCount, unreadableCount };
+    });
+  }
+
+  /**
+   * 1b. DETAY — Belgenin çözümlenmiş içeriği (2026-09-29).
+   *
+   * Detay ekranının `[Belge]` ve `[Kalemler]` sekmeleri bunu kullanır.
+   *
+   * ⚠️ NEDEN `getIngestionPlan` YETMİYOR: Plan, EŞLEŞTİRME kararı için üretilir
+   * ve bu yüzden mevcut cari/stok listesine bağımlıdır. Kullanıcı yalnız
+   * "belgede ne yazıyor" sorusunu sorduğunda tüm kart listesini taramak
+   * gereksizdir; ayrıca plan, eşleşmeyen kalem olduğunda kullanıcıya "sen ne
+   * yapacaksın" sorusunu sorar. Detay okuması NÖTR olmalıdır.
+   *
+   * ⚠️ SALT OKUNUR: Hiçbir şey yazmaz, saymaz, işaretlemez. `reviewedAt`
+   * işareti ayrı bir uçtadır (bkz. `markReviewed`).
+   *
+   * Belge içeriği diskte yoksa `NOT_INGESTIBLE` (422) döner: kayıt vardır ama
+   * gösterilecek içerik yoktur — bu bir "bulunamadı" değildir.
+   */
+  public static getDocumentDetail(
+    incomingInvoiceId: string,
+    tenantId: string
+  ): { record: IncomingInvoice; document: ReturnType<typeof parseUblDocument> } {
+    const inc = this.findIncoming(incomingInvoiceId, tenantId);
+    if (!inc) throw new IncomingDocumentError('NOT_FOUND', 'Gelen fatura kaydı bulunamadı.');
+
+    const xml = inc.xmlStoragePath ? DocumentStorageService.readXml(tenantId, inc.xmlStoragePath) : null;
+    if (!xml) {
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
+        inc.parseErrors?.length
+          ? `Belge içeriği okunamadı: ${inc.parseErrors[0]}`
+          : 'Belge içeriği diskte bulunamadı; detay gösterilemez. Belgeyi yeniden senkronize edin.'
+      );
+    }
+
+    return { record: inc, document: parseUblDocument(xml) };
+  }
+
+  /**
+   * 1c. HAM XML — `[XML]` sekmesi için (2026-09-29).
+   *
+   * Biçimlendirme isteğe bağlıdır (`pretty`). Ham içerik HİÇ DEĞİŞTİRİLMEZ;
+   * girintileme ayrı bir katmanda, saf fonksiyonla yapılır.
+   */
+  public static getDocumentXml(
+    incomingInvoiceId: string,
+    tenantId: string
+  ): { xml: string; record: IncomingInvoice } {
+    const inc = this.findIncoming(incomingInvoiceId, tenantId);
+    if (!inc) throw new IncomingDocumentError('NOT_FOUND', 'Gelen fatura kaydı bulunamadı.');
+    const xml = inc.xmlStoragePath ? DocumentStorageService.readXml(tenantId, inc.xmlStoragePath) : null;
+    if (!xml) {
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
+        'Belge XML içeriği diskte bulunamadı; yeniden senkronize edin.'
+      );
+    }
+    return { xml, record: inc };
+  }
+
+  /**
+   * Kullanıcının belgeyi İNCELEDİĞİNİ işaretler (2026-09-29).
+   *
+   * ⚠️ NEDEN AYRI BİR UÇ: `getIngestionPlan` SALT-OKUNUR olmak zorundadır —
+   * sözleşmesi budur ve test bunu doğrular. "Bakıldı" işareti bir YAZMA işidir
+   * ve yalnız kullanıcı ekranı gerçekten açtığında atılmalıdır; plan ucunun
+   * yan etkisi olarak yazılsaydı, bir listeleme/denetim çağrısı bile belgeyi
+   * "bakılmış" göstererek operasyon sayaçlarını yanıltırdı.
+   *
+   * Boş yazma yapmaz: zaten işaretliyse dokunmaz (gereksiz disk turu yok).
+   */
+  public static async markReviewed(incomingInvoiceId: string, tenantId: string): Promise<IncomingInvoice> {
+    return storage.runTransaction(draft => {
+      const inc = this.findIncoming(incomingInvoiceId, tenantId);
+      if (!inc) throw new IncomingDocumentError('NOT_FOUND', 'Gelen fatura kaydı bulunamadı.');
+      if (!inc.reviewedAt) {
+        inc.reviewedAt = new Date().toISOString();
+        inc.updatedAt = inc.reviewedAt;
+      }
+      return inc;
     });
   }
 
@@ -210,11 +329,14 @@ export class IncomingInvoiceService {
   public static getIngestionPlan(incomingInvoiceId: string, tenantId: string): IngestionPlan {
     const db = storage.getState();
     const inc = this.findIncoming(incomingInvoiceId, tenantId);
-    if (!inc) throw new Error('Gelen fatura kaydı bulunamadı.');
+    // 2026-09-29: 404 — kayıt yok, "istek bozuk" değil.
+    if (!inc) throw new IncomingDocumentError('NOT_FOUND', 'Gelen fatura kaydı bulunamadı.');
 
     const xml = inc.xmlStoragePath ? DocumentStorageService.readXml(tenantId, inc.xmlStoragePath) : null;
     if (!xml) {
-      throw new Error(
+      // 422 — belge VAR ama içeriği yok; yeniden senkron gerekir.
+      throw new IncomingDocumentError(
+        'NOT_INGESTIBLE',
         'Belge içeriği diskte bulunamadı; eşleştirme yapılamaz. Belgeyi yeniden senkronize edin.'
       );
     }
@@ -224,6 +346,9 @@ export class IncomingInvoiceService {
       customers: db.customers || [],
       products: db.products || [],
       tenantId,
+      // 2026-09-29: öğrenilmiş tedarikçi-ürün eşleştirmeleri. Bu olmadan her
+      // faturada aynı eşleştirme yeniden elle yapılırdı.
+      savedMappings: db.productSupplierMappings || [],
     });
   }
 
@@ -271,14 +396,41 @@ export class IncomingInvoiceService {
       // nesnesini günceller ve dönüşüm durumu diske hiç yansımazdı. (Aynı sınıf
       // hata, aynı gün ölçüldü.)
       const inc = this.findIncoming(incomingInvoiceId, tenantId);
-      if (!inc) throw new Error('Gelen fatura kaydı bulunamadı.');
+      if (!inc) {
+        throw new IncomingDocumentError('NOT_FOUND', 'Gelen fatura kaydı bulunamadı.');
+      }
+      // ── İDEMPOTENTLİK (2026-09-29) ───────────────────────────────────────
+      // ⚠️ Kural SUNUCUDA uygulanır. Arayüzdeki "İçeri Al" düğmesinin kapalı
+      // olması bir kolaylıktır, güvence DEĞİLDİR: aynı istek elle (veya iki
+      // sekmeden) iki kez gönderilirse iki alış faturası doğar, stok iki kez
+      // girer, tedarikçi borcu iki katına çıkar. Bu yüzden burada 409 döneriz.
       if (inc.status === 'CONVERTED_TO_PURCHASE') {
-        throw new Error('Bu belge zaten alış faturasına dönüştürülmüş.');
+        throw new IncomingDocumentError(
+          'ALREADY_INGESTED',
+          // ⚠️ "zaten alış faturasına dönüştürülmüş" ifadesi KORUNUR: hem bu
+          // davranış sözleşmesi testi hem arayüz bu metne göre karar veriyor.
+          // Metni serbestçe değiştirmek, doğru davranan bir kuralı sırf söz
+          // dizimi yüzünden kırmızı gösterirdi.
+          `Bu belge zaten alış faturasına dönüştürülmüş${inc.convertedPurchaseInvoiceId ? ` (alış faturası: ${inc.convertedPurchaseInvoiceId})` : ''}. ` +
+            'Aynı belge ikinci kez içeri alınamaz.'
+        );
+      }
+      if (inc.status === 'UNREADABLE') {
+        throw new IncomingDocumentError(
+          'NOT_INGESTIBLE',
+          `İçeriği okunamayan belge içeri alınamaz: ${inc.parseErrors?.[0] || 'belge okunamadı.'}`
+        );
+      }
+      if (inc.status === 'REJECTED') {
+        throw new IncomingDocumentError(
+          'INVALID_STATE',
+          'Reddedilmiş belge içeri alınamaz. Önce belgeyi entegratörden yeniden çekin.'
+        );
       }
 
       const plan = this.getIngestionPlan(incomingInvoiceId, tenantId);
       if (plan.blockedReason) {
-        throw new Error(`Belge içeri aktarılamaz: ${plan.blockedReason}`);
+        throw new IncomingDocumentError('NOT_INGESTIBLE', `Belge içeri aktarılamaz: ${plan.blockedReason}`);
       }
 
       const tenant = (draft.tenants || []).find(t => t.id === tenantId);
@@ -320,15 +472,29 @@ export class IncomingInvoiceService {
 
       // ── Kalemler → Alış faturası satırları ───────────────────────────────
       const kararlar = new Map((decisions?.lines || []).map(l => [l.lineNo, l]));
-      const items: Array<{ productId: string; quantity: number; unitPrice: number; vatRate: number }> = [];
+      const items: Array<{
+        productId: string; quantity: number; unitPrice: number; vatRate: number; discount1?: number;
+      }> = [];
+
+      /**
+       * Öğrenilecek eşleştirmeler (2026-09-29).
+       *
+       * ⚠️ YALNIZ KULLANICININ AÇIK KARARI öğrenilir (`karar.productId`).
+       * Otomatik eşleşen satırlar öğrenilmez: bir kez yapılan YANLIŞ otomatik
+       * eşleşme hafızaya yazılırsa kalıcı hâle gelir ve kullanıcı nedenini
+       * anlamadığı bir öneriyi her faturada görür.
+       */
+      const ogrenilecek: Array<{ lineNo: string; supplierItemCode: string; barcode?: string; productId: string }> = [];
 
       for (const lm of plan.lines) {
         const karar = kararlar.get(lm.line.lineNo);
         let product: Product | undefined;
+        let kullaniciSecti = false;
 
         if (karar?.productId) {
           product = (draft.products || []).find(p => p.id === karar.productId);
           if (!product) throw new Error(`Seçilen ürün kartı bulunamadı (satır ${lm.line.lineNo}).`);
+          kullaniciSecti = true;
         } else if (lm.product && !karar?.createProduct) {
           product = lm.product;
         }
@@ -358,11 +524,31 @@ export class IncomingInvoiceService {
           draft.products.push(product);
         }
 
+        // Kullanıcı bir kart SEÇTİYSE bu karar öğrenilir (tedarikçi kapsamlı).
+        if (kullaniciSecti) {
+          const kod = lm.line.sellerProductCode || lm.line.barcode || lm.line.buyerProductCode
+            || lm.line.manufacturerProductCode;
+          if (kod) {
+            ogrenilecek.push({
+              lineNo: lm.line.lineNo,
+              supplierItemCode: kod,
+              ...(lm.line.barcode ? { barcode: lm.line.barcode } : {}),
+              productId: product.id,
+            });
+          }
+        }
+
         items.push({
           productId: product.id,
           quantity: lm.line.quantity,
           unitPrice: lm.line.unitPrice,
           vatRate: lm.line.vatRate,
+          // ⚠️ 2026-09-29: Belgede satır iskontosu varsa YÜZDE olarak geçilir.
+          // Geçilmezse fatura motoru brüt tutarı esas alır ve alış faturası
+          // tedarikçi belgesinden YÜKSEK çıkar (cari borç + stok maliyeti şişer).
+          ...(discountPercentForLine(lm.line) !== undefined
+            ? { discount1: discountPercentForLine(lm.line)! }
+            : {}),
         });
       }
 
@@ -379,6 +565,12 @@ export class IncomingInvoiceService {
         items,
         notes:
           `Gelen e-Faturadan aktarıldı (ETTN: ${inc.uuid}, Fatura No: ${inc.invoiceNo}).` +
+          // KDV dışı vergi varsa fark AÇIKÇA yazılır: sessizce yutmak, cari
+          // borcun belgedeki ödenecek tutardan küçük olmasına yol açar ve
+          // kullanıcı nedenini bulamazdı.
+          (plan.totals.otherTaxTotal
+            ? ` Belgede KDV dışı vergi var (${plan.totals.otherTaxTotal.toFixed(2)} ${inc.currency}): belgenin ödenecek tutarı ${plan.totals.computedPayableTotal?.toFixed(2) ?? '-'}; bu vergi alış faturasına ayrıca eklenmedi, maliyet kaydını elle doğrulayın.`
+            : '') +
           (inc.parseWarnings?.length ? ` Uyarılar: ${inc.parseWarnings.join(' ')}` : ''),
         userId,
         username,
@@ -421,6 +613,28 @@ export class IncomingInvoiceService {
       inc.matchedSupplierId = supplier.id;
       inc.updatedAt = new Date().toISOString();
 
+      // ── Öğrenilen eşleştirmeleri yaz (2026-09-29) ────────────────────────
+      // Tedarikçi kapsamlı: anahtar `supplierTaxNumber + supplierProductCode`.
+      // Bir sonraki aynı tedarikçi belgesinde bu kod otomatik önerilir.
+      const yeniEslesmeler = buildMappingRecords(
+        ogrenilecek,
+        draft.productSupplierMappings || [],
+        {
+          tenantId,
+          // Belgedeki VKN esastır; yoksa mevcut kayda düşülür.
+          supplierTaxNumber: plan.document.supplier.taxNumber || inc.supplierTaxNumber || '',
+          now: new Date().toISOString(),
+        }
+      );
+      if (yeniEslesmeler.length > 0) {
+        if (!draft.productSupplierMappings) draft.productSupplierMappings = [];
+        for (const y of yeniEslesmeler) {
+          const idx = draft.productSupplierMappings.findIndex(m => m.id === y.id);
+          if (idx >= 0) draft.productSupplierMappings[idx] = y;
+          else draft.productSupplierMappings.push(y);
+        }
+      }
+
       storage.addAuditLog({
         userId,
         username,
@@ -431,7 +645,10 @@ export class IncomingInvoiceService {
         ipAddress: '127.0.0.1',
         details:
           `${inc.invoiceNo} nolu gelen e-fatura ${purchaseInvoice.invoiceNo} nolu alış faturasına dönüştürüldü ` +
-          `(${items.length} kalem, tedarikçi: ${supplier.title}). Stok girişi ve cari borç bu onayla oluştu.`,
+          `(${items.length} kalem, tedarikçi: ${supplier.title}, ETTN: ${inc.uuid}, tutar: ${purchaseInvoice.grandTotal.toFixed(2)} ${inc.currency}). ` +
+          `Stok girişi ve cari borç bu onayla oluştu.` +
+          (yeniEslesmeler.length > 0 ? ` ${yeniEslesmeler.length} ürün eşleştirmesi öğrenildi.` : '') +
+          (inc.parseWarnings?.length ? ` Uyarılar: ${inc.parseWarnings.join(' ')}` : ''),
       });
 
       return purchaseInvoice;

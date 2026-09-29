@@ -77,6 +77,8 @@ import type {
   SystemHealthIndicator,
   IncomingInvoice,
   IncomingDespatch,
+  StatusCounts,
+  ParsedUblDocument,
   IngestionPlan,
 } from '../types';
 
@@ -754,15 +756,86 @@ export const api = {
   // "sync sonrası stok güncellenir" gibi bir varsayım YAPILMAMALIDIR.
   // ───────────────────────────────────────────────────────────────────────────
 
-  /** Gelen e-Faturaları listeler (sayfalanmış). */
-  getIncomingDocuments: (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+  /**
+   * Gelen e-Faturaları listeler (sayfalanmış + süzgeçli).
+   *
+   * ⚠️ `statusCounts` SÜZGEÇTEN ÖNCE hesaplanır: sekme rozetleri "toplamda kaç
+   * belge şu durumda" sorusunu yanıtlar. Süzgeçten sonra hesaplansaydı bir
+   * sekmeye geçildiğinde diğer sayaçlar sıfırlanır ve kalan iş görünmezdi.
+   */
+  getIncomingDocuments: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    documentType?: string;
+    startDate?: string;
+    endDate?: string;
+    supplierTaxNumber?: string;
+    documentNo?: string;
+    ettn?: string;
+  }) => {
     const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
     return request<{
       success: boolean;
       data: IncomingInvoice[];
+      statusCounts: StatusCounts;
       pagination: { total: number; page: number; limit: number; totalPages: number };
     }>(`/v1/e-documents/incoming/list${query}`);
   },
+
+  /** Detay ekranı verisi (Belge + Kalemler sekmeleri). SALT OKUNUR. */
+  getIncomingDocumentDetail: (id: string) =>
+    request<{ success: boolean; record: IncomingInvoice; document: ParsedUblDocument }>(
+      `/v1/e-documents/incoming/${id}/detail`
+    ),
+
+  /** Ham UBL XML. `pretty` verilirse sunucu girintiler (içerik değişmez). */
+  getIncomingDocumentXml: (id: string, pretty = true) =>
+    request<{ success: boolean; xml: string; formatted: boolean; reason?: string }>(
+      `/v1/e-documents/incoming/${id}/xml${pretty ? '?pretty=1' : ''}`
+    ),
+
+  /** Belgenin A4 görünümü — veriye sadık, şablon DEĞİL. */
+  getIncomingDocumentVisual: (id: string) =>
+    request<{ success: boolean; renderedBy: 'client'; html: string }>(
+      `/v1/e-documents/incoming/${id}/visual`
+    ),
+
+  /** İrsaliye detayı. SALT OKUNUR. */
+  getIncomingDespatchDetail: (id: string) =>
+    request<{ success: boolean; record: IncomingDespatch; document: ParsedUblDocument }>(
+      `/v1/e-documents/incoming-despatches/${id}/detail`
+    ),
+
+  /** İrsaliye ham XML'i. */
+  getIncomingDespatchXml: (id: string, pretty = true) =>
+    request<{ success: boolean; xml: string; formatted: boolean; reason?: string }>(
+      `/v1/e-documents/incoming-despatches/${id}/xml${pretty ? '?pretty=1' : ''}`
+    ),
+
+  /** İrsaliye A4 görünümü. */
+  getIncomingDespatchVisual: (id: string) =>
+    request<{ success: boolean; renderedBy: 'client'; html: string }>(
+      `/v1/e-documents/incoming-despatches/${id}/visual`
+    ),
+
+  /**
+   * Belgenin İNCELENDİĞİNİ işaretler — malî etkisi yoktur.
+   * "Yeni" → "Eşleştirme Bekliyor" geçişini sağlar.
+   */
+  markIncomingDocumentReviewed: (id: string) =>
+    request<{ success: boolean; invoice: IncomingInvoice }>(
+      `/v1/e-documents/incoming/${id}/reviewed`,
+      { method: 'POST' }
+    ),
+
+  /** İrsaliye inceleme işareti — malî etkisi yoktur. */
+  markIncomingDespatchReviewed: (id: string) =>
+    request<{ success: boolean; despatch: IncomingDespatch }>(
+      `/v1/e-documents/incoming-despatches/${id}/reviewed`,
+      { method: 'POST' }
+    ),
 
   /** Entegratörden gelen faturaları çeker. STOK/CARİ DEĞİŞMEZ. */
   syncIncomingDocuments: (startDate?: string) =>
@@ -806,12 +879,23 @@ export const api = {
    * 2026-09-28: Sayfalama sözleşmesi gelen e-Fatura ucuyla eşitlendi
    * (`page/limit/total/totalPages`). Önceden uç TÜM listeyi döndürüyordu.
    */
-  getIncomingDespatches: (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+  getIncomingDespatches: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    supplierTaxNumber?: string;
+    documentNo?: string;
+    ettn?: string;
+  }) => {
     const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
     return request<{
       success: boolean;
       data: IncomingDespatch[];
       incomingDespatches: IncomingDespatch[];
+      statusCounts: StatusCounts;
       pagination: { total: number; page: number; limit: number; totalPages: number };
       total: number;
     }>(`/v1/e-documents/incoming-despatches/list${query}`);

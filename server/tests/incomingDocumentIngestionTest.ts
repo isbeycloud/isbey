@@ -43,6 +43,8 @@ import { storage } from '../db/storage';
 import { IncomingInvoiceService } from '../services/incomingInvoiceService';
 import { IncomingDespatchService } from '../services/incomingDespatchService';
 import { UblInvoiceBuilder } from '../services/ubl/ublInvoiceBuilder';
+import { parseUblDocument } from '../services/ubl/ublParser';
+import { buildIngestionPlan } from '../services/ubl/incomingDocumentMapper';
 import { UblDespatchBuilder } from '../services/ubl/ublDespatchBuilder';
 import { ProviderFactory, ProviderTransportError } from '../services/providers/providerFactory';
 import type { Product, Customer, Invoice, Waybill, Tenant } from '../db/schema';
@@ -230,6 +232,20 @@ function irsaliyeUret(uuid: string, no: string): string {
     ],
   } as unknown as Waybill;
   return UblDespatchBuilder.buildXml({ waybill: wb, tenant: tedarikci, customer: tenant, uuid });
+}
+
+/**
+ * "Öğrenilecek" belge: kalemin HEM kodu HEM adı hiçbir mevcut karta uymaz.
+ *
+ * ⚠️ NEDEN İKİSİ DE DEĞİŞTİRİLİR: `matchLine`'ın son kademesi AD benzerliğidir.
+ * Yalnız kodu değiştirseydik, ad ("Yeni Kalem (kart yok)") aynı kaldığı için
+ * kademe yine eşleşir ve satır "eşleşmemiş" sayılmazdı. Bu bir hata değil,
+ * motorun DOĞRU davranışıdır — testin kurulumu eksikti (ilk koşuda ölçüldü).
+ */
+function ogrenilecekBelge(uuid: string, no: string): string {
+  return alisFaturasiUret(uuid, no)
+    .replace(/TED-200/g, 'OGR-777')
+    .replace(/Yeni Kalem \(kart yok\)/g, 'Öğrenilecek Kalem');
 }
 
 const taklitListe = (
@@ -533,6 +549,106 @@ test('irsaliye senkronu ve reddi DİSKE yazılır (bayat referans tuzağı)', as
     const m1 = (disktenOku().stockMovements || []).filter((m: any) => m.documentId === kayit.id);
     assert.equal(m1.length, 0, 'reddedilen irsaliye stok hareketi oluşturmamalı');
   } finally { geriAl(); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// ÖĞRENİLEN EŞLEŞTİRME HAFIZASI (tedarikçi kapsamlı)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * TEK TAM DÖNGÜ: senkron → plan → ONAY (kullanıcı kararıyla) → yeni belge → plan.
+ *
+ * ⚠️ NEDEN BÖYLE: Eşleştirme hafızasının değeri ancak İKİNCİ belgede görünür.
+ * Tek bir onaya bakmak "yazdı mı" sorusunu yanıtlar; asıl sözleşme ise
+ * "kullanıcı bir kez karar verdi, sistem BİR DAHA sormadı"dır. Bu yüzden test
+ * iki belge üzerinden koşar.
+ */
+test('öğrenilen eşleştirme: kullanıcı kararı SONRAKİ belgede kendiliğinden önerilir', async () => {
+  const OG_UUID = '77777777-aaaa-bbbb-cccc-777777777777';
+  const OG_NO = 'OGREN-1';
+
+  const ogrenilecekXml = ogrenilecekBelge(OG_UUID, OG_NO);
+
+  const geriAl = saglayiciKur([
+    taklitListe(OG_UUID, OG_NO, ogrenilecekXml, 'INVOICE', 1),
+  ]);
+  try {
+    await IncomingInvoiceService.syncIncomingInvoices(tenantId);
+    const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === OG_UUID)!;
+    assert.ok(kayit, 'belge senkronize olmalı');
+
+    const ilkPlan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
+    const satir = ilkPlan.lines.find(l => l.line.sellerProductCode === 'OGR-777')!;
+    assert.equal(satir.needsNewProduct, true, 'ilk belgede kod hiçbir karta uymamalı');
+
+    // Kullanıcı mevcut "prd-eslesen" kartını SEÇER (yeni kart açmaz).
+    await IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test', {
+      supplierId: 'cust-tedarikci-1',
+      lines: [{ lineNo: satir.line.lineNo, productId: 'prd-eslesen' }],
+    });
+
+    const hafiza = storage.getState().productSupplierMappings || [];
+    const kayitlar = hafiza.filter(
+      m => m.supplierProductCode === 'OGR-777' && m.supplierTaxNumber === tedarikciVkn
+    );
+    assert.equal(kayitlar.length, 1, 'kullanıcının kararı hafızaya yazılmalı');
+    assert.equal(kayitlar[0].localProductId, 'prd-eslesen', 'hafıza seçilen ürünü göstermeli');
+
+    // ── İKİNCİ BELGE: aynı tedarikçi, aynı ürün kodu, BAŞKA belge numarası ──
+    const ikinciUuid = '77777777-aaaa-bbbb-cccc-888888888888';
+    const ikinciXml = ogrenilecekBelge(ikinciUuid, 'OGREN-2');
+    const geriAl2 = saglayiciKur([taklitListe(ikinciUuid, 'OGREN-2', ikinciXml, 'INVOICE', 1)]);
+    try {
+      await IncomingInvoiceService.syncIncomingInvoices(tenantId);
+      const k2 = (storage.getState().incomingInvoices || []).find(i => i.uuid === ikinciUuid)!;
+      const plan2 = IncomingInvoiceService.getIngestionPlan(k2.id, tenantId);
+      const s2 = plan2.lines.find(l => l.line.sellerProductCode === 'OGR-777')!;
+
+      assert.equal(s2.matchedBy, 'SAVED_MAPPING', 'ikinci belgede hafıza kullanılmalı');
+      assert.equal(s2.product?.id, 'prd-eslesen', 'aynı ürün önerilmeli');
+      assert.equal(s2.confidence, 'HIGH', 'insan kararı yüksek güvenilirlik sayılır');
+      assert.equal(s2.needsNewProduct, false, 'kullanıcı bir daha sormak zorunda kalmamalı');
+    } finally { geriAl2(); }
+  } finally { geriAl(); }
+});
+
+test('eşleştirme hafızası TEDARİKÇİ KAPSAMLIDIR — başka VKN için kullanılmaz', () => {
+  // ⚠️ Ölçülen tehlike: "OGR-777" kodu BAŞKA bir tedarikçide bambaşka bir ürüne
+  // karşılık gelebilir. Global bir hafıza, bir tedarikçi için verilen kararı
+  // diğerine uygular ve YANLIŞ stoğa mal girişi yapar.
+  const db = storage.getState();
+  const parsed = parseUblDocument(ogrenilecekBelge('99999999-aaaa-bbbb-cccc-999999999999', 'OGREN-3'));
+
+  const plan = buildIngestionPlan(
+    { ...parsed, supplier: { ...parsed.supplier, taxNumber: '1112223334' } },
+    {
+      customers: db.customers || [],
+      products: db.products || [],
+      tenantId,
+      savedMappings: db.productSupplierMappings || [],
+    }
+  );
+
+  const satir = plan.lines.find(l => l.line.sellerProductCode === 'OGR-777')!;
+  assert.notEqual(satir.matchedBy, 'SAVED_MAPPING', 'başka tedarikçinin hafızası KULLANILMAMALI');
+  assert.equal(satir.needsNewProduct, true, 'yabancı kod eşleşmemiş sayılmalı');
+});
+
+test('eşleştirme hafızası: OTOMATİK eşleşen satır öğrenilmez', () => {
+  // ⚠️ Yalnız kullanıcının AÇIK kararı öğrenilir. Otomatik eşleşen bir satır da
+  // yazılsaydı, bir kez yapılmış YANLIŞ bir otomatik eşleşme kalıcı hâle gelir
+  // ve kendini her belgede doğrular; hata artık kendi kendini besler.
+  const hafiza = storage.getState().productSupplierMappings || [];
+  const ted100 = hafiza.filter(m => m.supplierProductCode === 'TED-100');
+  assert.equal(ted100.length, 0, 'kod ile otomatik eşleşen TED-100 hafızaya YAZILMAMALI');
+
+  // Hafızadaki her kayıt gerçek bir ürüne işaret etmeli (ölü kayıt olmamalı).
+  const urunIdleri = new Set((storage.getState().products || []).map(p => p.id));
+  for (const m of hafiza) {
+    assert.ok(urunIdleri.has(m.localProductId), `hafıza kaydı geçerli ürüne işaret etmeli: ${m.id}`);
+    assert.ok(m.supplierTaxNumber, 'hafıza kaydı tedarikçisiz olamaz (kapsam kaybolur)');
+    assert.ok(m.createdAt && m.updatedAt, 'hafıza kaydı zaman damgası taşımalı');
+  }
 });
 
 // ════════════════════════════════════════════════════════════════════════════

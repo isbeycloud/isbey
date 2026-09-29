@@ -1,6 +1,6 @@
 import { useAuth } from './AuthContext';
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { Tenant } from '../types';
+import type { Tenant, OperationalStatus } from '../types';
 
 export type AppView = 
   | 'hizmetler'
@@ -147,6 +147,20 @@ interface AppContextType {
   activeTenantId: string;
   switchTenant: (id: string) => Promise<boolean>;
   loadTenants: () => Promise<void>;
+
+  /**
+   * GELEN BELGELER'E ÖN SÜZGEÇLE GİT (2026-09-29).
+   *
+   * Pano kartları "3 fatura eşleştirme bekliyor" der ve kullanıcı tıkladığında
+   * listeyi TAM O KOVADA açmalıdır. Aksi hâlde kullanıcı 300 belgelik listeye
+   * düşer ve az önce gördüğü 3 belgeyi elle arar.
+   *
+   * `nonce` her çağrıda artar: kullanıcı aynı karta iki kez bastığında da
+   * süzgecin yeniden uygulanması gerekir (önceki süzgeci elle değiştirmiş
+   * olabilir).
+   */
+  incomingPreset: { tur: 'INVOICE' | 'DESPATCH'; durum: OperationalStatus | 'ALL'; nonce: number } | null;
+  openIncomingDocuments: (preset?: { tur?: 'INVOICE' | 'DESPATCH'; durum?: OperationalStatus | 'ALL' }) => void;
 }
 
 
@@ -189,6 +203,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   const [refreshKey, setRefreshKey] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [formDesignerId, setFormDesignerId] = useState<string | null>(null);
+
+  /** Gelen Belgeler'e ön süzgeçle gitme isteği (bkz. `openIncomingDocuments`). */
+  const [incomingPreset, setIncomingPreset] = useState<
+    { tur: 'INVOICE' | 'DESPATCH'; durum: OperationalStatus | 'ALL'; nonce: number } | null
+  >(null);
+
+  const openIncomingDocuments = (preset?: { tur?: 'INVOICE' | 'DESPATCH'; durum?: OperationalStatus | 'ALL' }) => {
+    // `nonce` her çağrıda artar: aynı karta ikinci kez basıldığında da hedef
+    // süzgeç yeniden uygulanır. Sabit bir değer olsaydı React state'i
+    // değişmediği için ikinci tıklama hiçbir şey yapmazdı.
+    setIncomingPreset(prev => ({
+      tur: preset?.tur ?? prev?.tur ?? 'INVOICE',
+      durum: preset?.durum ?? 'ALL',
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+    setActiveView('gelen-belgeler');
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -371,6 +402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
         activeTenantId,
         switchTenant,
         loadTenants,
+        incomingPreset,
+        openIncomingDocuments,
       }}
     >
       {children}

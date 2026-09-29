@@ -21,6 +21,7 @@ import {
 import { Line } from 'react-chartjs-2';
 import { useApp } from '../../../context/AppContext';
 import { api } from '../../../services/api';
+import type { StatusCounts } from '../../../types';
 
 ChartJS.register(
   CategoryScale,
@@ -69,12 +70,22 @@ export const DashboardView: React.FC = () => {
     setIsFastPaymentOpen,
     refreshKey,
     activeTenant,
+    openIncomingDocuments,
   } = useApp();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loadError, setLoadError] = useState(false);
+  /**
+   * Gelen belge operasyon sayaçları (2026-09-29).
+   *
+   * ⚠️ `null` ile `sıfır sayaç` AYRI ŞEYLERDİR: `null` "henüz bilmiyoruz/izin
+   * yok" demektir ve kartlar gösterilmez. Sıfır göstermek, yetkisi olmayan bir
+   * kullanıcıya "0 bekleyen iş var" diye yanlış bir rahatlık verirdi.
+   */
+  const [faturaSayac, setFaturaSayac] = useState<StatusCounts | null>(null);
+  const [irsaliyeSayac, setIrsaliyeSayac] = useState<StatusCounts | null>(null);
   const [calCursor, setCalCursor] = useState(() => {
     const t = new Date();
     return { year: t.getFullYear(), month: t.getMonth() };
@@ -112,8 +123,34 @@ export const DashboardView: React.FC = () => {
       }
     };
 
+    /**
+     * Gelen belge operasyon sayaçları — PANO KARTLARI için.
+     *
+     * ⚠️ `limit: 1` İLE ÇEKİLİR: sayaçlar sunucuda SÜZGEÇTEN ÖNCE hesaplandığı
+     * için tek bir kayıt bile tam sayaç kümesini getirir. 300 belgeyi panoya
+     * indirmek, panoyu gelen belgeler ekranının yavaş bir kopyasına çevirirdi.
+     *
+     * ⚠️ Yetki yoksa (403) kart GÖSTERİLMEZ: "0 bekleyen iş var" demek, göremediği
+     * bir kuyruk için kullanıcıya yanlış güvence verirdi.
+     */
+    const fetchIncomingCounts = async () => {
+      try {
+        const f = await api.getIncomingDocuments({ page: 1, limit: 1 });
+        if (f.success && f.statusCounts) setFaturaSayac(f.statusCounts);
+      } catch {
+        setFaturaSayac(null);
+      }
+      try {
+        const d = await api.getIncomingDespatches({ page: 1, limit: 1 });
+        if (d.success && d.statusCounts) setIrsaliyeSayac(d.statusCounts);
+      } catch {
+        setIrsaliyeSayac(null);
+      }
+    };
+
     fetchDashboard();
     fetchInvoices();
+    fetchIncomingCounts();
   }, [refreshKey]);
 
   const formatCurrency = (val: number) => {
@@ -501,6 +538,117 @@ export const DashboardView: React.FC = () => {
           footer={<span>Kayıtlı fatura sayısı</span>}
         />
       </div>
+
+      {/* ─── 2b. GELEN BELGE OPERASYON ŞERİDİ ───
+          Kullanıcı isteği: "Pano üzerinde küçük operasyon kartları... Panoyu
+          şişirmeyin." Bu yüzden KPI şeridi gibi TEK bir satır: iki kutu, her
+          kutuda iki sayaç. Kart tıklandığında Gelen Belgeler ekranı TAM O
+          kovada açılır (ön süzgeç) — kullanıcı 300 belgelik listeye düşüp
+          az önce gördüğü belgeleri elle aramaz.
+
+          ⚠️ Sayaç `null` ise (yetki yok / istek başarısız) kart HİÇ
+          gösterilmez. "0 bekleyen" yazmak, göremediği bir kuyruk için
+          yanlış güvence olurdu. */}
+      {(faturaSayac || irsaliyeSayac) && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '16px',
+            marginTop: '16px',
+          }}
+        >
+          {faturaSayac && (
+            <div className="m3-card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <h3 style={{ fontSize: 'var(--fs-md, 14px)', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                  Gelen e-Fatura
+                </h3>
+                <button
+                  onClick={() => openIncomingDocuments({ tur: 'INVOICE', durum: 'ALL' })}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--primary)',
+                    fontSize: 'var(--fs-sm, 12px)', fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Tümünü gör
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { etiket: 'Yeni', deger: faturaSayac.NEW, durum: 'NEW' as const, sinif: 'm3-pill-info' },
+                  { etiket: 'Eşleştirme Bekleyen', deger: faturaSayac.PENDING_MATCH, durum: 'PENDING_MATCH' as const, sinif: 'm3-pill-warning' },
+                  { etiket: 'Hazır', deger: faturaSayac.READY, durum: 'READY' as const, sinif: 'm3-pill-success' },
+                  { etiket: 'İçeri Alınan', deger: faturaSayac.INGESTED, durum: 'INGESTED' as const, sinif: 'm3-pill-success' },
+                  ...(faturaSayac.ERROR > 0
+                    ? [{ etiket: 'Hatalı', deger: faturaSayac.ERROR, durum: 'ERROR' as const, sinif: 'm3-pill-danger' }]
+                    : []),
+                ].map(s => (
+                  <button
+                    key={s.etiket}
+                    className={`m3-pill ${s.sinif}`}
+                    style={{
+                      border: 'none', cursor: 'pointer', padding: '5px 10px',
+                      // Sıfır sayaç SOLGUN gösterilir ama GİZLENMEZ: kullanıcı
+                      // kuyruğun tamamen boş olduğunu da bilmelidir.
+                      opacity: s.deger === 0 ? 0.55 : 1,
+                      fontFamily: 'inherit',
+                    }}
+                    onClick={() => openIncomingDocuments({ tur: 'INVOICE', durum: s.durum })}
+                    title={`${s.etiket} faturaları göster`}
+                  >
+                    {s.etiket}: <b>{s.deger}</b>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {irsaliyeSayac && (
+            <div className="m3-card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <h3 style={{ fontSize: 'var(--fs-md, 14px)', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                  Gelen e-İrsaliye
+                </h3>
+                <button
+                  onClick={() => openIncomingDocuments({ tur: 'DESPATCH', durum: 'ALL' })}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--primary)',
+                    fontSize: 'var(--fs-sm, 12px)', fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Tümünü gör
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { etiket: 'Yeni', deger: irsaliyeSayac.NEW, durum: 'NEW' as const, sinif: 'm3-pill-info' },
+                  { etiket: 'Bekleyen', deger: irsaliyeSayac.PENDING_MATCH, durum: 'PENDING_MATCH' as const, sinif: 'm3-pill-warning' },
+                  { etiket: 'Hazır', deger: irsaliyeSayac.READY, durum: 'READY' as const, sinif: 'm3-pill-success' },
+                  { etiket: 'Girilen', deger: irsaliyeSayac.INGESTED, durum: 'INGESTED' as const, sinif: 'm3-pill-success' },
+                  ...(irsaliyeSayac.ERROR > 0
+                    ? [{ etiket: 'Hatalı', deger: irsaliyeSayac.ERROR, durum: 'ERROR' as const, sinif: 'm3-pill-danger' }]
+                    : []),
+                ].map(s => (
+                  <button
+                    key={s.etiket}
+                    className={`m3-pill ${s.sinif}`}
+                    style={{
+                      border: 'none', cursor: 'pointer', padding: '5px 10px',
+                      opacity: s.deger === 0 ? 0.55 : 1,
+                      fontFamily: 'inherit',
+                    }}
+                    onClick={() => openIncomingDocuments({ tur: 'DESPATCH', durum: s.durum })}
+                    title={`${s.etiket} irsaliyeleri göster`}
+                  >
+                    {s.etiket}: <b>{s.deger}</b>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── 3. İKİ KOLONLU ANA GRID (SOL: GRAFİK & TABLO, SAĞ: AKTİVİTE & TAKVİM) ─── */}
       <div

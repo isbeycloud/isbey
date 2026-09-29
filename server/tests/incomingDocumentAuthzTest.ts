@@ -336,7 +336,130 @@ test('irsaliye yanıtı geriye dönük `incomingDespatches` alanını KORUR', as
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// 5. YETKİ MATRİSİ DEĞİŞMEZLERİ (registry)
+// 5. OPERASYON DURUMU, SAYAÇLAR VE FİLTRELER (2026-09-29)
+//
+// ⚠️ NEDEN HTTP ÜZERİNDEN: Durum türetme saf bir fonksiyondur ve kendi testi
+// vardır; ama o test ucun bu fonksiyonu GERÇEKTEN kullandığını kanıtlamaz.
+// Uç yeniden eski `status` karşılaştırmasına dönerse yalnız bu test kırmızıya
+// döner.
+// ════════════════════════════════════════════════════════════════════════════
+
+test('durum: liste yanıtı `operationalStatus` ve `statusCounts` döner', async () => {
+  const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?limit=5');
+  assert.equal(r.status, 200);
+  assert.ok(r.json.statusCounts, 'sayaçlar dönmeli (pano kartları ve rozetler bunu kullanır)');
+  for (const k of ['NEW', 'PENDING_MATCH', 'READY', 'INGESTED', 'ERROR', 'pendingOperation']) {
+    assert.equal(typeof r.json.statusCounts[k], 'number', `statusCounts.${k} sayı olmalı`);
+  }
+  assert.equal(typeof r.json.data[0].operationalStatus, 'string', 'her satır operasyon durumu taşımalı');
+});
+
+test('durum: sayaçlar SÜZGEÇTEN BAĞIMSIZ hesaplanır (iş yükü gizlenmez)', async () => {
+  // ⚠️ Sayaçlar süzülmüş kümeden hesaplansaydı, kullanıcı "Hazır" sekmesine
+  // geçtiğinde diğer sayaçlar sıfırlanır ve kalan iş görünmez olurdu.
+  const hepsi = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?limit=1');
+  const suzulmus = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?limit=1&status=READY');
+  assert.deepEqual(suzulmus.json.statusCounts, hepsi.json.statusCounts, 'sayaçlar süzgeçle DEĞİŞMEMELİ');
+});
+
+test('durum: kalemsiz belgeler HATA sayılır (içeri alınamaz)', async () => {
+  // Kurulumdaki 30 faturanın hepsi `items: []` — yani hiçbiri içeri alınamaz.
+  const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?limit=100');
+  assert.equal(r.json.statusCounts.ERROR, 30, 'kalemsiz 30 belge HATA olmalı');
+  assert.equal(r.json.statusCounts.READY, 0, 'hiçbiri HAZIR olmamalı');
+});
+
+test('durum: ham durum süzgeci GERİYE DÖNÜK uyum için çalışmaya devam eder', async () => {
+  // Eski istemciler `status=RECEIVED` gönderiyor; bu değer operasyon durumu
+  // değildir ve ham alan üzerinden süzmeye devam etmelidir.
+  const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?status=RECEIVED&limit=100');
+  assert.equal(r.status, 200);
+  assert.equal(r.json.pagination.total, 30);
+});
+
+test('filtre: ETTN, belge no ve VKN ile arama çalışır', async () => {
+  const ettn = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?ettn=inv-uuid-7');
+  assert.equal(ettn.json.pagination.total, 1);
+  assert.equal(ettn.json.data[0].uuid, 'inv-uuid-7');
+
+  const no = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?documentNo=AF-012');
+  assert.equal(no.json.pagination.total, 1);
+
+  const vkn = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?supplierTaxNumber=1111111111');
+  assert.equal(vkn.json.pagination.total, 30);
+
+  const yok = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?supplierTaxNumber=9999999999');
+  assert.equal(yok.json.pagination.total, 0, 'eşleşmeyen VKN boş liste döner (hata değil)');
+});
+
+test('filtre: tarih aralığı issueDate üzerinden süzer', async () => {
+  const icinde = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?startDate=2026-08-01&endDate=2026-09-30');
+  assert.equal(icinde.json.pagination.total, 30);
+  const disinda = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?startDate=2026-10-01');
+  assert.equal(disinda.json.pagination.total, 0);
+});
+
+test('irsaliye listesi de aynı sayaçları ve durum alanını döner', async () => {
+  const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming-despatches/list?limit=5');
+  assert.ok(r.json.statusCounts, 'irsaliye listesi de sayaç dönmeli');
+  assert.equal(typeof r.json.data[0].operationalStatus, 'string');
+});
+
+test('inceleme işareti: plan ucu SALT-OKUNUR kalır, işaret AYRI uçtan atılır', async () => {
+  // ⚠️ `getIngestionPlan` sözleşmesi gereği hiçbir şey yazmaz. "Bakıldı"
+  // işaretini plan ucuna gizlice koymak, bir listeleme çağrısının bile
+  // operasyon sayaçlarını değiştirmesine yol açardı.
+  //
+  // Ölçüm için EŞLEŞMEYEN kalemli bir belge kurulur: böylece durumu NEW'dir ve
+  // `reviewedAt` onu PENDING_MATCH'e taşır — yani işaretin etkisi görünür olur.
+  storage.update(db => {
+    (db.incomingInvoices || []).push({
+      id: 'ii-isaret', tenantId: T, uuid: 'inv-uuid-isaret', invoiceNo: 'AF-ISARET',
+      supplierTitle: 'İşaret Tedarikçisi', supplierTaxNumber: '2222222222',
+      issueDate: '2026-09-10', status: 'RECEIVED',
+      items: [{ id: 'li-1', incomingInvoiceId: 'inv-uuid-isaret', name: 'Hiçbir Karta Uymayan Kalem', quantity: 1, unit: 'Adet', unitPrice: 1, vatRate: 20, vatAmount: 0.2, lineTotal: 1 }],
+    } as any);
+  });
+
+  const durum = async () => {
+    const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/list?limit=100');
+    const satir = (r.json.data || []).find((x: any) => x.id === 'ii-isaret');
+    return { durum: satir?.operationalStatus, sayaclar: r.json.statusCounts };
+  };
+
+  const once = await durum();
+  assert.equal(once.durum, 'NEW', 'bakılmamış ve eşleşmemiş kalem → YENİ');
+
+  // Plan ucu: SALT-OKUNUR olmalı. Bu kurulumda belgenin XML'i diskte yok,
+  // bu yüzden uç 422 döner — beklenen davranış. Kanıtlanan şey, uç hata verse
+  // bile GERİYE YAZMA yapmadığıdır.
+  const plan = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-isaret/plan');
+  assert.equal(plan.status, 422, 'içeriği olmayan belgenin planı 422 olmalı (NOT_INGESTIBLE)');
+  assert.equal(plan.json.code, 'NOT_INGESTIBLE');
+  const planSonrasi = await durum();
+  assert.equal(planSonrasi.durum, 'NEW', 'PLAN ucu durumu DEĞİŞTİRMEMELİ (salt-okunur)');
+  assert.deepEqual(planSonrasi.sayaclar, once.sayaclar, 'PLAN ucu sayaçları DEĞİŞTİRMEMELİ');
+
+  // Ayrı uç: işaret atılır ve durum DEĞİŞİR.
+  const isaret = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-isaret/reviewed', 'POST');
+  assert.equal(isaret.status, 200);
+
+  const sonra = await durum();
+  assert.equal(sonra.durum, 'PENDING_MATCH', 'işaretten sonra EŞLEŞTİRME BEKLİYOR olmalı');
+  assert.equal(sonra.sayaclar.NEW, once.sayaclar.NEW - 1, 'YENİ sayacı bir azalmalı');
+  assert.equal(sonra.sayaclar.PENDING_MATCH, once.sayaclar.PENDING_MATCH + 1, 'bekleyen sayacı bir artmalı');
+  // Bekleyen toplam DEĞİŞMEZ: iş yükü aynı, yalnız sınıfı değişti.
+  assert.equal(sonra.sayaclar.pendingOperation, once.sayaclar.pendingOperation);
+});
+
+test('inceleme işareti: olmayan belge 404 döner (400 değil)', async () => {
+  const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/inc-yok-boyle/reviewed', 'POST');
+  assert.equal(r.status, 404, 'kayıt yokluğu 404 olmalı — 400 "istek bozuk" demek olurdu');
+  assert.equal(r.json.code, 'NOT_FOUND');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. YETKİ MATRİSİ DEĞİŞMEZLERİ (registry)
 // ════════════════════════════════════════════════════════════════════════════
 
 test('registry: einvoice.view ve waybills.approve KATALOGDA (DB rol kayıtlarına girebilsin)', async () => {

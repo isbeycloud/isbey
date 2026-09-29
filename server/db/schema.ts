@@ -1999,6 +1999,14 @@ export interface IncomingInvoice {
   grandTotal: number;
   currency: string;
   status: 'RECEIVED' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_PURCHASE' | 'UNREADABLE';
+  /**
+   * 2026-09-29 — Kullanıcı eşleştirme/onay ekranını AÇTIĞI an.
+   *
+   * ⚠️ Bu alan yalnız operasyon durumunu ayırt etmek için vardır ("Yeni" mi
+   * "Eşleştirme Bekliyor" mu). Yokluğu bir hata değildir: eski kayıtlarda
+   * bulunmaz ve o belgeler "Yeni" sayılır — doğru davranış budur.
+   */
+  reviewedAt?: string;
   rejectionReason?: string;
   convertedPurchaseInvoiceId?: string;
   xmlStoragePath?: string;
@@ -2073,6 +2081,8 @@ export interface IncomingDespatch {
   /** Çözümlenen belge türü — her zaman 'DESPATCH'. */
   documentKind: 'DESPATCH';
   status: 'RECEIVED' | 'APPROVED' | 'REJECTED' | 'UNREADABLE';
+  /** 2026-09-29 — Kullanıcı eşleştirme ekranını açtığı an (bkz. IncomingInvoice). */
+  reviewedAt?: string;
   /** Onaylandığında oluşan mal giriş hareketlerinin belge numarası. */
   convertedMovementRef?: string;
   rejectionReason?: string;

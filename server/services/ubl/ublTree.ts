@@ -47,6 +47,17 @@ const ENTITIES: Record<string, string> = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
 };
 
+/**
+ * Gelen belge boyutu üst sınırı (bayt).
+ *
+ * ⚠️ 2026-09-29 — NEDEN GEREKLİ: Bu yol entegratörden gelen ve son kullanıcının
+ * DENETLEYEMEDİĞİ bir veriyi işler. Üst sınır olmadan çok büyük bir belge
+ * belleği tüketip sunucuyu düşürebilir. Gerçek bir e-Fatura pratikte birkaç
+ * yüz KB'dir; 25 MB cömert bir tavandır. Aşan belge kırpılmaz, REDDEDİLİR —
+ * kırpılmış bir UBL sessizce eksik kalem üretirdi.
+ */
+export const MAX_UBL_BYTES = 25 * 1024 * 1024;
+
 /** XML entity'lerini çözer. Bilinmeyen entity olduğu gibi bırakılır. */
 export function decodeXmlText(raw: string): string {
   if (!raw.includes('&')) return raw;
@@ -129,6 +140,13 @@ export function numOf(node: XmlNode | undefined, name: string): number | undefin
 export function parseUblTree(input: string): UblParseResult {
   if (typeof input !== 'string' || input.trim() === '') {
     return { ok: false, error: 'Belge içeriği boş.' };
+  }
+  // Savunma kapısı: aşırı büyük belge işlenmeden reddedilir (bkz. MAX_UBL_BYTES).
+  if (input.length > MAX_UBL_BYTES) {
+    return {
+      ok: false,
+      error: `Belge çok büyük (${Math.round(input.length / 1024 / 1024)} MB); en fazla ${MAX_UBL_BYTES / 1024 / 1024} MB işlenebilir.`,
+    };
   }
 
   // Kapı: bozuk XML buradan geçemez. Hata konumu doğrudan taşınır.

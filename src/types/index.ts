@@ -2201,6 +2201,26 @@ export interface IncomingInvoiceItem {
 export type IncomingInvoiceStatus =
   | 'RECEIVED' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED_TO_PURCHASE' | 'UNREADABLE';
 
+/**
+ * OPERASYON DURUMU — sunucudaki `OperationalStatus` ile birebir.
+ *
+ * ⚠️ HAM durumdan (`IncomingInvoiceStatus`) AYRIDIR ve kayıtta SAKLANMAZ:
+ * "Eşleştirme Bekliyor" o an stok kartlarının var olup olmamasına bağlıdır.
+ * Kart açıldığında belge KENDİLİĞİNDEN "Hazır" olmalıdır.
+ */
+export type OperationalStatus = 'NEW' | 'PENDING_MATCH' | 'READY' | 'INGESTED' | 'ERROR';
+
+/** Operasyon durumu sayaçları — pano kartları ve sekme rozetleri. */
+export interface StatusCounts {
+  NEW: number;
+  PENDING_MATCH: number;
+  READY: number;
+  INGESTED: number;
+  ERROR: number;
+  /** Operasyon bekleyen toplam: NEW + PENDING_MATCH + READY. */
+  pendingOperation: number;
+}
+
 export interface IncomingInvoice {
   id: string;
   tenantId: string;
@@ -2215,6 +2235,16 @@ export interface IncomingInvoice {
   grandTotal: number;
   currency: string;
   status: IncomingInvoiceStatus;
+  /**
+   * Kullanıcının eşleştirme/onay ekranını AÇTIĞI an. Yokluğu bir hata değildir;
+   * "Yeni" ile "Eşleştirme Bekliyor" ayrımı buna dayanır.
+   */
+  reviewedAt?: string;
+  /**
+   * Sunucunun TÜRETTİĞİ operasyon durumu — liste ucunda döner, kayıtta
+   * SAKLANMAZ (kart durumuna bağlıdır, bkz. `server/services/incomingDocumentStatus.ts`).
+   */
+  operationalStatus?: OperationalStatus;
   rejectionReason?: string;
   convertedPurchaseInvoiceId?: string;
   xmlStoragePath?: string;
@@ -2267,6 +2297,10 @@ export interface IncomingDespatch {
   issueDate: string;
   documentKind: 'DESPATCH';
   status: IncomingDespatchStatus;
+  /** Kullanıcının eşleştirme ekranını açtığı an (bkz. `IncomingInvoice`). */
+  reviewedAt?: string;
+  /** Sunucunun türettiği operasyon durumu — kayıtta saklanmaz. */
+  operationalStatus?: OperationalStatus;
   convertedMovementRef?: string;
   rejectionReason?: string;
   xmlStoragePath?: string;
@@ -2285,15 +2319,28 @@ export interface ParsedUblParty {
   scheme: string;
   title: string;
   taxOffice?: string;
+  street?: string;
   city?: string;
   district?: string;
+  postalZone?: string;
+  phone?: string;
+  email?: string;
 }
 
-/** Belgeden çözülen tek satır. */
+/** Kalem düzeyinde KDV dışı vergi (ÖTV, damga…). */
+export interface ParsedUblOtherTax {
+  name: string;
+  code?: string;
+  amount: number;
+  /** Belgede varsa oran (%); yoksa `undefined` — uydurulmaz. */
+  rate?: number;
+}
+
 export interface ParsedUblLine {
   lineNo: string;
   sellerProductCode?: string;
   buyerProductCode?: string;
+  manufacturerProductCode?: string;
   barcode?: string;
   name: string;
   quantity: number;
@@ -2304,6 +2351,30 @@ export interface ParsedUblLine {
   vatAmount: number;
   lineTotal: number;
   grossLineTotal: number;
+  /** 2026-09-29: belgedeki iskonto tutarı (varsa). */
+  discountAmount?: number;
+  discountRate?: number;
+  /** İskonto ÖNCESİ tutar — yalnız gösterim içindir. */
+  grossBeforeDiscount?: number;
+  otherTaxes?: ParsedUblOtherTax[];
+}
+
+/** Belge düzeyinde vergi kırılımı (2026-09-29). */
+export interface ParsedUblTaxBreakdown {
+  vatTotal: number;
+  hasVatSubtotal: boolean;
+  otherTaxes: ParsedUblOtherTax[];
+  grandTaxTotal: number;
+  unclassifiedTaxTotal?: number;
+}
+
+/** Belgenin KENDİ bildirdiği parasal toplamlar. */
+export interface ParsedUblMonetaryTotals {
+  lineExtensionAmount?: number;
+  allowanceTotalAmount?: number;
+  taxExclusiveAmount?: number;
+  taxInclusiveAmount?: number;
+  payableAmount?: number;
 }
 
 /** Çözümlenmiş belge (sunucudaki `ParsedUblDocument`). */
@@ -2312,15 +2383,26 @@ export interface ParsedUblDocument {
   uuid: string;
   documentNo: string;
   issueDate: string;
+  /** Belge düzenlenme SAATİ (varsa) — tarih alanına sıkıştırılmaz. */
+  issueTime?: string;
   currency: string;
   profile?: string;
   typeCode?: string;
+  scenarioNote?: string;
   supplier: ParsedUblParty;
   customer: ParsedUblParty;
   lines: ParsedUblLine[];
   subTotal: number;
   vatTotal: number;
   grandTotal: number;
+  /**
+   * 2026-09-29 — ÖDENECEK toplam: KDV dahil toplam + KDV DIŞI vergiler (ÖTV…).
+   * Alış faturasının yazacağı tutar budur; `grandTotal` göstermek ÖTV'li
+   * belgede eksik borç vaat ederdi.
+   */
+  payableTotal?: number;
+  monetaryTotals?: ParsedUblMonetaryTotals;
+  taxBreakdown?: ParsedUblTaxBreakdown;
   declaredPayable?: number;
   declaredSubTotal?: number;
   declaredVatTotal?: number;
@@ -2328,8 +2410,18 @@ export interface ParsedUblDocument {
   warnings: string[];
 }
 
-/** Eşleştirme yöntemi — kullanıcı önerinin NEDENİNİ görsün. */
-export type MatchMethod = 'SELLER_CODE' | 'BARCODE' | 'BUYER_CODE' | 'NAME';
+/**
+ * Eşleştirme yöntemi — kullanıcı önerinin NEDENİNİ görsün.
+ * 2026-09-29: `SAVED_MAPPING` (öğrenilmiş, tedarikçi kapsamlı) ve
+ * `MANUFACTURER_CODE` eklendi.
+ */
+export type MatchMethod =
+  | 'SAVED_MAPPING'
+  | 'SELLER_CODE'
+  | 'BARCODE'
+  | 'BUYER_CODE'
+  | 'MANUFACTURER_CODE'
+  | 'NAME';
 
 export interface PartyMatchSuggestion {
   /** VKN birebir eşleşti mi. `false` ise öneri doğrulanmalıdır. */
@@ -2342,6 +2434,12 @@ export interface LineMatchSuggestion {
   line: ParsedUblLine;
   product?: Product;
   matchedBy?: MatchMethod;
+  /**
+   * Eşleşmenin güvenilirliği. `HIGH` olanlar toplu eşleştirmede "tümünü seç"
+   * kapsamındadır; `SUGGESTION` (ad benzerliği) yalnız kullanıcı onayıyla
+   * uygulanır — sessiz otomatik eşleştirme yanlış stoğa mal girişi yapar.
+   */
+  confidence: 'HIGH' | 'SUGGESTION';
   needsNewProduct: boolean;
 }
 
@@ -2357,9 +2455,22 @@ export interface IngestionPlan {
     computedSubTotal: number;
     computedVatTotal: number;
     computedGrandTotal: number;
+    /** KDV dışı vergiler dahil ÖDENECEK toplam (alış faturasına yazılacak). */
+    computedPayableTotal?: number;
+    otherTaxTotal?: number;
     declaredSubTotal?: number;
     declaredVatTotal?: number;
     declaredPayable?: number;
+  };
+  /**
+   * Toplu eşleştirme sayaçları: "42 / 47 eşleşti" bilgisi BUNDAN üretilir.
+   * Arayüzün kendi sayımını yapması iki yerin ayrışmasına yol açardı.
+   */
+  matchSummary?: {
+    total: number;
+    matched: number;
+    highConfidence: number;
+    pending: number;
   };
   blockedReason?: string;
 }

@@ -20,11 +20,20 @@ const suites = [
   'xsltStudioScenarioTest.ts',
   'ublParserTest.ts',
   'incomingDocumentIngestionTest.ts',
+  // 2026-09-29: Operasyon durumu (YENİ/EŞLEŞTİRME BEKLİYOR/HAZIR/İÇERİ ALINDI/HATA)
+  // türetme kuralları. Durum yanlış türetilirse operatörün iş listesi bozulur.
+  'incomingDocumentStatusTest.ts',
   // 2026-09-28: Gelen belge YETKİ + SAYFALAMA sözleşmesi. Gerçek router'ı mount
   // edip HTTP isteği atar — `einvoice.view` katalogda olmadığı için COMPANY_ADMIN
   // dahil herkesin 403 aldığı hata, statik/registry testleri YEŞİLKEN ortaya
   // çıkmıştı; yalnız gerçek istek bunu yakalayabilir.
   'incomingDocumentAuthzTest.ts',
+  // 2026-09-29: A–O ZORUNLU MATRİS. Tek satır / 10 satır / 100 satır, aynı
+  // belgede %1+%10+%20 KDV, iskontolu satır (çift indirim yok), TRY dışı para
+  // birimi (kur UYDURULMADAN engellenir), transaction ortasında hata → TAM geri
+  // alma, XXE yükü (diske yazılmaz). G/H/I/J/L/M/N maddeleri kendi dosyalarında
+  // koşar; bu dosya onların yerinde durduğunu programatik olarak da doğrular.
+  'incomingDocumentMatrixTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {
