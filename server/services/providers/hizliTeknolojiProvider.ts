@@ -44,6 +44,26 @@ function invalidateStaleTokenIfUnauthorized(
   }
 }
 
+/**
+ * `yyyy-MM-dd` (veya tam ISO) tarihi o günün SONUNA (23:59:59.999Z) genişletir.
+ *
+ * ⚠️ NEDEN: entegratörün liste ucu `StartDate`/`EndDate` aralığını kapsayıcı
+ * uygular. `yyyy-MM-dd` biçiminde gönderilen bir bitiş tarihi gece yarısına
+ * denk gelir; "bugün" seçildiğinde gün içindeki TÜM belgeler aralık dışında
+ * kalırdı. Kullanıcı "bugünü çektim, belge yok" sanırdı.
+ *
+ * Geçersiz girdi "şimdi"ye düşer — uydurma bir tarih ÜRETİLMEZ.
+ */
+function gunSonuIso(tarih: string): string {
+  const gun = /^(\d{4})-(\d{2})-(\d{2})$/.exec((tarih || '').trim());
+  if (gun) {
+    const d = new Date(`${gun[1]}-${gun[2]}-${gun[3]}T23:59:59.999Z`);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  const tam = new Date(tarih);
+  return Number.isNaN(tam.getTime()) ? new Date().toISOString() : tam.toISOString();
+}
+
 export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
   public readonly providerId = 'HIZLI_TEKNOLOJI';
   public readonly name = 'Hızlı Teknoloji e-Connect';
@@ -299,13 +319,20 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
     }
   }
 
-  public async getIncomingInvoices(startDate: string, settings: TenantEinvoiceSettings): Promise<ProviderIncomingInvoice[]> {
+  public async getIncomingInvoices(
+    startDate: string,
+    settings: TenantEinvoiceSettings,
+    endDate?: string
+  ): Promise<ProviderIncomingInvoice[]> {
     const isTest = settings.environment !== 'PRODUCTION';
     try {
       const { token } = await ensureTenantToken(settings, isTest);
-      const endDate = new Date().toISOString();
+      // `endDate` verilmezse "şimdi" (eski davranış). Verilirse gün SONUNA
+      // genişletilir: kullanıcı "bugün"ü seçtiğinde aralık gece yarısında
+      // bitseydi gün içindeki belgeler hiç görünmezdi.
+      const bitis = endDate ? gunSonuIso(endDate) : new Date().toISOString();
       const res = await HizliConnectService.getDocumentReceiverAllList(
-        { dateType: 'CreateDate', startDate, endDate },
+        { dateType: 'CreateDate', startDate, endDate: bitis },
         token,
         isTest
       );

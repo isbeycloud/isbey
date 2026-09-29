@@ -49,6 +49,32 @@ test('gelen e-belgeler ekranı: sekmeler, dürüst hata ve stok uyarısı', asyn
   await page.getByRole('button', { name: /Gelen e-İrsaliyeler/ }).click();
   await expect(page.getByText('CARİ BORÇ DOĞURMAZ', { exact: false })).toBeVisible();
 
+  // ── İDİA 3: TARİH ARALIĞI seçilebilir ve sınırı kullanıcıya yazılıdır ────
+  // (2026-09-29) Kullanıcı isteği: Bugün / Son 7 Gün / Son 30 Gün / Özel Tarih.
+  // Ölçülen şey "düğme var mı" değil: seçim GERÇEKTEN istemcide tutuluyor mu ve
+  // 90 gün sınırı kullanıcıya söyleniyor mu.
+  await expect(page.getByText('Çekilecek dönem:', { exact: false })).toBeVisible();
+  const son30 = page.getByRole('button', { name: 'Son 30 Gün', exact: true });
+  const bugun = page.getByRole('button', { name: 'Bugün', exact: true });
+  await expect(son30).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Son 7 Gün', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Özel Tarih', exact: true })).toBeVisible();
+  await expect(
+    page.getByText('En fazla 90 gün; daha geniş aralık sunucuda kısaltılır ve size bildirilir.')
+  ).toBeVisible();
+
+  // Varsayılan "Son 30 Gün" seçilidir (entegratörün gelen kutusu ucu geniş
+  // aralıkta yavaş; varsayılanı dar tutmak kullanıcıyı bekletmemek içindir).
+  await expect(son30).toHaveClass(/btn-primary/);
+
+  // Seçim gerçekten değişiyor mu — ve özel tarihte takvim alanları AÇILIYOR mu?
+  await bugun.click();
+  await expect(bugun).toHaveClass(/btn-primary/);
+  await expect(son30).not.toHaveClass(/btn-primary/);
+
+  await page.getByRole('button', { name: 'Özel Tarih', exact: true }).click();
+  await expect(page.locator('input[type="date"]')).toHaveCount(2);
+
   expect(errors).toEqual([]);
   await page.screenshot({ path: '.verify-tmp/incoming-documents.png', fullPage: true });
 });

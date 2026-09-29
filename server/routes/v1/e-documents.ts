@@ -17,6 +17,7 @@ import {
 } from '../../services/incomingDocumentStatus';
 import { renderIncomingDocumentHtml } from '../../services/ubl/incomingDocumentRenderer';
 import { formatXmlForDisplay } from '../../services/ubl/xmlPrettyPrint';
+import type { SyncSummary } from '../../services/incomingSyncContract';
 
 export const v1EDocumentsRouter = Router();
 
@@ -43,6 +44,31 @@ function belgeHatasi(res: Response, err: any) {
     return res.status(err.httpStatus).json({ success: false, code: err.code, message: err.message });
   }
   return entegratorHatasi(res, err);
+}
+
+/**
+ * SENKRON SONUÇ MESAJI (§5) — "12 belge bulundu / 8 yeni / 4 zaten mevcut / 0 hata".
+ *
+ * ⚠️ NEDEN TEK YERDE: fatura ve irsaliye sekmeleri aynı cümleyi kurmak
+ * zorundadır. İki ayrı metin zamanla birbirinden ayrışır ve kullanıcı iki
+ * sekmede farklı biçimde bilgilendirilir.
+ *
+ * ⚠️ Mesajda ASLA kimlik bilgisi/token/parola bulunmaz — yalnız sayılar ve
+ * tarihler. Belge bazlı hataların ayrıntısı `result.documents` içindedir.
+ */
+function syncOzetMesaji(r: SyncSummary, tur: string): string {
+  const parcalar = [
+    `${r.foundCount} ${tur} bulundu`,
+    `${r.newCount} yeni`,
+    `${r.duplicateCount} zaten mevcut`,
+    `${r.errorCount} hatalı`,
+  ];
+  if (r.updatedCount > 0) parcalar.push(`${r.updatedCount} güncellendi`);
+  if (r.skippedCount > 0) parcalar.push(`${r.skippedCount} belge sınır nedeniyle ertelendi`);
+  return (
+    `${parcalar.join(' / ')}. Stok ve cari DEĞİŞMEDİ; içeri aktarma onayınızı bekliyor.` +
+    (r.rangeAdjustment ? ` Not: ${r.rangeAdjustment}` : '')
+  );
 }
 
 function entegratorHatasi(res: Response, err: any) {
@@ -369,18 +395,22 @@ v1EDocumentsRouter.get('/incoming/list', requirePermission(PERMISSIONS.EINVOICE_
  */
 v1EDocumentsRouter.post('/incoming/sync', requirePermission(PERMISSIONS.EINVOICE_VIEW), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
-  const { startDate } = req.body;
+  // Geriye dönük uyum: eski gövde `{ startDate }` idi; yeni gövde
+  // `{ preset, startDate, endDate }`. İkisi de kabul edilir — arayüz
+  // güncellenmeden de eski çağrılar çalışmaya devam eder.
+  const { preset, startDate, endDate } = (req.body || {}) as {
+    preset?: any;
+    startDate?: string;
+    endDate?: string;
+  };
 
   try {
-    const result = await IncomingInvoiceService.syncIncomingInvoices(tenantId, startDate, {
-      userId: req.user!.id,
-      username: req.user!.fullName || req.user!.username,
-    });
-    res.json({
-      success: true,
-      message: `${result.syncedCount} yeni gelen fatura senkronize edildi (${result.duplicateCount} mükerrer atlandı).`,
-      result,
-    });
+    const result = await IncomingInvoiceService.syncIncomingInvoices(
+      tenantId,
+      preset || startDate || endDate ? { preset, startDate, endDate } : undefined,
+      { userId: req.user!.id, username: req.user!.fullName || req.user!.username }
+    );
+    res.json({ success: true, message: syncOzetMesaji(result, 'e-Fatura'), result });
   } catch (err: any) {
     return entegratorHatasi(res, err);
   }
@@ -703,17 +733,16 @@ v1EDocumentsRouter.post(
   requirePermission(PERMISSIONS.WAYBILLS_VIEW),
   async (req: Request, res: Response) => {
     const tenantId = req.tenantId!;
-    const { startDate } = req.body || {};
+    const { preset, startDate, endDate } = (req.body || {}) as {
+      preset?: any; startDate?: string; endDate?: string;
+    };
     try {
-      const result = await IncomingDespatchService.syncIncomingDespatches(tenantId, startDate, {
-        userId: req.user!.id,
-        username: req.user!.fullName || req.user!.username,
-      });
-      res.json({
-        success: true,
-        message: `${result.syncedCount} gelen irsaliye senkronize edildi (${result.duplicateCount} mükerrer atlandı, ${result.unreadableCount} okunamadı).`,
-        result,
-      });
+      const result = await IncomingDespatchService.syncIncomingDespatches(
+        tenantId,
+        preset || startDate || endDate ? { preset, startDate, endDate } : undefined,
+        { userId: req.user!.id, username: req.user!.fullName || req.user!.username }
+      );
+      res.json({ success: true, message: syncOzetMesaji(result, 'gelen irsaliye'), result });
     } catch (err: any) {
       return entegratorHatasi(res, err);
     }

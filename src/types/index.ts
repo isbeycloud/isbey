@@ -2221,6 +2221,50 @@ export interface StatusCounts {
   pendingOperation: number;
 }
 
+/**
+ * GELEN BELGE SENKRON SONUCU (fatura + irsaliye ortak)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 2026-09-29 eklendi — sunucudaki `server/services/incomingSyncContract.ts` ile
+ * BİREBİR aynı sözleşme. İki ayrı tanım tutulursa arayüz ile sunucu sessizce
+ * ayrışır; bu yüzden alan adları oradakiyle aynı tutulur.
+ */
+export type SyncDocumentOutcome = 'NEW' | 'DUPLICATE' | 'ERROR' | 'SKIPPED' | 'UPDATED';
+
+export interface SyncDocumentResult {
+  uuid: string;
+  documentNo: string;
+  message?: string;
+  outcome: SyncDocumentOutcome;
+}
+
+export type DateRangePreset = 'TODAY' | 'LAST_7' | 'LAST_30' | 'CUSTOM';
+
+/** Senkron ucunun kabul ettiği aralık girdisi (`server/services/incomingSyncContract.ts`). */
+export interface SyncRangeInput {
+  preset?: DateRangePreset;
+  /** Yalnız `preset: 'CUSTOM'` iken kullanılır (`yyyy-MM-dd`). */
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface SyncSummary {
+  startedAt: string;
+  finishedAt: string;
+  dateRange: { startDate: string; endDate: string };
+  foundCount: number;
+  newCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  truncated: boolean;
+  documents: SyncDocumentResult[];
+  rangeAdjustment?: string;
+  rangePreset?: DateRangePreset;
+  syncedCount: number;
+  unreadableCount: number;
+}
+
 export interface IncomingInvoice {
   id: string;
   tenantId: string;

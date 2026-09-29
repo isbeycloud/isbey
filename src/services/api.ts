@@ -80,6 +80,8 @@ import type {
   StatusCounts,
   ParsedUblDocument,
   IngestionPlan,
+  SyncSummary,
+  SyncRangeInput,
 } from '../types';
 
 const API_BASE = '/api';
@@ -837,13 +839,22 @@ export const api = {
       { method: 'POST' }
     ),
 
-  /** Entegratörden gelen faturaları çeker. STOK/CARİ DEĞİŞMEZ. */
-  syncIncomingDocuments: (startDate?: string) =>
+  /**
+   * Entegratörden gelen faturaları çeker. STOK/CARİ DEĞİŞMEZ.
+   *
+   * 2026-09-29 — Tarih aralığı ön ayarı (`preset`) sunucuya gönderilir; sunucu
+   * aralığı kendisi hesaplar ve sınırlar. `startDate` yalnız eski imzayla
+   * uyumluluk ve `CUSTOM` için gönderilir.
+   */
+  syncIncomingDocuments: (aralik?: SyncRangeInput | string) =>
     request<{
       success: boolean;
       message: string;
-      result: { syncedCount: number; duplicateCount: number; unreadableCount: number };
-    }>('/v1/e-documents/incoming/sync', { method: 'POST', body: JSON.stringify({ startDate }) }),
+      result: SyncSummary;
+    }>('/v1/e-documents/incoming/sync', {
+      method: 'POST',
+      body: JSON.stringify(typeof aralik === 'string' ? { startDate: aralik } : aralik || {}),
+    }),
 
   /** Onay ekranı verisi — SALT OKUNUR, hiçbir kayıt açmaz. */
   getIncomingDocumentPlan: (id: string) =>
@@ -902,12 +913,15 @@ export const api = {
   },
 
   /** Entegratörden gelen irsaliyeleri çeker. STOK/CARİ DEĞİŞMEZ. */
-  syncIncomingDespatches: (startDate?: string) =>
+  syncIncomingDespatches: (aralik?: SyncRangeInput | string) =>
     request<{
       success: boolean;
       message: string;
-      result: { syncedCount: number; duplicateCount: number; unreadableCount: number };
-    }>('/v1/e-documents/incoming-despatches/sync', { method: 'POST', body: JSON.stringify({ startDate }) }),
+      result: SyncSummary;
+    }>('/v1/e-documents/incoming-despatches/sync', {
+      method: 'POST',
+      body: JSON.stringify(typeof aralik === 'string' ? { startDate: aralik } : aralik || {}),
+    }),
 
   /** İrsaliye eşleştirme planı — SALT OKUNUR. */
   getIncomingDespatchPlan: (id: string) =>

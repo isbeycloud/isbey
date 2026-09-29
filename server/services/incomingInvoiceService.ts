@@ -21,6 +21,14 @@ import {
   type IngestionPlan,
 } from './ubl/incomingDocumentMapper';
 import { IncomingDocumentError } from '../errors/incomingDocumentError';
+import {
+  MAX_CONTENT_DOWNLOADS_PER_SYNC,
+  clampDateRange,
+  resolveDateRange,
+  type SyncDocumentResult,
+  type SyncRangeInput,
+  type SyncSummary,
+} from './incomingSyncContract';
 
 /**
  * GELEN e-BELGE SERVİSİ
@@ -56,7 +64,14 @@ export class IncomingInvoiceService {
    */
   public static async syncIncomingInvoices(
     tenantId: string,
-    startDate?: string,
+    /**
+     * 2026-09-29 genişletildi: kullanıcı tarih aralığı seçebilir.
+     *
+     * Geriye dönük uyum: eski çağrılar (`syncIncomingInvoices(tenantId, '2026-09-01')`)
+     * düz bir `yyyy-MM-dd` dizesi geçiyordu; o biçim de kabul edilir ve
+     * "özel başlangıç, bitiş = bugün" olarak yorumlanır.
+     */
+    aralik?: SyncRangeInput | string,
     /**
      * 2026-09-29 — Denetim izi için işlemi YAPAN kullanıcı. İsteğe bağlıdır
      * çünkü arka plan/zamanlanmış çağrılar da bu metodu kullanır; o durumda
@@ -64,11 +79,22 @@ export class IncomingInvoiceService {
      * yazılmaz — yalnız kimlik ve sayılar.
      */
     actor?: { userId: string; username: string }
-  ): Promise<{ syncedCount: number; duplicateCount: number; unreadableCount: number }> {
+  ): Promise<SyncSummary> {
     const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
-    const fromDate = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const tumListe = await provider.getIncomingInvoices(fromDate, settings);
+    const baslangicZamani = new Date().toISOString();
+
+    // ── TARİH ARALIĞI ───────────────────────────────────────────────────────
+    // Seçim SUNUCUDA çözülür: arayüz "son 7 gün" gönderse bile aralığı burada
+    // hesaplarız, çünkü elle atılan bir istek 5 yıllık aralık çekebilirdi.
+    // `clampDateRange` sonucu SESSİZCE kısaltmaz; ne yaptığını `adjustment`
+    // alanında söyler (kullanıcı "eski belgelerim gelmiyor" diye uğraşmasın).
+    const hamAralik = typeof aralik === 'string'
+      ? resolveDateRange('CUSTOM', aralik, undefined)
+      : resolveDateRange(aralik?.preset, aralik?.startDate, aralik?.endDate);
+    const sinirli = clampDateRange(hamAralik.startDate, hamAralik.endDate);
+
+    const tumListe = await provider.getIncomingInvoices(sinirli.startDate, settings, sinirli.endDate);
 
     // ⚠️ Gelen kutusu e-Fatura ve e-İrsaliye'yi BİRLİKTE döndürür. İrsaliye bu
     // akışın konusu DEĞİLDİR: içeri aktarılırsa alış faturası kesilir ve cari
@@ -76,6 +102,20 @@ export class IncomingInvoiceService {
     // 2026-09-28'de bu filtre EKSİKTİ ve bir e-İrsaliye fatura senkronuyla
     // içeri alınabiliyordu — test bunu yakaladı.
     const incomingList = tumListe.filter(i => i.documentKind !== 'DESPATCH' && i.appType !== 3);
+
+    // ── MEVCUT HAVUZ (okuma amaçlı anlık görüntü) ─────────────────────────
+    //
+    // ⚠️ Bu YALNIZ bir ÖN KONTROLDÜR — asıl mükerrer kararı transaction içinde,
+    // güncel draft üzerinden verilir (aşağıda). Amacı şu: havuzda zaten olan
+    // belgeler için İÇERİK HİÇ İNDİRİLMEZ. Bu hem gereksiz ağ trafiğini
+    // önler hem de indirme sınırının yalnız GERÇEK yeni belgelere harcanmasını
+    // sağlar; aksi hâlde aynı aralığı tekrar çekmek sınırı mükerrerlere
+    // harcayıp ilerleme kaydetmezdi.
+    const mevcutHavuz = (storage.getState().incomingInvoices || []).filter(
+      inv => inv.tenantId === tenantId || (tenantId === 'tnt-isbey' && !inv.tenantId)
+    );
+    /** ETTN → kayıt. Okunamayanlar TEKRAR denenir (bkz. 'UPDATED'). */
+    const mevcutUuidler = new Map(mevcutHavuz.map(inv => [inv.uuid, inv]));
 
     // ── AŞAMA 1: İçerik indirme + çözümleme — YAZMA YOK ────────────────────
     // Ağ ve disk işleri transaction DIŞINDA yapılır; transaction'ı ağ
@@ -86,10 +126,43 @@ export class IncomingInvoiceService {
       doc?: ReturnType<typeof parseUblDocument>;
       parseErrors: string[];
       items: IncomingInvoiceItem[];
+      /** Aynı ETTN daha önce okunamadıysa bu turda GÜNCELLENECEK kayıt. */
+      guncellenecekId?: string;
     }> = [];
+    /** Belge bazlı sonuçlar — kullanıcı hangi belgenin neden hatalı olduğunu görür. */
+    const belgeSonuclari: SyncDocumentResult[] = [];
+    /** Bu turda içerik indirmek için harcanan kota. */
+    let indirmeSayisi = 0;
+    let atlananSayisi = 0;
 
     for (const item of incomingList) {
       const appType = item.appType ?? (item.documentKind === 'DESPATCH' ? 3 : 1);
+      const belgeNo = item.invoiceNo || '';
+
+      // Daha önce başarıyla okunmuş belge → hiç dokunma, içerik indirme.
+      const mevcut = mevcutUuidler.get(item.uuid);
+      const tekrarDenenecek = mevcut?.status === 'UNREADABLE';
+      if (mevcut && !tekrarDenenecek) {
+        belgeSonuclari.push({ uuid: item.uuid, documentNo: belgeNo, outcome: 'DUPLICATE' });
+        continue;
+      }
+
+      // İçerik indirme kotası. Mükerrerler yukarıda elendiği için sınır yalnız
+      // GERÇEK işe harcanır. Kota dolduğunda belge KAYBOLMAZ; 'SKIPPED' olarak
+      // raporlanır ve bir sonraki turda işlenir (sessizce yutulmaz).
+      if (indirmeSayisi >= MAX_CONTENT_DOWNLOADS_PER_SYNC) {
+        atlananSayisi++;
+        belgeSonuclari.push({
+          uuid: item.uuid,
+          documentNo: belgeNo,
+          outcome: 'SKIPPED',
+          message:
+            `Tek senkronda en fazla ${MAX_CONTENT_DOWNLOADS_PER_SYNC} belge indirilebilir. ` +
+            'Bu belge bir sonraki çekimde alınacak — tarih aralığını daraltıp tekrar çekebilirsiniz.',
+        });
+        continue;
+      }
+      indirmeSayisi++;
 
       // Liste ucu yalnız meta veri verir. İçerik alınamazsa belge SAKLANIR
       // ama `UNREADABLE` işaretlenir: kullanıcı "içeriği okunamayan belge"
@@ -138,7 +211,30 @@ export class IncomingInvoiceService {
           }))
         : [];
 
-      hazir.push({ meta: item, ...(xmlPath ? { xmlPath } : {}), ...(doc ? { doc } : {}), parseErrors, items });
+      // ── HATA SEBEBİ KULLANICIYA AÇIKÇA SÖYLENİR (§7) ─────────────────────
+      // Belge listede vardı ama içeriği alınamadıysa sessizce "boş belge"
+      // YAZILMAZ; "UBL/XML içeriği alınamadı" mesajı üretilir ve kullanıcı
+      // aynı belgeyi tekrar deneyebilir (okunamayan kayıt bir sonraki
+      // senkronda otomatik olarak YENİDEN denenir).
+      if (parseErrors.length > 0) {
+        belgeSonuclari.push({
+          uuid: item.uuid,
+          documentNo: doc?.documentNo || belgeNo,
+          outcome: 'ERROR',
+          message: doc
+            ? parseErrors[0]
+            : 'Belge listede bulundu ancak UBL/XML içeriği alınamadı. "Tekrar Dene" ile yeniden çekebilirsiniz.',
+        });
+      }
+
+      hazir.push({
+        meta: item,
+        ...(xmlPath ? { xmlPath } : {}),
+        ...(doc ? { doc } : {}),
+        parseErrors,
+        items,
+        ...(tekrarDenenecek && mevcut ? { guncellenecekId: mevcut.id } : {}),
+      });
     }
 
     // ── AŞAMA 2: Kayıt — TEK TRANSACTION (atomik) ──────────────────────────
@@ -158,20 +254,70 @@ export class IncomingInvoiceService {
       if (!draft.incomingInvoices) draft.incomingInvoices = [];
       const now = new Date().toISOString();
       let syncedCount = 0;
-      let duplicateCount = 0;
       let unreadableCount = 0;
+      let updatedCount = 0;
+      /**
+       * EŞ ZAMANLI MÜKERRER — AŞAMA 1'de "yeni" sanılıp transaction anında
+       * başka bir senkron tarafından çoktan eklenmiş belgeler. Ayrı sayılır
+       * çünkü `belgeSonuclari`nda karşılığı yoktur (o liste AŞAMA 1'de yazılır).
+       */
+      let esZamanliMukerrer = 0;
 
       for (const h of hazir) {
         const item = h.meta;
-        const exists = draft.incomingInvoices.some(
+
+        // ── MÜKERRER KARARI — TRANSACTION İÇİNDE, GÜNCEL DRAFT ÜZERİNDEN ────
+        // Dışarıda bakılsaydı aynı anda çalışan iki senkron aynı belgeyi iki
+        // kez ekleyebilirdi. Idempotentlik anahtarı ETTN/UUID'dir.
+        const mevcutKayit = draft.incomingInvoices.find(
           inv => inv.uuid === item.uuid && (inv.tenantId === tenantId || (tenantId === 'tnt-isbey' && !inv.tenantId))
         );
-        if (exists) {
-          duplicateCount++;
+        if (mevcutKayit && !h.guncellenecekId) {
+          esZamanliMukerrer++;
           continue;
         }
 
         const status = h.parseErrors.length > 0 ? 'UNREADABLE' : 'RECEIVED';
+
+        // ── TEKRAR DENEME: okunamayan kayıt bu turda okunabildiyse GÜNCELLE ──
+        // ⚠️ Belge KİMLİĞİ ve geçmişi korunur (`id`, `createdAt`, `reviewedAt`);
+        // yalnız içerik alanları tazelenir. Yeni kayıt açsaydık aynı ETTN için
+        // iki kayıt oluşurdu — kullanıcı hangisinin geçerli olduğunu bilemezdi.
+        if (mevcutKayit && h.guncellenecekId) {
+          if (status === 'UNREADABLE') {
+            // Hâlâ okunamıyor — kayda dokunma. Belge zaten havuzda ve durumu
+            // değişmedi; bu yüzden "mükerrer" değil, "değişmedi" olarak sayılır.
+            continue;
+          }
+          Object.assign(mevcutKayit, {
+            invoiceNo: h.doc?.documentNo || item.invoiceNo || mevcutKayit.invoiceNo,
+            supplierTaxNumber: h.doc?.supplier.taxNumber || item.supplierVkn || mevcutKayit.supplierTaxNumber,
+            supplierTitle: h.doc?.supplier.title || item.supplierTitle || mevcutKayit.supplierTitle,
+            issueDate: h.doc?.issueDate || item.issueDate || mevcutKayit.issueDate,
+            subTotal: h.doc ? h.doc.subTotal : mevcutKayit.subTotal,
+            vatAmount: h.doc ? h.doc.vatTotal : mevcutKayit.vatAmount,
+            grandTotal: h.doc ? h.doc.grandTotal : mevcutKayit.grandTotal,
+            currency: h.doc?.currency || mevcutKayit.currency,
+            status,
+            ...(h.xmlPath ? { xmlStoragePath: h.xmlPath } : {}),
+            items: h.items,
+            ...(h.doc?.declaredSubTotal !== undefined ? { declaredSubTotal: h.doc.declaredSubTotal } : {}),
+            ...(h.doc?.declaredVatTotal !== undefined ? { declaredVatTotal: h.doc.declaredVatTotal } : {}),
+            ...(h.doc?.declaredPayable !== undefined ? { declaredPayable: h.doc.declaredPayable } : {}),
+            ...(h.doc && h.doc.warnings.length ? { parseWarnings: h.doc.warnings } : {}),
+            updatedAt: now,
+          });
+          // Okunamama sebepleri TEMİZLENİR — belge artık okunabilir.
+          delete (mevcutKayit as any).parseErrors;
+          updatedCount++;
+          belgeSonuclari.push({
+            uuid: item.uuid,
+            documentNo: mevcutKayit.invoiceNo,
+            outcome: 'UPDATED',
+            message: 'Belge içeriği bu çekimde alındı; kayıt okunabilir hâle getirildi.',
+          });
+          continue;
+        }
 
         const newIncoming: IncomingInvoice = {
           id: `inc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -205,12 +351,38 @@ export class IncomingInvoiceService {
         draft.incomingInvoices.push(newIncoming);
         syncedCount++;
         if (h.parseErrors.length > 0) unreadableCount++;
+        if (!belgeSonuclari.some(b => b.uuid === item.uuid)) {
+          belgeSonuclari.push({
+            uuid: item.uuid,
+            documentNo: newIncoming.invoiceNo,
+            outcome: h.parseErrors.length > 0 ? 'ERROR' : 'NEW',
+            ...(h.parseErrors.length > 0
+              ? { message: 'Belge listede bulundu ancak UBL/XML içeriği alınamadı.' }
+              : {}),
+          });
+        }
       }
 
+      const bitisZamani = new Date().toISOString();
+
+      // ── SAYILAR BELGE BAZLI SONUÇLARDAN TÜRETİLİR (2026-09-29) ───────────
+      // ⚠️ ÖLÇÜLEN HATA: Mükerrerler AŞAMA 1'de elenip `hazir`e hiç girmiyordu;
+      // bu yüzden transaction içindeki yerel sayaç onları HİÇ görmüyor ve özet
+      // "0 mükerrer" diyordu. Kullanıcı aynı belgeyi tekrar çektiğinde "hiçbir
+      // şey bulunamadı" sanıp aralığı gereksiz yere büyütürdü. Tek doğru kaynak
+      // `belgeSonuclari`tır: her belge için tam olarak bir satır içerir.
+      const hataSayisi = belgeSonuclari.filter(b => b.outcome === 'ERROR').length;
+      // `esZamanliMukerrer`: AŞAMA 1'de yeni sanılıp transaction anında başka
+      // bir senkron tarafından eklenmiş olan belgeler. Sayıya EKLENİR ki iki
+      // sayı toplamı her zaman `foundCount`u vermeye devam etsin.
+      const mükerrerSayisi =
+        belgeSonuclari.filter(b => b.outcome === 'DUPLICATE').length + esZamanliMukerrer;
+
       // ── DENETİM İZİ (2026-09-29) ────────────────────────────────────────
-      // Senkron "kim, ne zaman, kaç belge" sorusunun cevabını bırakmalıdır.
-      // Yalnız SAYILAR yazılır: belge içeriği, ETTN listesi veya kimlik bilgisi
-      // denetim kaydına girmez (bkz. CLAUDE.md md.16 — secret loglamama).
+      // Senkron "kim, ne zaman, hangi aralıkta, kaç belge" sorusunun cevabını
+      // bırakmalıdır. ⚠️ Yalnız SAYILAR ve TARİHLER yazılır: belge içeriği,
+      // ETTN listesi, token veya kimlik bilgisi denetim kaydına GİRMEZ
+      // (bkz. CLAUDE.md md.16 — secret loglamama).
       storage.addAuditLog({
         userId: actor?.userId || 'system',
         username: actor?.username || 'Zamanlanmış görev',
@@ -219,11 +391,38 @@ export class IncomingInvoiceService {
         module: 'E_INVOICE',
         ipAddress: '127.0.0.1',
         details:
-          `Gelen e-Fatura senkronu: ${syncedCount} yeni, ${duplicateCount} mükerrer atlandı` +
-          (unreadableCount > 0 ? `, ${unreadableCount} belge okunamadı (UNREADABLE).` : '.'),
+          `Gelen e-Fatura senkronu (${sinirli.startDate} → ${sinirli.endDate}): ` +
+          `${incomingList.length} belge bulundu, ${syncedCount} yeni, ${mükerrerSayisi} mükerrer atlandı, ` +
+          `${updatedCount} belge güncellendi, ${hataSayisi} hatalı` +
+          (atlananSayisi > 0 ? `, ${atlananSayisi} belge sınır nedeniyle ertelendi.` : '.') +
+          (sinirli.adjustment ? ` [${sinirli.adjustment}]` : '') +
+          ' Stok ve cari DEĞİŞMEDİ.',
       });
 
-      return { syncedCount, duplicateCount, unreadableCount };
+      const ozet: SyncSummary = {
+        startedAt: baslangicZamani,
+        finishedAt: bitisZamani,
+        dateRange: { startDate: sinirli.startDate, endDate: sinirli.endDate },
+        foundCount: incomingList.length,
+        newCount: syncedCount,
+        duplicateCount: mükerrerSayisi,
+        errorCount: hataSayisi,
+        updatedCount,
+        skippedCount: atlananSayisi,
+        truncated: atlananSayisi > 0,
+        documents: belgeSonuclari,
+        // Geriye dönük uyum (eski istemciler ve mevcut testler).
+        syncedCount,
+        unreadableCount,
+        ...(sinirli.adjustment ? { rangeAdjustment: sinirli.adjustment } : {}),
+        // 2026-09-29 — Aralık HER ZAMAN raporlanır, `CUSTOM` dâhil.
+        // ⚠️ ÖLÇÜLEN TUTARSIZLIK: önceden `CUSTOM` dışlanıyordu; sonuç "hangi
+        // aralık çekildi" sorusunun cevabı arayüzde boş kalıyordu — kullanıcı
+        // özel tarih girdiğinde ne çektiğini göremiyordu. Aralık zaten
+        // `dateRange`te var; onu GİZLEMEK için bir sebep yok.
+        rangePreset: hamAralik.preset,
+      };
+      return ozet;
     });
   }
 

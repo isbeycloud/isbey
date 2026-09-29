@@ -131,8 +131,23 @@ export interface ElectronicDocumentProvider {
    * XML içeriğini göndermez. Gerçek içerik `getIncomingDocumentContent` ile
    * ayrıca indirilir. Bu ayrım önemlidir: metadata'yı "belge okundu" sanmak,
    * hiç okunmamış bir belgeyi okunmuş gibi işleme sokar.
+   *
+   * ⚠️ SAYFALAMA YOKTUR: Hızlı Bilişim'in `GetDocumentReceiverAllList` ucu
+   * `page`/`limit`/`offset` kabul etmez; istenen tarih aralığının TAMAMI tek
+   * yanıtta döner. Bu yüzden tek kontrol vanası tarih aralığıdır — çağıran
+   * (`syncIncomingInvoices`) kullanıcıya seçtirdiği aralığı buraya geçirir ve
+   * sınırsız bir kütle indirmeye izin vermez.
+   *
+   * `endDate` (2026-09-29 eklendi): isteğe bağlıdır; verilmezse "şimdi" kabul
+   * edilir (eski davranış). `yyyy-MM-dd` verilirse o günün SONUNA kadar
+   * genişletilir — aksi hâlde kullanıcı "bugün"ü seçtiğinde aralık gece
+   * yarısında biter ve gün içindeki belgeler görünmezdi.
    */
-  getIncomingInvoices(startDate: string, settings: TenantEinvoiceSettings): Promise<ProviderIncomingInvoice[]>;
+  getIncomingInvoices(
+    startDate: string,
+    settings: TenantEinvoiceSettings,
+    endDate?: string
+  ): Promise<ProviderIncomingInvoice[]>;
 
   /**
    * Gelen bir belgenin XML içeriğini indirir.

@@ -12,6 +12,14 @@ import { parseUblDocument } from './ubl/ublParser';
 import { XmlValidatorService } from './ubl/xmlValidatorService';
 import { IncomingDocumentError } from '../errors/incomingDocumentError';
 import {
+  MAX_CONTENT_DOWNLOADS_PER_SYNC,
+  clampDateRange,
+  resolveDateRange,
+  type SyncDocumentResult,
+  type SyncRangeInput,
+  type SyncSummary,
+} from './incomingSyncContract';
+import {
   matchSupplier,
   matchLine,
   draftProductFromLine,
@@ -45,18 +53,26 @@ export class IncomingDespatchService {
    */
   public static async syncIncomingDespatches(
     tenantId: string,
-    startDate?: string,
+    /** Tarih aralığı — fatura akışıyla AYNI sözleşme (bkz. `incomingSyncContract`). */
+    aralik?: SyncRangeInput | string,
     /** 2026-09-29 — Denetim izi için işlemi yapan kullanıcı (bkz. fatura akışı). */
     actor?: { userId: string; username: string }
-  ): Promise<{ syncedCount: number; duplicateCount: number; unreadableCount: number }> {
+  ): Promise<SyncSummary> {
     const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
 
     if (!provider.capabilities.supportsEDespatch) {
       throw new Error('Bağlı entegratör gelen e-İrsaliye desteği sunmuyor.');
     }
 
-    const fromDate = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const liste = await provider.getIncomingInvoices(fromDate, settings);
+    const baslangicZamani = new Date().toISOString();
+
+    // Tarih aralığı SUNUCUDA çözülür ve sınırlanır — bkz. fatura akışındaki not.
+    const hamAralik = typeof aralik === 'string'
+      ? resolveDateRange('CUSTOM', aralik, undefined)
+      : resolveDateRange(aralik?.preset, aralik?.startDate, aralik?.endDate);
+    const sinirli = clampDateRange(hamAralik.startDate, hamAralik.endDate);
+
+    const liste = await provider.getIncomingInvoices(sinirli.startDate, settings, sinirli.endDate);
 
     // Gelen kutusu fatura ve irsaliyeyi birlikte döndürebilir; yalnız irsaliye
     // bu akışın konusudur.
@@ -73,7 +89,39 @@ export class IncomingDespatchService {
     // tutmak, eşzamanlı belge işlemlerini gereksiz yere bloklar.
     const hazir: IncomingDespatch[] = [];
 
+    // Mevcut havuz: mükerrerler için içerik HİÇ indirilmez (bkz. fatura akışı).
+    const mevcutUuidler = new Map(
+      (storage.getState().incomingDespatches || [])
+        .filter(d => d.tenantId === tenantId || (tenantId === 'tnt-isbey' && !d.tenantId))
+        .map(d => [d.uuid, d])
+    );
+    const belgeSonuclari: SyncDocumentResult[] = [];
+    const tekrarDenenecekler = new Map<string, string>();
+    let indirmeSayisi = 0;
+    let atlananSayisi = 0;
+
     for (const item of irsaliyeler) {
+      const mevcut = mevcutUuidler.get(item.uuid);
+      const tekrarDenenecek = mevcut?.status === 'UNREADABLE';
+      if (mevcut && !tekrarDenenecek) {
+        belgeSonuclari.push({ uuid: item.uuid, documentNo: mevcut.despatchNo || '', outcome: 'DUPLICATE' });
+        continue;
+      }
+
+      if (indirmeSayisi >= MAX_CONTENT_DOWNLOADS_PER_SYNC) {
+        atlananSayisi++;
+        belgeSonuclari.push({
+          uuid: item.uuid,
+          documentNo: item.invoiceNo || '',
+          outcome: 'SKIPPED',
+          message:
+            `Tek senkronda en fazla ${MAX_CONTENT_DOWNLOADS_PER_SYNC} belge indirilebilir. ` +
+            'Bu belge bir sonraki çekimde alınacak — tarih aralığını daraltıp tekrar çekebilirsiniz.',
+        });
+        continue;
+      }
+      indirmeSayisi++;
+
       let xmlContent = item.xmlContent || '';
       if (!xmlContent.trim()) {
         const indirilen = await provider.getIncomingDocumentContent(item.uuid, item.appType ?? 3, settings);
@@ -118,6 +166,23 @@ export class IncomingDespatchService {
         : [];
 
       const now = new Date().toISOString();
+
+      // ⚠️ HATA SEBEBİ KULLANICIYA AÇIKÇA SÖYLENİR (§7): belge listede vardı ama
+      // içeriği alınamadıysa "boş belge" yazılmaz; "UBL/XML içeriği alınamadı"
+      // denir ve okunamayan kayıt bir sonraki senkronda OTOMATİK yeniden denenir.
+      if (parseErrors.length > 0) {
+        belgeSonuclari.push({
+          uuid: item.uuid,
+          documentNo: doc?.documentNo || item.invoiceNo || '',
+          outcome: 'ERROR',
+          message: doc
+            ? parseErrors[0]
+            : 'Belge listede bulundu ancak UBL/XML içeriği alınamadı. "Tekrar Dene" ile yeniden çekebilirsiniz.',
+        });
+      }
+
+      if (tekrarDenenecek && mevcut) tekrarDenenecekler.set(item.uuid, mevcut.id);
+
       hazir.push({
         id: `incd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         tenantId,
@@ -141,27 +206,83 @@ export class IncomingDespatchService {
     // ── AŞAMA 2: TEK TRANSACTION — yalnız `incomingDespatches` yazılır ───
     return storage.runTransaction(draft => {
       if (!draft.incomingDespatches) draft.incomingDespatches = [];
+      const now = new Date().toISOString();
 
       let syncedCount = 0;
-      let duplicateCount = 0;
       let unreadableCount = 0;
+      let updatedCount = 0;
+      /**
+       * EŞ ZAMANLI MÜKERRER — AŞAMA 1'de "yeni" sanılıp transaction anında
+       * başka bir senkron tarafından eklenmiş belgeler (bkz. fatura akışındaki
+       * aynı not: sayılar `belgeSonuclari`ndan türetilir).
+       */
+      let esZamanliMukerrer = 0;
 
       for (const yeni of hazir) {
         // Mükerrer kontrolü TRANSACTION İÇİNDE, güncel draft üzerinden yapılır:
         // dışarıda bakılsaydı aynı anda çalışan iki senkron aynı belgeyi iki
-        // kez ekleyebilirdi.
-        const exists = draft.incomingDespatches.some(
+        // kez ekleyebilirdi. Idempotentlik anahtarı ETTN/UUID'dir.
+        const eski = draft.incomingDespatches.find(
           d => d.uuid === yeni.uuid && (d.tenantId === tenantId || (tenantId === 'tnt-isbey' && !d.tenantId))
         );
-        if (exists) {
-          duplicateCount++;
+
+        if (eski && tekrarDenenecekler.get(yeni.uuid) === eski.id) {
+          // ── TEKRAR DENEME: okunamayan kayıt okunabildiyse GÜNCELLE ───────
+          // Kimlik ve geçmiş korunur; yalnız içerik alanları tazelenir.
+          if ((yeni.parseErrors || []).length > 0) {
+            // Hâlâ okunamıyor — kayda dokunulmaz; durum değişmedi.
+            continue;
+          }
+          Object.assign(eski, {
+            despatchNo: yeni.despatchNo || eski.despatchNo,
+            supplierTaxNumber: yeni.supplierTaxNumber || eski.supplierTaxNumber,
+            supplierTitle: yeni.supplierTitle || eski.supplierTitle,
+            issueDate: yeni.issueDate || eski.issueDate,
+            status: 'RECEIVED',
+            ...(yeni.xmlStoragePath ? { xmlStoragePath: yeni.xmlStoragePath } : {}),
+            items: yeni.items,
+            ...(yeni.parseWarnings ? { parseWarnings: yeni.parseWarnings } : {}),
+            updatedAt: now,
+          });
+          delete (eski as any).parseErrors;
+          updatedCount++;
+          belgeSonuclari.push({
+            uuid: yeni.uuid,
+            documentNo: eski.despatchNo,
+            outcome: 'UPDATED',
+            message: 'İrsaliye içeriği bu çekimde alındı; kayıt okunabilir hâle getirildi.',
+          });
+          continue;
+        }
+
+        if (eski) {
+          esZamanliMukerrer++;
           continue;
         }
 
         draft.incomingDespatches.push(yeni);
         syncedCount++;
         if ((yeni.parseErrors || []).length > 0) unreadableCount++;
+        if (!belgeSonuclari.some(b => b.uuid === yeni.uuid)) {
+          belgeSonuclari.push({
+            uuid: yeni.uuid,
+            documentNo: yeni.despatchNo,
+            outcome: (yeni.parseErrors || []).length > 0 ? 'ERROR' : 'NEW',
+            ...((yeni.parseErrors || []).length > 0
+              ? { message: 'Belge listede bulundu ancak UBL/XML içeriği alınamadı.' }
+              : {}),
+          });
+        }
       }
+
+      const bitisZamani = new Date().toISOString();
+
+      // Sayılar belge bazlı sonuçlardan türetilir — AŞAMA 1'de elenen
+      // mükerrerler transaction'a hiç girmediği için yerel sayaç onları
+      // göremezdi (bkz. fatura akışında ölçülen aynı hata).
+      const hataSayisi = belgeSonuclari.filter(b => b.outcome === 'ERROR').length;
+      const mükerrerSayisi =
+        belgeSonuclari.filter(b => b.outcome === 'DUPLICATE').length + esZamanliMukerrer;
 
       storage.addAuditLog({
         userId: actor?.userId || 'system',
@@ -171,11 +292,33 @@ export class IncomingDespatchService {
         module: 'E_DESPATCH',
         ipAddress: '127.0.0.1',
         details:
-          `Gelen e-İrsaliye senkronu: ${syncedCount} yeni, ${duplicateCount} mükerrer atlandı` +
-          (unreadableCount > 0 ? `, ${unreadableCount} belge okunamadı (UNREADABLE).` : '.'),
+          `Gelen e-İrsaliye senkronu (${sinirli.startDate} → ${sinirli.endDate}): ` +
+          `${irsaliyeler.length} belge bulundu, ${syncedCount} yeni, ${mükerrerSayisi} mükerrer atlandı, ` +
+          `${updatedCount} belge güncellendi, ${hataSayisi} hatalı` +
+          (atlananSayisi > 0 ? `, ${atlananSayisi} belge sınır nedeniyle ertelendi.` : '.') +
+          (sinirli.adjustment ? ` [${sinirli.adjustment}]` : '') +
+          ' Stok ve cari DEĞİŞMEDİ.',
       });
 
-      return { syncedCount, duplicateCount, unreadableCount };
+      return {
+        startedAt: baslangicZamani,
+        finishedAt: bitisZamani,
+        dateRange: { startDate: sinirli.startDate, endDate: sinirli.endDate },
+        foundCount: irsaliyeler.length,
+        newCount: syncedCount,
+        duplicateCount: mükerrerSayisi,
+        errorCount: hataSayisi,
+        updatedCount,
+        skippedCount: atlananSayisi,
+        truncated: atlananSayisi > 0,
+        documents: belgeSonuclari,
+        syncedCount,
+        unreadableCount,
+        ...(sinirli.adjustment ? { rangeAdjustment: sinirli.adjustment } : {}),
+        // 2026-09-29 — Aralık HER ZAMAN raporlanır, `CUSTOM` dâhil (bkz.
+        // fatura akışındaki aynı not: gizlemek arayüzde boşluk bırakıyordu).
+        rangePreset: hamAralik.preset,
+      } as SyncSummary;
     });
   }
 

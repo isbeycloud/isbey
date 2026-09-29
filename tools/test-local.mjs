@@ -34,6 +34,13 @@ const suites = [
   // alma, XXE yükü (diske yazılmaz). G/H/I/J/L/M/N maddeleri kendi dosyalarında
   // koşar; bu dosya onların yerinde durduğunu programatik olarak da doğrular.
   'incomingDocumentMatrixTest.ts',
+  // 2026-09-29: ENTEGRATÖRDEN ÇEK senkron sözleşmesi (16 senaryo). Bu dosya
+  // sağlayıcıyı YEREL taklit ile değiştirir; Hızlı Bilişim'e ÇIKMAZ. Ölçtüğü
+  // şey yalnız "çalışıyor mu" değil: 401/500/timeout'ta sessizce "0 belge"
+  // denmemesi, mükerrerin SAYILMASI (0 gösterilmesi operatörü yanıltıyordu),
+  // tarih aralığının sunucuda 90 güne sınırlanması ve her senkron sonrası
+  // stok/cari/fatura/stok hareketinin DEĞİŞMEMESİ.
+  'incomingProviderSyncTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {

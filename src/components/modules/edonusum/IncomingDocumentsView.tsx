@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type {
   IncomingInvoice, IncomingDespatch, IngestionPlan, Product, StatusCounts, OperationalStatus,
+  SyncSummary, SyncDocumentOutcome, DateRangePreset,
 } from '../../../types';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
@@ -10,7 +11,7 @@ import { IncomingDocumentDetail } from './IncomingDocumentDetail';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
 import {
-  RefreshCw, DownloadCloud, AlertTriangle, CheckCircle2, XCircle, Ban, Truck, FileText, Eye, Filter,
+  RefreshCw, DownloadCloud, AlertTriangle, CheckCircle2, XCircle, Truck, FileText, Eye, Filter,
 } from 'lucide-react';
 
 /**
@@ -94,6 +95,34 @@ const DURUM_SECENEKLERI: Array<{ id: OperationalStatus | 'ALL'; etiket: string }
   { id: 'ERROR', etiket: 'Hata' },
 ];
 
+/** Senkron tarih aralığı seçenekleri — sunucudaki `DateRangePreset` ile aynı. */
+const ARALIK_SECENEKLERI: Array<{ id: DateRangePreset; etiket: string }> = [
+  { id: 'TODAY', etiket: 'Bugün' },
+  { id: 'LAST_7', etiket: 'Son 7 Gün' },
+  { id: 'LAST_30', etiket: 'Son 30 Gün' },
+  { id: 'CUSTOM', etiket: 'Özel Tarih' },
+];
+
+/**
+ * SENKRON SONUÇ ROZETİ.
+ *
+ * ⚠️ Renk tek başına anlam taşımaz: "mükerrer" iyi bir sonuçtur (belge zaten
+ * vardı, ikinci kez yazılmadı) ama kırmızı gösterilirse kullanıcı hata sanıp
+ * aynı belgeyi tekrar tekrar çekmeye çalışır. Bu yüzden hem renk hem metin
+ * birlikte verilir.
+ */
+function senkronRozeti(outcome: SyncDocumentOutcome) {
+  const harita: Record<SyncDocumentOutcome, { sinif: string; etiket: string }> = {
+    NEW: { sinif: 'badge badge-success', etiket: 'Yeni' },
+    UPDATED: { sinif: 'badge badge-success', etiket: 'Güncellendi' },
+    DUPLICATE: { sinif: 'badge badge-secondary', etiket: 'Zaten Mevcut' },
+    ERROR: { sinif: 'badge badge-danger', etiket: 'Hatalı' },
+    SKIPPED: { sinif: 'badge badge-warning', etiket: 'Ertelendi' },
+  };
+  const h = harita[outcome];
+  return <span className={h.sinif}>{h.etiket}</span>;
+}
+
 export const IncomingDocumentsView: React.FC = () => {
   const { showToast } = useToast();
   const { incomingPreset } = useApp();
@@ -103,6 +132,23 @@ export const IncomingDocumentsView: React.FC = () => {
   const [irsaliyeler, setIrsaliyeler] = useState<IncomingDespatch[]>([]);
   const [yukleniyor, setYukleniyor] = useState(true);
   const [senkronEdiliyor, setSenkronEdiliyor] = useState(false);
+
+  /**
+   * SENKRON TARİH ARALIĞI (2026-09-29).
+   *
+   * ⚠️ NEDEN VARSAYILAN "Son 30 Gün": Hızlı Bilişim'in gelen kutusu ucu
+   * sayfalamasız çalışır — aralık verilmezse hesabın TÜM geçmişi tek yanıtta
+   * dönebilir. Aralık, tek başına kullanılabilir tek hacim denetimidir.
+   */
+  const [aralikOnAyar, setAralikOnAyar] = useState<DateRangePreset>('LAST_30');
+  const [ozelBaslangic, setOzelBaslangic] = useState('');
+  const [ozelBitis, setOzelBitis] = useState('');
+
+  /**
+   * Son senkronun belge bazlı sonucu. `null` iken panel gizlidir; kullanıcı
+   * çekim sonucunu gördükten sonra kapatabilir.
+   */
+  const [syncSonucu, setSyncSonucu] = useState<SyncSummary | null>(null);
 
   const [sayfa, setSayfa] = useState(1);
   const [sayfalama, setSayfalama] = useState<Sayfalama>(BOS_SAYFALAMA);
@@ -233,16 +279,27 @@ export const IncomingDocumentsView: React.FC = () => {
 
   /**
    * Entegratörden çeker. ⚠️ Stok/cari DEĞİŞMEZ — yalnız belgeler saklanır.
-   * Sonuç mesajı bunu açıkça söyler ki kullanıcı "işlendi" sanmasın.
+   *
+   * 2026-09-29: Kullanıcı tarih aralığını seçer. Aralık SUNUCUYA ön ayar olarak
+   * gönderilir (`preset`); sunucu aralığı kendisi hesaplayıp sınırlar. Böylece
+   * tarayıcı saatiyle sunucu saati ayrışsa bile "son 7 gün" aynı günleri kapsar.
+   *
+   * Sonuç yalnız toast ile geçilmez: `syncSonucu` panelinde belge bazlı
+   * gösterilir. "12 bulundu / 8 yeni / 4 mükerrer" bilgisi kaybolursa kullanıcı
+   * çekimin çalışıp çalışmadığını anlayamaz.
    */
   const senkronizeEt = async () => {
     setSenkronEdiliyor(true);
     try {
+      const aralik = aralikOnAyar === 'CUSTOM'
+        ? { preset: 'CUSTOM' as const, startDate: ozelBaslangic || undefined, endDate: ozelBitis || undefined }
+        : { preset: aralikOnAyar };
       const res = sekme === 'INVOICE'
-        ? await api.syncIncomingDocuments()
-        : await api.syncIncomingDespatches();
+        ? await api.syncIncomingDocuments(aralik)
+        : await api.syncIncomingDespatches(aralik);
       if (res.success) {
-        showToast(`${res.message} Stok ve cari DEĞİŞMEDİ; içeri aktarma onayınızı bekliyor.`, 'success');
+        setSyncSonucu(res.result);
+        showToast(res.message, res.result?.errorCount ? 'warning' : 'success');
         // Yeni belgeler listenin BAŞINA eklenir (tarihe göre azalan). Kullanıcı
         // 2. sayfadaysa tazeleme onu eski sayfada bırakır ve "hiçbir şey gelmedi"
         // sanır; bu yüzden 1. sayfaya dönülür.
@@ -251,6 +308,63 @@ export const IncomingDocumentsView: React.FC = () => {
       }
     } catch (err: any) {
       showToast(err.message || 'Senkronizasyon başarısız.', 'error');
+    } finally {
+      setSenkronEdiliyor(false);
+    }
+  };
+
+  /**
+   * "Tekrar Dene" için belgenin tarihi.
+   *
+   * ⚠️ Tarih yalnız O SAYFADAKİ kayıtlardan bulunabilir. Belge sayfada yoksa
+   * (ör. kullanıcı süzgeç değiştirdi) boş döner; `tekrarDene` bu durumda
+   * bugünü kullanır ve yine de çalışır — düğme sessizce ölü kalmaz.
+   */
+  const belgeTarihi = (uuid: string): string => {
+    const fatura = faturalar.find(f => f.uuid === uuid);
+    if (fatura) return fatura.issueDate;
+    const irsaliye = irsaliyeler.find(i => i.uuid === uuid);
+    return irsaliye?.issueDate || '';
+  };
+
+  /**
+   * Okunamayan bir belgeyi yeniden çeker.
+   *
+   * ⚠️ NEDEN AYRI DÜĞME: Belgenin XML'i entegratörde henüz hazır olmayabilir.
+   * Kullanıcı "belge geldi ama okunamadı" durumunda beklemek zorunda kalmamalı;
+   * aynı aralığı elle yeniden çekmesi gerekirse hangi aralığı seçeceğini
+   * bilemezdi. Bu düğme o belgenin bulunduğu aralığı yeniden çeker ve sunucu
+   * yalnız UNREADABLE kaydı tazeler (mükerrer kayıt OLUŞMAZ).
+   */
+  const tekrarDene = async (issueDate: string) => {
+    setSenkronEdiliyor(true);
+    try {
+      // Belgenin kendi tarihi civarını çekmek, tüm aralığı yeniden indirmekten
+      // hem hızlı hem naziktir. ±1 gün toleransı saat dilimi/gecikme içindir.
+      const gun = (d: Date) => d.toISOString().slice(0, 10);
+      const temel = new Date(`${issueDate || gun(new Date())}T00:00:00.000Z`);
+      const bas = Number.isNaN(temel.getTime()) ? new Date() : temel;
+      const aralik = {
+        preset: 'CUSTOM' as const,
+        startDate: gun(new Date(bas.getTime() - 86400000)),
+        endDate: gun(new Date(bas.getTime() + 86400000)),
+      };
+      const res = sekme === 'INVOICE'
+        ? await api.syncIncomingDocuments(aralik)
+        : await api.syncIncomingDespatches(aralik);
+      if (res.success) {
+        setSyncSonucu(res.result);
+        const duzelen = res.result?.updatedCount || 0;
+        showToast(
+          duzelen > 0
+            ? `${duzelen} belgenin içeriği alındı; artık okunabilir.`
+            : 'Belge hâlâ okunamıyor; içerik entegratörde hazır olmayabilir. Bir süre sonra tekrar deneyin.',
+          duzelen > 0 ? 'success' : 'warning'
+        );
+        await yukle();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Tekrar deneme başarısız.', 'error');
     } finally {
       setSenkronEdiliyor(false);
     }
@@ -452,9 +566,18 @@ export const IncomingDocumentsView: React.FC = () => {
               <CheckCircle2 size={12} color="#10b981" /> Alış faturası oluştu
             </span>
           ) : f.status === 'UNREADABLE' ? (
-            <span style={{ fontSize: '11px', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <Ban size={12} /> İçeri alınamaz
-            </span>
+            // ⚠️ "Okunamadı" bir hüküm değildir: belgenin XML'i entegratörde
+            // henüz hazır olmayabilir. Tekrar Dene, YALNIZ bu kaydın tarih
+            // aralığını yeniden çeker; mükerrer kayıt oluşturmaz.
+            <button
+              className="btn btn-secondary btn-sm"
+              title="Belgenin içeriğini yeniden çekmeyi dene"
+              onClick={() => tekrarDene(f.issueDate)}
+              disabled={senkronEdiliyor}
+            >
+              <RefreshCw size={12} />
+              <span>Tekrar Dene</span>
+            </button>
           ) : null}
         </div>
       ),
@@ -529,9 +652,16 @@ export const IncomingDocumentsView: React.FC = () => {
               <CheckCircle2 size={12} color="#10b981" /> Stok girildi
             </span>
           ) : d.status === 'UNREADABLE' ? (
-            <span style={{ fontSize: '11px', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <Ban size={12} /> Okunamadı
-            </span>
+            // Bkz. fatura kolonundaki not — "okunamadı" kalıcı bir hüküm değildir.
+            <button
+              className="btn btn-secondary btn-sm"
+              title="İrsaliyenin içeriğini yeniden çekmeyi dene"
+              onClick={() => tekrarDene(d.issueDate)}
+              disabled={senkronEdiliyor}
+            >
+              <RefreshCw size={12} />
+              <span>Tekrar Dene</span>
+            </button>
           ) : null}
         </div>
       ),
@@ -594,6 +724,136 @@ export const IncomingDocumentsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Senkron tarih aralığı ──────────────────────────────────────────
+          ⚠️ Aralık seçimi SÜS DEĞİLDİR: entegratörün gelen kutusu ucu
+          sayfalamasız çalıştığı için aralık, indirilecek belge hacmini
+          belirleyen TEK denetimdir. Seçim sunucuya ön ayar olarak gider. */}
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+          padding: '10px 12px', background: 'var(--bg-surface-secondary)',
+          border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md, 8px)',
+        }}
+      >
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Çekilecek dönem:</span>
+        {ARALIK_SECENEKLERI.map(s => (
+          <button
+            key={s.id}
+            className={`btn ${aralikOnAyar === s.id ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+            onClick={() => setAralikOnAyar(s.id)}
+            disabled={senkronEdiliyor}
+          >
+            <span>{s.etiket}</span>
+          </button>
+        ))}
+        {aralikOnAyar === 'CUSTOM' && (
+          <>
+            <input
+              type="date" className="form-control" style={{ width: 'auto' }}
+              value={ozelBaslangic} onChange={e => setOzelBaslangic(e.target.value)}
+              disabled={senkronEdiliyor}
+            />
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>—</span>
+            <input
+              type="date" className="form-control" style={{ width: 'auto' }}
+              value={ozelBitis} onChange={e => setOzelBitis(e.target.value)}
+              disabled={senkronEdiliyor}
+            />
+          </>
+        )}
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          En fazla 90 gün; daha geniş aralık sunucuda kısaltılır ve size bildirilir.
+        </span>
+      </div>
+
+      {/* ── SON SENKRONUN SONUCU ───────────────────────────────────────────
+          "Kaç belge bulundu / kaçı yeni / kaçı mükerrer / kaçı hatalı" —
+          kullanıcının "çekim gerçekten çalıştı mı" sorusunun yanıtı.
+          Belge bazlı liste, bir belge neden alınamadıysa AÇIKÇA söyler. */}
+      {syncSonucu && (
+        <div
+          style={{
+            padding: '12px', background: 'var(--bg-surface-secondary)',
+            border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md, 8px)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <b style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+              Son çekim sonucu — {syncSonucu.dateRange.startDate} → {syncSonucu.dateRange.endDate}
+            </b>
+            <button className="btn btn-secondary btn-sm" onClick={() => setSyncSonucu(null)}>
+              <XCircle size={13} />
+              <span>Kapat</span>
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px', fontSize: '12px' }}>
+            <span><b>{syncSonucu.foundCount}</b> bulundu</span>
+            <span style={{ color: '#10b981' }}><b>{syncSonucu.newCount}</b> yeni</span>
+            <span style={{ color: 'var(--text-muted)' }}><b>{syncSonucu.duplicateCount}</b> zaten mevcut</span>
+            {syncSonucu.updatedCount > 0 && (
+              <span style={{ color: '#10b981' }}><b>{syncSonucu.updatedCount}</b> güncellendi</span>
+            )}
+            <span style={{ color: syncSonucu.errorCount ? 'var(--danger)' : 'var(--text-muted)' }}>
+              <b>{syncSonucu.errorCount}</b> hatalı
+            </span>
+            {syncSonucu.skippedCount > 0 && (
+              <span style={{ color: 'var(--warning)' }}><b>{syncSonucu.skippedCount}</b> ertelendi</span>
+            )}
+          </div>
+
+          {syncSonucu.rangeAdjustment && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--warning)' }}>
+              <AlertTriangle size={12} style={{ verticalAlign: '-2px' }} /> {syncSonucu.rangeAdjustment}
+            </div>
+          )}
+
+          {syncSonucu.truncated && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--warning)' }}>
+              Tek çekimde en fazla 100 belge indirilir. Dönemi daraltıp tekrar çekin; işlenmeyen
+              belgeler kaybolmaz.
+            </div>
+          )}
+
+          {syncSonucu.documents.some(d => d.outcome === 'ERROR') && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-main)', marginBottom: '4px' }}>
+                İçeriği alınamayan belgeler
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {syncSonucu.documents.filter(d => d.outcome === 'ERROR').map(d => (
+                  <div
+                    key={d.uuid}
+                    style={{
+                      fontSize: '11px', color: 'var(--text-muted)', display: 'flex',
+                      gap: '8px', flexWrap: 'wrap', alignItems: 'center',
+                    }}
+                  >
+                    {senkronRozeti(d.outcome)}
+                    <span>Belge No: <b style={{ color: 'var(--text-main)' }}>{d.documentNo || '—'}</b></span>
+                    <span>ETTN: {d.uuid}</span>
+                    <span>{d.message}</span>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => tekrarDene(belgeTarihi(d.uuid))}
+                      disabled={senkronEdiliyor}
+                    >
+                      <RefreshCw size={11} />
+                      <span>Tekrar Dene</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+            Bu çekim YALNIZ gelen belge havuzunu doldurdu. Stok, cari ve alış faturası DEĞİŞMEDİ;
+            onlar yalnız siz onayladığınızda oluşur.
+          </div>
+        </div>
+      )}
 
       {/* ── Akış açıklaması — "senkron stok işlemez" bilgisi ───────────── */}
       <div
