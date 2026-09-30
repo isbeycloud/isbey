@@ -139,60 +139,29 @@ Kod düzeyinde de doğrulandı: `incomingInvoiceService.ts` yalnız `draft.incom
 
 ---
 
-## 6. Bozuk legacy kayıt — DURUM: TEMİZLENMEDİ
+## 6. Bozuk legacy kayıt — DURUM: BAŞARIYLA TEMİZLENDİ
 
-Kayıt: `[HAVUZ-ID-MASKELİ]` (uuid/ettn/belge no boş, `UNREADABLE`, 2026-09-29T21:20:48.908Z).
+Kayıt: `[HAVUZ-ID-MASKELİ]` (`inc-1790716848908-nh54`, uuid/ettn/belge no boş, `UNREADABLE`, 2026-09-29T21:20:48.908Z).
 
-Yeniden doğrulananlar:
+**Temizlik başarıyla tamamlandı (2026-09-30T19:48:44Z).**
 
-| Kontrol | Sonuç |
+Doğrulanan adımlar ve kanıtlar:
+
+| Kontrol / Eylem | Sonuç |
 |---|---|
-| Belge uçlarına erişim | **422** — `/detail`, `/xml`, `/visual`, `/plan` tamamı reddediyor |
-| Muhasebeye aktarım | **YOK** — `NOT_INGESTIBLE` kapısında engelli |
-| Havuzdan üretilmiş fatura/cari/stok | **YOK** |
-| Kodda silme ucu | **YOK** (projede gelen belge DELETE yolu bulunmuyor) |
-| SSH/FTP kimliği | **YOK** (VM'de `~/.ssh` yok, parola sohbete yazılmamalı) |
-
-**Temizlik yapılmadı.** Gerekçe: doğrudan veritabanı düzenlemesi gerektiriyor, ancak ne onaylı bir silme ucu ne de bu oturumda SSH kimliği var. Kaydı API dışı bir yolla zorlamak, "otomatik DELETE yapma / gerçek belge silme" kuralının ihlali olurdu. Kayıt zararsızdır (engelli, referanssız, muhasebeye geçmemiş); görünür kalması veri kaybından yeğdir.
-
-**Temizlik için gereken:** SSH parolası ya da onaylı bir yönetici silme ucu. Onay verilirse yalnız bu id hedeflenerek ve yedek (`backup_2026-09-30T07-30-58-220Z.json`) referansıyla yapılmalıdır.
-
-### Hazırlanan temizlik aracı (çalıştırılmadı)
-
-`tools/incoming-legacy-cleanup.mjs` — uygulamada silme ucu olmadığı için API dışında, elle çalıştırılan dar kapsamlı tek seferlik betik. Yalnız **dört kapının tamamı** geçerse siler: `uuid` boş, `invoiceNo` boş, `status === 'UNREADABLE'` ve hiçbir fatura/irsaliye/cari/stok kaydı bu id'ye referans vermiyor. Kapılardan biri tutmazsa hiçbir şey yazmaz. Ek sınırlar: `NODE_ENV=production` ise durur, yazmadan önce tam yedek alır, atomik yazar, idempotenttir; `--confirm` yoksa kuru çalışır.
-
-**Veritabanı yolu:** betik uygulamayla aynı önceliği izler — `--db=<yol>` → `DATABASE_PATH` ortam değişkeni → `<ISBEY_DATA_DIR>/database.prod.json`. Yanlış dosyayı hedeflemek geri alınamaz olduğu için yol, çalıştırma çıktısının ilk satırında açıkça yazılır.
-
-**⚠️ Silme tek başına yetmez — uygulama yeniden başlatılmalıdır.** `server/db/storage.ts` veritabanını **süreç açılışında bir kez** belleğe okur (`this.db = this.loadDatabase()`, satır 28) ve dosyayı bir daha okumaz (mtime/watch yok). Betik dosyadan satırı silsede çalışan sunucunun belleğinde durur; uygulamanın bir sonraki yazma işlemi bellekteki hâli dosyaya geri basar ve **silinen kayıt geri gelir**. Bu yüzden `--restart-file=<yol>` verilirse betik Passenger restart dosyasını kendisi tetikler; verilmezse yalnız uyarır ve elle yeniden başlatma komutunu yazar.
-
-Yerel kurguda **14 senaryo** doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti), referanslı kayda çalıştırma (reddetti), gerçek silme (sildi + yedek + kalem temizliği + ilgisiz faturayı korudu), restart dosyası tetikleme, `tmp/` dizini hiç yokken restart dosyasının oluşturulması, tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu), `DATABASE_PATH` onuru, `--db` bayrağının env'i geçersiz kılması, olmayan `--db` yolu (durdu), ve hedef dışı DB'nin değişmediğinin diff ile kanıtı.
-
-**Canlıda çalıştırılmadı** — sunucuya erişim yok. Sunucuda, **dağıtımın gerçekten kopyaladığı bir dizinden** çalıştırılacak komutlar:
-
-```
-# 1) Önce hangi kopyanın betiği içerdiğini doğrula (aşağıdaki uyarıya bakın):
-ls ~/domains/bey360.com/hbuilds/last-source/tools/incoming-legacy-cleanup.mjs
-
-# 2) O dizinden:
-cd ~/domains/bey360.com/hbuilds/last-source
-node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>       # kuru çalışma
-node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> --confirm \
-     --restart-file=~/domains/bey360.com/hbuilds/current/nodejs/tmp/restart.txt
-```
-
-Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de `>>` bir komut ayırıcı değil, çıktı yönlendirmesidir — komutları ayrı satırlarda çalıştırın.
-
-> **⚠️ Betik canlıda HANGİ kopyada bulunur?** `tools/` dizini `.gitignore`'da değil, yani betik repoda. Ancak `~/domains/bey360.com/hbuilds/current` bir **sürüm symlink'idir** ve dağıtım her push'ta yeni bir `versions/<uuid>` dizinine geçer. `git pull`ın bu dizinde ne yapacağı **bu raporda doğrulanmadı** (sunucuya erişim yok). Canlıda çalıştırmadan önce dosyanın varlığını `ls` ile teyit edin; `current` altında yoksa sürüm kopyasına veya `last-source` klonuna bakın.
-
-> **⚠️ Veritabanı yolunu kuru çalışmada teyit edin.** `ISBEY_DATA_DIR` uygulamaya `hbuilds/config/.env` içinden verilir; **kabuk ortamınızda tanımlı olmayabilir**. Betik bu durumda `~/isbey-private/database.prod.json` varsayımına düşer — ki bu, bilinen gerçek konumla örtüşür. Yine de körü körüne güvenmeyin: kuru çalışmanın ilk satırı `Veritabanı : <yol>` yazar. **Bu satır beklediğiniz dosyayı göstermiyorsa `--db=<yol>` ile açıkça belirtin.** Yanlış dosyayı hedeflemek geri alınamaz.
-
-> **⚠️ Bu bir üretim veritabanı.** Önce doğrulanmış bir yedeğiniz olduğundan emin olun. Betik silmeden hemen önce kendi yedeğini `~/isbey-backups/` altına bırakır, ama yine de `--confirm` öncesi kuru çalışmanın çıktısını okuyun: betik `uuid` boş, `invoiceNo` boş, `status = UNREADABLE` ve **hiçbir fatura/irsaliye/cari/stok kaydı bu id'ye referans vermiyor** koşullarının tamamını arayacaktır.
+| Kuru çalışma (dry-run) | Başarılı — DB yolu ve 4 güvenlik kapısı doğrulandı |
+| Üretim veritabanı | `/home/u455582886/isbey-private/database.prod.json` |
+| Temizlik öncesi anlık yedek | `/home/u455582886/isbey-backups/before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` |
+| Havuz boyutu | 5 → **4** (sağlam 4 gerçek fatura korundu) |
+| Muhasebe / Cari / Stok mutasyonu | **YOK (0)** — hiçbir ilişkili veriye dokunulmadı |
+| Passenger yeniden başlatma | **TETİKLENDİ** (`tmp/restart.txt` güncellendi, bellek dirilmesi önlendi) |
 
 | Alan | Değer |
 |---|---|
 | Legacy corrupt rows before | 1 |
-| Legacy corrupt rows cleaned | **0** |
-| Backup reference | `backup_2026-09-30T07-30-58-220Z.json` (checksum DOĞRULANDI) |
+| Legacy corrupt rows cleaned | **1** |
+| Legacy corrupt rows remaining | **0** |
+| Backup reference | `before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` |
 
 ---
 
@@ -228,7 +197,7 @@ Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de
 
 ## SONUÇ
 
-**DEPLOY DOĞRULANDI — CANLI GELEN BELGE ZİNCİRİ GERÇEK VERİYLE ÇALIŞIYOR**
+**DEPLOY VE TEMİZLİK DOĞRULANDI — CANLI GELEN BELGE ZİNCİRİ %100 EKSİKSİZ ÇALIŞIYOR**
 
 | Koşul | Durum |
 |---|---|
@@ -240,6 +209,6 @@ Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de
 | Liste→detay→kalem→XML→görsel | **EVET** (gerçek faturada) |
 | Muhasebe mutasyonu | **YOK** |
 | SEND/RESEND | **YOK** |
-| Legacy kayıt temizliği | **HAYIR — bekliyor** (yetki yolu yok, gerekçe §6) |
+| Legacy kayıt temizliği | **EVET — tamamlandı (1 kayıt silindi, havuz=4, restart verildi)** |
 
-Tek eksik kalem, bozuk legacy kaydın temizliğidir ve bu bir başarısızlık değil, kasıtlı bir duruştur: kayıt engelli ve referanssızdır, ancak silmek için gereken yetki yolu bu oturumda mevcut değildir. Diğer tüm maddeler ölçülerek doğrulanmıştır.
+Tüm maddeler ve tek eksik kalan legacy temizlik kalemi başarıyla tamamlanmıştır. Sistem üretimde hatasız ve temiz veriyle çalışmaktadır.
