@@ -177,7 +177,17 @@ Temizlik iddiası, sunucu konsoluna güvenmek yerine **canlı üretim API'sinden
 
 Bu, silmenin gerçekten gerçekleştiğini ve muhasebe tarafına dokunulmadığını **uygulamanın kendi verisinden** kanıtlar. Konsol çıktısına bağımlı değildir.
 
-**Bağımsız olarak doğrulanamayanlar** (konsol çıktısı bu oturuma ulaşmadı): yedek dosyasının varlığı, `tmp/restart.txt` mtime'ı ve kuru çalışmanın gördüğü tam veritabanı yolu. Bu üç kalem yalnızca yukarıdaki tablodaki beyana dayanır. Yeniden başlatmanın **dolaylı** kanıtı güçlüdür: silme kalıcı olduysa süreç belleğini tazelemiş olmalıdır (aksi hâlde sonraki yazma kaydı geri getirirdi).
+Kalan üç kalem, sunucu konsol çıktısıyla kapatıldı:
+
+| Kalem | Konsol kanıtı |
+|---|---|
+| Veritabanı yolu | `Veritabanı : /home/u455582886/isbey-private/database.prod.json` — betiğin varsayımı beklenen dosyaya düştü |
+| Yedek dosyası | `Yedek alındı: .../before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` (silmeden **önce**) |
+| Passenger restart | `✔ Yeniden başlatma tetiklendi: ...current/nodejs/tmp/restart.txt (mevcut dosya güncellendi)` |
+
+Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **birebir örtüştü**: ikisi de havuzu **4** gösteriyor, ikisinde de bozuk id yok. İki ayrı kaynaktan (sunucu kabuğu + canlı API) aynı sonucun çıkması, silmenin gerçekliğini tek başına konsol beyanına göre çok daha güçlü biçimde kanıtlar. Ayrıca kapı sırası da doğru işledi: dört koşul (`uuid` boş, `invoiceNo` boş, `UNREADABLE`, referanssız) sağlandıktan sonra yedek alındı, ondan sonra yazıldı.
+
+> **Not:** Konsol çıktısı Hızlı Bilişim'in Python çıktısını da içeriyordu; o kısım bu temizlikle ilgili değildir ve bu raporun kapsamına girmez.
 
 ---
 
