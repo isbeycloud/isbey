@@ -184,6 +184,10 @@ Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de
 
 > **⚠️ Betik canlıda HANGİ kopyada bulunur?** `tools/` dizini `.gitignore`'da değil, yani betik repoda. Ancak `~/domains/bey360.com/hbuilds/current` bir **sürüm symlink'idir** ve dağıtım her push'ta yeni bir `versions/<uuid>` dizinine geçer. `git pull`ın bu dizinde ne yapacağı **bu raporda doğrulanmadı** (sunucuya erişim yok). Canlıda çalıştırmadan önce dosyanın varlığını `ls` ile teyit edin; `current` altında yoksa sürüm kopyasına veya `last-source` klonuna bakın.
 
+> **⚠️ Veritabanı yolunu kuru çalışmada teyit edin.** `ISBEY_DATA_DIR` uygulamaya `hbuilds/config/.env` içinden verilir; **kabuk ortamınızda tanımlı olmayabilir**. Betik bu durumda `~/isbey-private/database.prod.json` varsayımına düşer — ki bu, bilinen gerçek konumla örtüşür. Yine de körü körüne güvenmeyin: kuru çalışmanın ilk satırı `Veritabanı : <yol>` yazar. **Bu satır beklediğiniz dosyayı göstermiyorsa `--db=<yol>` ile açıkça belirtin.** Yanlış dosyayı hedeflemek geri alınamaz.
+
+> **⚠️ Bu bir üretim veritabanı.** Önce doğrulanmış bir yedeğiniz olduğundan emin olun. Betik silmeden hemen önce kendi yedeğini `~/isbey-backups/` altına bırakır, ama yine de `--confirm` öncesi kuru çalışmanın çıktısını okuyun: betik `uuid` boş, `invoiceNo` boş, `status = UNREADABLE` ve **hiçbir fatura/irsaliye/cari/stok kaydı bu id'ye referans vermiyor** koşullarının tamamını arayacaktır.
+
 | Alan | Değer |
 |---|---|
 | Legacy corrupt rows before | 1 |
