@@ -157,6 +157,19 @@ Yeniden doğrulananlar:
 
 **Temizlik için gereken:** SSH parolası ya da onaylı bir yönetici silme ucu. Onay verilirse yalnız bu id hedeflenerek ve yedek (`backup_2026-09-30T07-30-58-220Z.json`) referansıyla yapılmalıdır.
 
+### Hazırlanan temizlik aracı (çalıştırılmadı)
+
+`tools/incoming-legacy-cleanup.mjs` — uygulamada silme ucu olmadığı için API dışında, elle çalıştırılan dar kapsamlı tek seferlik betik. Yalnız **dört kapının tamamı** geçerse siler: `uuid` boş, `invoiceNo` boş, `status === 'UNREADABLE'` ve hiçbir fatura/irsaliye/cari/stok kaydı bu id'ye referans vermiyor. Kapılardan biri tutmazsa hiçbir şey yazmaz. Ek sınırlar: `NODE_ENV=production` ise durur, yazmadan önce tam yedek alır, atomik yazar, idempotenttir; `--confirm` yoksa kuru çalışır.
+
+Yerel kurguda beş senaryo doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti ve gerekçeleri yazdı), gerçek silme (sildi, yedek aldı, faturaya dokunmadı), tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu).
+
+**Canlıda çalıştırılmadı** — sunucuya erişim yok. Çalıştırma komutu:
+
+```
+node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>          # kuru çalışma
+node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> --confirm # gerçek silme
+```
+
 | Alan | Değer |
 |---|---|
 | Legacy corrupt rows before | 1 |
