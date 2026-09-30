@@ -163,6 +163,22 @@ Doğrulanan adımlar ve kanıtlar:
 | Legacy corrupt rows remaining | **0** |
 | Backup reference | `before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` |
 
+### Bağımsız doğrulama (canlı API, salt okunur)
+
+Temizlik iddiası, sunucu konsoluna güvenmek yerine **canlı üretim API'sinden** ayrıca sorgulandı:
+
+| Sorgu | Sonuç |
+|---|---|
+| `GET /api/v1/e-documents/incoming/list` | 200 — havuzda **4 kayıt** |
+| Bozuk kayıt `inc-1790716848908-nh54` | **LİSTEDE YOK** |
+| Kalan kayıtların durumu | 4'ü de `RECEIVED`, belge numaraları dolu (sağlam) |
+| Fatura / Ürün / İrsaliye | 2 / 0 / 0 — **değişmemiş** |
+| `GET /api/health` | 200 `{"status":"healthy","version":"2.0.0"}` |
+
+Bu, silmenin gerçekten gerçekleştiğini ve muhasebe tarafına dokunulmadığını **uygulamanın kendi verisinden** kanıtlar. Konsol çıktısına bağımlı değildir.
+
+**Bağımsız olarak doğrulanamayanlar** (konsol çıktısı bu oturuma ulaşmadı): yedek dosyasının varlığı, `tmp/restart.txt` mtime'ı ve kuru çalışmanın gördüğü tam veritabanı yolu. Bu üç kalem yalnızca yukarıdaki tablodaki beyana dayanır. Yeniden başlatmanın **dolaylı** kanıtı güçlüdür: silme kalıcı olduysa süreç belleğini tazelemiş olmalıdır (aksi hâlde sonraki yazma kaydı geri getirirdi).
+
 ---
 
 ## 7. Kapılar
