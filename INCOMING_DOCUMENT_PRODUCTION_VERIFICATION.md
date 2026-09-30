@@ -165,18 +165,24 @@ Yeniden doğrulananlar:
 
 **⚠️ Silme tek başına yetmez — uygulama yeniden başlatılmalıdır.** `server/db/storage.ts` veritabanını **süreç açılışında bir kez** belleğe okur (`this.db = this.loadDatabase()`, satır 28) ve dosyayı bir daha okumaz (mtime/watch yok). Betik dosyadan satırı silsede çalışan sunucunun belleğinde durur; uygulamanın bir sonraki yazma işlemi bellekteki hâli dosyaya geri basar ve **silinen kayıt geri gelir**. Bu yüzden `--restart-file=<yol>` verilirse betik Passenger restart dosyasını kendisi tetikler; verilmezse yalnız uyarır ve elle yeniden başlatma komutunu yazar.
 
-Yerel kurguda **13 senaryo** doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti), referanslı kayda çalıştırma (reddetti), gerçek silme (sildi + yedek + kalem temizliği + ilgisiz faturayı korudu), restart dosyası tetikleme, tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu), `DATABASE_PATH` onuru, `--db` bayrağının env'i geçersiz kılması, olmayan `--db` yolu (durdu), ve hedef dışı DB'nin değişmediğinin diff ile kanıtı.
+Yerel kurguda **14 senaryo** doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti), referanslı kayda çalıştırma (reddetti), gerçek silme (sildi + yedek + kalem temizliği + ilgisiz faturayı korudu), restart dosyası tetikleme, `tmp/` dizini hiç yokken restart dosyasının oluşturulması, tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu), `DATABASE_PATH` onuru, `--db` bayrağının env'i geçersiz kılması, olmayan `--db` yolu (durdu), ve hedef dışı DB'nin değişmediğinin diff ile kanıtı.
 
-**Canlıda çalıştırılmadı** — sunucuya erişim yok. Sunucuda, **repo kökünden** çalıştırılacak komutlar:
+**Canlıda çalıştırılmadı** — sunucuya erişim yok. Sunucuda, **dağıtımın gerçekten kopyaladığı bir dizinden** çalıştırılacak komutlar:
 
 ```
-cd ~/domains/bey360.com/hbuilds/current/nodejs              # repo kökü
-node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>       # 1) kuru çalışma
+# 1) Önce hangi kopyanın betiği içerdiğini doğrula (aşağıdaki uyarıya bakın):
+ls ~/domains/bey360.com/hbuilds/last-source/tools/incoming-legacy-cleanup.mjs
+
+# 2) O dizinden:
+cd ~/domains/bey360.com/hbuilds/last-source
+node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>       # kuru çalışma
 node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> --confirm \
      --restart-file=~/domains/bey360.com/hbuilds/current/nodejs/tmp/restart.txt
 ```
 
 Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de `>>` bir komut ayırıcı değil, çıktı yönlendirmesidir — komutları ayrı satırlarda çalıştırın.
+
+> **⚠️ Betik canlıda HANGİ kopyada bulunur?** `tools/` dizini `.gitignore`'da değil, yani betik repoda. Ancak `~/domains/bey360.com/hbuilds/current` bir **sürüm symlink'idir** ve dağıtım her push'ta yeni bir `versions/<uuid>` dizinine geçer. `git pull`ın bu dizinde ne yapacağı **bu raporda doğrulanmadı** (sunucuya erişim yok). Canlıda çalıştırmadan önce dosyanın varlığını `ls` ile teyit edin; `current` altında yoksa sürüm kopyasına veya `last-source` klonuna bakın.
 
 | Alan | Değer |
 |---|---|
