@@ -13,13 +13,13 @@
     "localDatabaseChangesDeployed": false
   },
   "company": {
-    "title": "Beyoğlu Teknoloji Ltd. Şti.",
-    "taxNumber": "1681136628",
-    "taxOffice": "Ziyapaşa Vergi Dairesi"
+    "title": "[PİLOT FİRMA]",
+    "taxNumber": "[VKN-MASKELİ]",
+    "taxOffice": "[VERGİ-DAİRESİ]"
   },
-  "candidateTenantId": "tnt-1788768284315-w41y",
+  "candidateTenantId": "[TENANT-ID-MASKELİ]",
   "providerCustomerId": "hbc-1787730386934-3yqq",
-  "providerExternalId": "HB-1681136628",
+  "providerExternalId": "HB-[VKN-MASKELİ]",
   "databaseChangesApplied": true,
   "appliedChanges": {
     "scope": "LOCAL_COMPANY_IDENTITY_AND_PROVIDER_PREPARATION",

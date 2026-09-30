@@ -1,16 +1,16 @@
-# Beyoğlu sağlayıcı doğrulaması — 24 Eylül 2026
+# Pilot firma sağlayıcı doğrulaması — 24 Eylül 2026
 
-Canlı İşbey firma kimliği: `f0af349d-da17-419c-b9e4-1fde66beec3d`, VKN `1681136628`.
+Canlı İşbey firma kimliği: `[TENANT-ID-MASKELİ]`, VKN `[VKN-MASKELİ]`.
 
 Saat 20:54 UTC salt okunur e-Connect kontrolünde giriş hesabının VKN ve unvanı doğrulandı. Belge gönderme, iptal, seri oluşturma veya kontör yükleme çağrısı yapılmadı.
 
 - GİB kaydı: e-fatura mükellefi.
-- PK: `urn:mail:defaultpk@beyogluteknoloji.com`.
-- GB: `urn:mail:defaultgb@beyogluteknoloji.com`.
+- PK: `urn:mail:defaultpk@[ETİKET-MASKELİ]`.
+- GB: `urn:mail:defaultgb@[ETİKET-MASKELİ]`.
 - Kontör: 162,00; `KalanKontorSorgula` yanıtı ve müşteri VKN'si doğrulandı. Eski `GetCredits` ucu 404 dönüyor; o uç başarılı sayılmadı.
 - Seriler: `BTE`, `BTF`.
-- BTE2026 son belge: `BTE2026000000137`, sonraki: `BTE2026000000138`.
-- BTF2026 son belge: `BTF2026000000141`, sonraki: `BTF2026000000142`.
+- [SERİ-MASKELİ]2026 son belge: `[BELGE-NO-MASKELİ]`, sonraki: `[BELGE-NO-MASKELİ]`.
+- [SERİ-MASKELİ]2026 son belge: `[BELGE-NO-MASKELİ]`, sonraki: `[BELGE-NO-MASKELİ]`.
 
 Bu numaralar anlık gözlemdir; rezerve edilmedi ve ERP sayacı değiştirilmedi. Seri kullanıcı tarafından seçilmeli, gerçek gönderim öncesi tekrar sorgulanmalıdır.
 

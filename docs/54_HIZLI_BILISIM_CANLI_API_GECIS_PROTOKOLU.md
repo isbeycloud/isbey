@@ -4,7 +4,7 @@
 **Durum:** ⚠️ CANLI API BAĞLANTISI DOĞRULANDI — e-Belge yaşam döngüsü kanıtı bekliyor  
 **Proje:** `D:\İŞBEY`  
 **Canlı API Endpoint:** `https://econnect.hizliteknoloji.com.tr`  
-**Firma:** BEYOĞLU TEKNOLOJİ LTD. ŞTİ. (VKN: 1681136628)  
+**Firma:** [PİLOT FİRMA] (VKN: [VKN-MASKELİ])  
 **Kalan Canlı Kontör:** 189,00 Kontör  
 
 ---
@@ -16,7 +16,7 @@
 1. **Pre-Live Snapshot & Güvenlik:** `data/database.json` zaman damgalı snapshot ve `.sha256` sidecar oluşturuldu.
 2. **Acil Geri Alma (Rollback):** Önce kuru çalışma yapan, servis durdurma onayı ve geri alınabilir yerel snapshot gerektiren `tools/hizli-rollback-sandbox.mjs` hazırlandı.
 3. **Canlı UtilEncrypt Doğrulaması:** Canlı sunucuda şifreleme başarıyla yapıldı (`IsSucceeded: true`).
-4. **Canlı Login & Bearer Token:** Canlı JWT token başarıyla alındı (`BEYOĞLU TEKNOLOJİ LTD. ŞTİ.`, VKN: `1681136628`).
+4. **Canlı Login & Bearer Token:** Canlı JWT token başarıyla alındı (`[PİLOT FİRMA]`, VKN: `[VKN-MASKELİ]`).
 5. **Canlı Bakiye Okuma:** Canlı API'den kalan bakiye **189,00 Kontör** olarak başarıyla teyit edildi.
 6. **Sıfır Belge Tüketim Sözleşmesi:** Doğrulama sırasında hiçbir fatura iletilmedi, kontör tüketilmedi.
 7. **Henüz tamamlanmayan kanıt:** Kontrollü gerçek belge gönderimi, ETTN ile sorgulama, iptal sonucu ve canlı kontör hareketi gözlemlenmedi; bunlar resmi belge verisiyle ayrıca doğrulanacak.
@@ -30,7 +30,7 @@
 | **ADIM 1** | **Canlı Ortam & Güvenlik Parametreleri** | ✅ PASS | Host: `econnect.hizliteknoloji.com.tr`, `IS_TEST_MODE=false`, `ALLOW_PROD=true`. |
 | **ADIM 2** | **Canlı Host Egress & TLS Erişimi** | ✅ PASS | Canlı API HTTPS bağlantısı ve SSL sertifikası doğrulandı. |
 | **ADIM 3** | **Canlı UtilEncrypt REST Şifrelemesi** | ✅ PASS | Canlı SecretKey ile şifrelendi (`IsSucceeded: true`). |
-| **ADIM 4** | **Canlı Login & Bearer Token (24h)** | ✅ PASS | 24 saatlik canlı Bearer token alındı (Firma: BEYOĞLU TEKNOLOJİ LTD. ŞTİ.). |
+| **ADIM 4** | **Canlı Login & Bearer Token (24h)** | ✅ PASS | 24 saatlik canlı Bearer token alındı (Firma: [PİLOT FİRMA]). |
 | **ADIM 5** | **Canlı GİB Mükellef Sorgusu (`checkGibUser`)** | ⛔ BLOCKED | Hızlı Bilişim `GetGibUserList` çağrısı "An error has occurred" döndürüyor. Bu, e-Fatura/e-Arşiv profilini otomatik seçmek için yeterli değildir; sağlayıcıdan yanıt/çözüm beklenir. |
 | **ADIM 6** | **Canlı Kontör & Kredi Bakiyesi Teyidi** | ✅ PASS | **189,00 Kalan Kontör** canlı olarak okundu (`Message: Başarılı`). |
 | **ADIM 7** | **Sıfır Belge & Kontör Güvencesi** | ✅ PASS | Doğrulama sürecinde 0 fatura iletildi, 0 kontör harcandı. |

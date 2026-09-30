@@ -25,15 +25,15 @@
 
 ### Kullanıcı tarafından bildirilen pilot firma
 
-- Unvan: **Beyoğlu Teknoloji Ltd. Şti.**
-- VKN: **1681136628**
-- Vergi dairesi: **Ziyapaşa Vergi Dairesi**
-- Sağlayıcı müşterisi `HB-1681136628` ile yerel dış müşteri kaydı eşleşiyor.
-- İşbey firması `tnt-1788768284315-w41y`, 24 Eylül 2026 tarihinde kullanıcının açık onayıyla VKN **1681136628** ve **Ziyapaşa Vergi Dairesi** olarak düzeltildi. İşlem öncesi finansal hareket bulunmadığı ve yeni VKN'nin başka firmada kullanılmadığı yeniden doğrulandı. Atomik kayıt sonrası sonuç okundu; diğer firmalar, belgeler ve entegrasyon ayarlarının değişmediği doğrulandı. İşlem denetim kaydına eklendi.
-- Değişiklik öncesi yedek: `data/backups/before-beyoglu-identity-2026-09-24T18-29-25-680Z.json` (SHA256 doğrulama dosyasıyla).
+- Unvan: **[PİLOT FİRMA]**
+- VKN: **[VKN-MASKELİ]**
+- Vergi dairesi: **[VERGİ-DAİRESİ]**
+- Sağlayıcı müşterisi `HB-[VKN-MASKELİ]` ile yerel dış müşteri kaydı eşleşiyor.
+- İşbey firması `[TENANT-ID-MASKELİ]`, 24 Eylül 2026 tarihinde kullanıcının açık onayıyla VKN **[VKN-MASKELİ]** ve **[VERGİ-DAİRESİ]** olarak düzeltildi. İşlem öncesi finansal hareket bulunmadığı ve yeni VKN'nin başka firmada kullanılmadığı yeniden doğrulandı. Atomik kayıt sonrası sonuç okundu; diğer firmalar, belgeler ve entegrasyon ayarlarının değişmediği doğrulandı. İşlem denetim kaydına eklendi.
+- Değişiklik öncesi yedek: `data/backups/before-[PİLOT-FİRMA]-identity-2026-09-24T18-29-25-680Z.json` (SHA256 doğrulama dosyasıyla).
 - Aynı gönderici VKN'yi kullanan diğer üç e-fatura ayarının bağlı olduğu firmalar mevcut; bunlarda sırasıyla 1, 3 ve 3 elektronik belge kaydı bulunuyor. Bunlar hedef firmaya otomatik taşınmamalı/birleştirilmemeli. Ayrı bir test ayarı ise bulunmayan firma kimliğine bağlı.
 - Hazırlık kaydı: `deploy/efatura-beyoglu-preparation.json`. Bu dosya bilgi/plan kaydıdır; uygulama tarafından otomatik yüklenmez.
-- 24 Eylül 20:06 UTC: yerel dış müşteri `HB-1681136628`, mevcut eşleştirme doğrulayıcısından geçirilerek pilot firmaya bağlandı. Firmaya özel `TEST`, `PENDING_VERIFICATION`, `integrationEnabled=false`, `autoSendToGib=false` ayarı oluşturuldu. Parola, etiket ve seri başka firmadan kopyalanmadı. Yedek: `data/backups/before-beyoglu-integration-2026-09-24T20-06-18-511Z.json`. Diğer firmalar ve finansal koleksiyonlar değişmediği doğrulandı. Bu değişiklik yalnız yerel DB'dedir; Git dağıtımı DB'yi taşımaz.
+- 24 Eylül 20:06 UTC: yerel dış müşteri `HB-[VKN-MASKELİ]`, mevcut eşleştirme doğrulayıcısından geçirilerek pilot firmaya bağlandı. Firmaya özel `TEST`, `PENDING_VERIFICATION`, `integrationEnabled=false`, `autoSendToGib=false` ayarı oluşturuldu. Parola, etiket ve seri başka firmadan kopyalanmadı. Yedek: `data/backups/before-[PİLOT-FİRMA]-integration-2026-09-24T20-06-18-511Z.json`. Diğer firmalar ve finansal koleksiyonlar değişmediği doğrulandı. Bu değişiklik yalnız yerel DB'dedir; Git dağıtımı DB'yi taşımaz.
 
 ### Belirlenen yayın adresi
 
