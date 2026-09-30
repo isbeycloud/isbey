@@ -196,6 +196,9 @@ const restartFile = restartFileArg
 if (restartFile) {
   try {
     const mevcut = fs.existsSync(restartFile) ? 1 : 0;
+    // Üst dizin (ör. tmp/) yoksa oluştur — yoksa yazma patlar ve silme
+    // "yapıldı ama yeniden başlatılamadı" ara durumunda kalır.
+    fs.mkdirSync(path.dirname(restartFile), { recursive: true });
     fs.writeFileSync(restartFile, `${new Date().toISOString()}\n`, 'utf8');
     console.log(`\n✔ Yeniden başlatma tetiklendi: ${restartFile}`);
     if (mevcut) console.log('  (mevcut dosya güncellendi — Passenger restart algılar)');
