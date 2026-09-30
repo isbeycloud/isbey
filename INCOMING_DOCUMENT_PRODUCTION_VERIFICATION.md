@@ -161,14 +161,22 @@ Yeniden doğrulananlar:
 
 `tools/incoming-legacy-cleanup.mjs` — uygulamada silme ucu olmadığı için API dışında, elle çalıştırılan dar kapsamlı tek seferlik betik. Yalnız **dört kapının tamamı** geçerse siler: `uuid` boş, `invoiceNo` boş, `status === 'UNREADABLE'` ve hiçbir fatura/irsaliye/cari/stok kaydı bu id'ye referans vermiyor. Kapılardan biri tutmazsa hiçbir şey yazmaz. Ek sınırlar: `NODE_ENV=production` ise durur, yazmadan önce tam yedek alır, atomik yazar, idempotenttir; `--confirm` yoksa kuru çalışır.
 
-Yerel kurguda beş senaryo doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti ve gerekçeleri yazdı), gerçek silme (sildi, yedek aldı, faturaya dokunmadı), tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu).
+**Veritabanı yolu:** betik uygulamayla aynı önceliği izler — `--db=<yol>` → `DATABASE_PATH` ortam değişkeni → `<ISBEY_DATA_DIR>/database.prod.json`. Yanlış dosyayı hedeflemek geri alınamaz olduğu için yol, çalıştırma çıktısının ilk satırında açıkça yazılır.
 
-**Canlıda çalıştırılmadı** — sunucuya erişim yok. Çalıştırma komutu:
+**⚠️ Silme tek başına yetmez — uygulama yeniden başlatılmalıdır.** `server/db/storage.ts` veritabanını **süreç açılışında bir kez** belleğe okur (`this.db = this.loadDatabase()`, satır 28) ve dosyayı bir daha okumaz (mtime/watch yok). Betik dosyadan satırı silsede çalışan sunucunun belleğinde durur; uygulamanın bir sonraki yazma işlemi bellekteki hâli dosyaya geri basar ve **silinen kayıt geri gelir**. Bu yüzden `--restart-file=<yol>` verilirse betik Passenger restart dosyasını kendisi tetikler; verilmezse yalnız uyarır ve elle yeniden başlatma komutunu yazar.
+
+Yerel kurguda **13 senaryo** doğrulandı: kuru çalışma (yazmadı), sağlam kayda çalıştırma (reddetti), referanslı kayda çalıştırma (reddetti), gerçek silme (sildi + yedek + kalem temizliği + ilgisiz faturayı korudu), restart dosyası tetikleme, tekrar çalıştırma (idempotent), `NODE_ENV=production` (durdu), `DATABASE_PATH` onuru, `--db` bayrağının env'i geçersiz kılması, olmayan `--db` yolu (durdu), ve hedef dışı DB'nin değişmediğinin diff ile kanıtı.
+
+**Canlıda çalıştırılmadı** — sunucuya erişim yok. Sunucuda, **repo kökünden** çalıştırılacak komutlar:
 
 ```
-node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>          # kuru çalışma
-node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> --confirm # gerçek silme
+cd ~/domains/bey360.com/hbuilds/current/nodejs              # repo kökü
+node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id>       # 1) kuru çalışma
+node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> --confirm \
+     --restart-file=~/domains/bey360.com/hbuilds/current/nodejs/tmp/restart.txt
 ```
+
+Betiğe argüman verilmezse kendi kullanım metnini yazar. Windows/PowerShell'de `>>` bir komut ayırıcı değil, çıktı yönlendirmesidir — komutları ayrı satırlarda çalıştırın.
 
 | Alan | Değer |
 |---|---|

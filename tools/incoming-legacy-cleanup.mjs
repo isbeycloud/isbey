@@ -22,6 +22,18 @@
  *   Kapılardan biri geçmezse betik HİÇBİR ŞEY YAZMAZ ve sıfırdan farklı kodla
  *   çıkar. "Yakın" kayıt silmez; yalnız kanıtlanmış bozuk kaydı siler.
  *
+ * ⚠️ UYGULAMA YENİDEN BAŞLATILMALIDIR — YOKSA SİLME GERİ GELİR:
+ *   `server/db/storage.ts` veritabanını **süreç açılışında bir kez** belleğe
+ *   okur (`this.db = this.loadDatabase()`) ve dosyayı bir daha kontrol etmez
+ *   (mtime/watch yok). Çalışan sunucu bu betikten habersizdir: dosyadan
+ *   sildiğimiz satır onun BELLEĞİNDE durmaya devam eder ve uygulamanın bir
+ *   sonraki yazma işlemi (herhangi bir kullanıcı eylemi) bellekteki hâli
+ *   dosyaya geri basar → **silinen kayıt geri gelir.**
+ *
+ *   Bu yüzden silme sonrası uygulama MUTLAKA yeniden başlatılmalıdır.
+ *   Betik bunu `--restart-file=<yol>` verilirse kendisi yapar (Passenger
+ *   restart dosyasını touch eder); verilmezse yalnız UYARIR.
+ *
  * GÜVENLİK SINIRLARI:
  *   - NODE_ENV=production ise ÇALIŞMAZ (yanlışlıkla canlıya karşı koşulmasın).
  *   - Yazmadan önce ~/isbey-backups/ altına zaman damgalı TAM yedek bırakır.
@@ -30,7 +42,9 @@
  *   - Silinen kaydın ÖZETİ (id + tarih + sebep) ekrana yazılır; sır yazılmaz.
  *
  * KULLANIM (sunucuda, repo kökünden):
- *   node tools/incoming-legacy-cleanup.mjs --id=inc-XXXX --confirm
+ *   node tools/incoming-legacy-cleanup.mjs --id=inc-XXXX
+ *   node tools/incoming-legacy-cleanup.mjs --id=inc-XXXX --confirm \
+ *        --restart-file=~/domains/bey360.com/hbuilds/current/nodejs/tmp/restart.txt
  *   (--confirm olmadan KURU ÇALIŞMA yapar, hiçbir şey yazmaz)
  */
 
@@ -42,9 +56,14 @@ import os from 'node:os';
 const args = process.argv.slice(2);
 const idArg = (args.find(a => a.startsWith('--id=')) || '').split('=')[1];
 const onay = args.includes('--confirm');
+const restartFileArg = (args.find(a => a.startsWith('--restart-file=')) || '').split('=').slice(1).join('=');
+const dbArg = (args.find(a => a.startsWith('--db=')) || '').split('=').slice(1).join('=');
 
 if (!idArg) {
-  console.error('Kullanım: node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> [--confirm]');
+  console.error(
+    'Kullanım: node tools/incoming-legacy-cleanup.mjs --id=<kayıt-id> [--confirm] ' +
+      '[--db=<yol>] [--restart-file=<yol>]'
+  );
   process.exit(2);
 }
 
@@ -57,9 +76,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // ─── Veri dizini ───────────────────────────────────────────────────────────
+// Öncelik sırası uygulamayla AYNI olmalı (bkz. server/config/environment.ts:
+// getDatabasePath) — yanlış dosyayı silmek geri alınamaz:
+//   1) --db=<yol>            (elle en kesin işaret)
+//   2) DATABASE_PATH env     (uygulamanın okuduğu değişken)
+//   3) <ISBEY_DATA_DIR>/database.prod.json
 const dataDir =
   process.env.ISBEY_DATA_DIR || path.join(os.homedir(), 'isbey-private');
-const dbPath = path.join(dataDir, 'database.prod.json');
+const dbPath = path.resolve(
+  dbArg || process.env.DATABASE_PATH || path.join(dataDir, 'database.prod.json')
+);
 const yedekDir = path.join(os.homedir(), 'isbey-backups');
 
 if (!fs.existsSync(dbPath)) {
@@ -158,3 +184,31 @@ fs.renameSync(gecici, dbPath);
 console.log(`Havuz boyutu (sonra): ${db.incomingInvoices.length}`);
 console.log(`\n✔ Silindi: ${hedef.id} (bozuk legacy kayıt)`);
 console.log('  Muhasebe, stok ve cari kayıtlarına DOKUNULMADI.');
+
+// ─── Yeniden başlatma (ZORUNLU ADIM) ───────────────────────────────────────
+// Sunucu veritabanını açılışta belleğe alır ve dosyayı bir daha okumaz. Yeniden
+// başlatılmazsa bir sonraki yazma işlemi bellekteki (silinmiş satırı hâlâ
+// taşıyan) hâli dosyaya geri basar ve silme KAYBOLUR.
+const restartFile = restartFileArg
+  ? path.resolve(restartFileArg.replace(/^~(?=\/)/, os.homedir()))
+  : null;
+
+if (restartFile) {
+  try {
+    const mevcut = fs.existsSync(restartFile) ? 1 : 0;
+    fs.writeFileSync(restartFile, `${new Date().toISOString()}\n`, 'utf8');
+    console.log(`\n✔ Yeniden başlatma tetiklendi: ${restartFile}`);
+    if (mevcut) console.log('  (mevcut dosya güncellendi — Passenger restart algılar)');
+  } catch (e) {
+    console.error(`\n✗ Yeniden başlatma dosyası yazılamadı: ${restartFile}`);
+    console.error(`  ${e instanceof Error ? e.message : String(e)}`);
+    console.error('  UYGULAMAYI ELLE YENİDEN BAŞLATIN — aksi hâlde silme geri gelir.');
+    process.exit(5);
+  }
+} else {
+  console.log('\n⚠️  UYGULAMA HENÜZ YENİDEN BAŞLATILMADI — SİLME ŞU AN KALICI DEĞİL.');
+  console.log('   Sunucu veritabanını bellekte tutuyor; bir sonraki yazma işlemi');
+  console.log('   bu satırı geri getirir. Şimdi yeniden başlatın:');
+  console.log('     touch ~/domains/bey360.com/hbuilds/current/nodejs/tmp/restart.txt');
+  console.log('   (ya da betiği --restart-file=<o yol> ile tekrar çalıştırın)');
+}
