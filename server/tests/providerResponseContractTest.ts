@@ -291,6 +291,58 @@ test('21) ⚠️ Liste eşlemesi camelCase-only BİÇİME geri dönmemiş', () =
   );
 });
 
+// ── 5. İŞ SEVİYESİ KAPISI (HTTP 2xx YETMEZ) ───────────────────────────────
+//
+// ⚠️ 2026-10-01'de koddan çıkarılan ÜÇÜNCÜ sessiz bozulma. `docs/48` §229–232
+// ölçümü `GetDocumentList`/`GetDocumentReceiverAllList` yanıtlarında kökte
+// `IsSucceeded` (boolean) + `Message` alanlarının VARLIĞINI doğruluyor. Bu API
+// iş hatasını HTTP 2xx İÇİNDE bildirir (bkz. `IsSeviyesiSonuc` dürüstlük notu).
+//
+// Kapı olmadan: `IsSucceeded:false` gövdesinde `documents` dizisi yoktur →
+// `res.data?.documents || res.data || []` NESNEYİ liste sanıp `Array.isArray`
+// kapısında sessizce boşa indirir → "0 belge bulundu" → operatör "gelen kutum
+// boş" sanar. İş hatası ile boş gelen kutusu AYNI görünemez.
+
+test('22) ⚠️ iş hatası (`IsSucceeded:false`) "0 belge" SAYILMAZ — kaynak denetimi', () => {
+  const kaynak = fs.readFileSync(
+    path.join(process.cwd(), 'server/services/hizliConnectService.ts'),
+    'utf8'
+  );
+  // Gelen belge listesi ucu.
+  assert.match(
+    kaynak,
+    /GetDocumentReceiverAllList iş hatası/,
+    'GetDocumentReceiverAllList iş-seviyesi kapısı kaldırılmış — iş hatası sessizce "boş gelen kutusu" olur'
+  );
+  // Belge içeriği ucu.
+  assert.match(
+    kaynak,
+    /GetDocumentFile iş hatası/,
+    'GetDocumentFile iş-seviyesi kapısı kaldırılmış'
+  );
+  // Belge listesi ucu.
+  assert.match(
+    kaynak,
+    /GetDocumentList iş hatası/,
+    'GetDocumentList iş-seviyesi kapısı kaldırılmış'
+  );
+});
+
+test('23) iş-seviyesi bayrağı OKUYUCUSU kökte `IsSucceeded:false` görür', async () => {
+  const { isSeviyesiSonucuOku, isSeviyesiMesaji } = await import('../services/hizliConnectService');
+  // Canlı iş hatası gövdesi — `documents` dizisi YOKTUR (kök neden bu).
+  const govde = { IsSucceeded: false, Message: 'Yetkisiz işlem', documents: undefined };
+  assert.equal(isSeviyesiSonucuOku(govde), 'basarisiz', 'IsSucceeded:false "basarisiz" olmalı');
+  assert.equal(isSeviyesiMesaji(govde), 'Yetkisiz işlem', 'API iş mesajı okunmalı');
+  // Başarılı gövde.
+  assert.equal(isSeviyesiSonucuOku({ IsSucceeded: true, documents: [] }), 'basarili');
+  // ⚠️ Alan YOKSA "belirsiz" kalır — "başarısız" demek uydurma olurdu (dar kapı).
+  assert.equal(
+    isSeviyesiSonucuOku({ documents: [] }), 'belirsiz',
+    'IsSucceeded alanı yoksa davranış DEĞİŞMEMELİ (belirsiz)'
+  );
+});
+
 console.log(`\nSonuç: ${gecti} PASS`);
 if (process.exitCode === 1) {
   console.error('BAZI TESTLER BAŞARISIZ — PASS sayılmaz.');

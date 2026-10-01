@@ -813,6 +813,16 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 25000,
       });
+
+      // ── İŞ SEVİYESİ KAPISI (2026-10-01) — bkz. GetDocumentReceiverAllList notu.
+      // `IsSucceeded:false` gövdesinde `documents` YOKTUR; `res.data?.documents ||
+      // res.data || []` ifadesi nesneyi liste sanıp boşa indirirdi.
+      if (isSeviyesiSonucuOku(res.data) === 'basarisiz') {
+        const msg = isSeviyesiMesaji(res.data) || 'Entegratör belge listesini iş hatasıyla reddetti.';
+        console.warn('[HIZLI_CONNECT] GetDocumentList iş hatası:', msg);
+        return { success: false, documents: [], message: `Belge listesi alınamadı: ${msg}` };
+      }
+
       return { success: true, documents: res.data?.documents || res.data || [] };
     } catch (err: any) {
       // FAZ 12: Demo belge listesi ÜRETİLMEZ — gerçek hata döndürülür
@@ -842,6 +852,20 @@ export class HizliConnectService {
         `${baseUrl}/HizliApi/RestApi/GetDocumentFile?AppType=${appType}&Uuid=${uuid}&Tur=${format}&IsDraft=${isDraft}`,
         { headers: { 'Authorization': `Bearer ${token}` }, timeout: 25000 }
       );
+
+      // ── İŞ SEVİYESİ KAPISI (2026-10-01) ─────────────────────────────────
+      // Belge içeriği indirme de iş hatasını HTTP 2xx içinde bildirebilir.
+      // Kapı olmasaydı `IsSucceeded:false` gövdesi `belgeGovdesiCoz`'dan BOŞ
+      // DİZE olarak dönerdi; çağıran bunu "entegratör boş içerik verdi" sanıp
+      // belgeyi `UNREADABLE` yapardı. İkisinin SONUCU aynı görünür ama sebebi
+      // farklıdır (yetki/iş hatası vs. gerçekten boş belge) ve kullanıcıya
+      // yanlış şey söyler. Yalnız kesin `IsSucceeded === false` engellenir.
+      if (isSeviyesiSonucuOku(res.data) === 'basarisiz') {
+        const msg = isSeviyesiMesaji(res.data) || 'Entegratör belge içeriğini iş hatasıyla reddetti.';
+        console.warn('[HIZLI_CONNECT] GetDocumentFile iş hatası:', msg);
+        return { success: false, content: '', format, message: `Belge içeriği indirilemedi: ${msg}` };
+      }
+
       return { success: true, content: belgeGovdesiCoz(res.data), format };
     } catch (err: any) {
       // FAZ 12: Simüle belge içeriği ÜRETİLMEZ — bozuk/eksik PDF kullanıcıya gösterilmez
@@ -1444,6 +1468,32 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 20000,
       });
+
+      // ── İŞ SEVİYESİ KAPISI (2026-10-01) ─────────────────────────────────
+      // ⚠️ GERÇEK HATA — canlıda SESSİZ VERİ KAYBI üretiyordu:
+      // Bu uç iş hatasını HTTP 2xx İÇİNDE bildirir ve kökte `IsSucceeded`
+      // taşır (ölçüm: `docs/48` §229–232 — bu uçta `IsSucceeded`/`Message`
+      // alanlarının varlığı DOĞRULANMIŞTIR). Eski kod `success: true` dönüp
+      // `res.data`'yı olduğu gibi veriyordu.
+      //
+      // SONUÇ ZİNCİRİ: `IsSucceeded:false` gövdesinde `documents` dizisi
+      // BULUNMAZ → provider `res.data?.documents || res.data || []` ile
+      // NESNEYİ "belge listesi" sanıp `Array.isArray` kapısında SESSİZCE
+      // BOŞA indirir → senkron "0 belge bulundu, 0 yeni" der ve ECZANEYE
+      // "gelen kutun boş" diye raporlar. Kullanıcı belgelerinin neden
+      // gelmediğini asla öğrenemez. Bir iş hatası ile boş bir gelen kutusu
+      // AYNI görünemez.
+      //
+      // Kapı DAR tutulur: yalnız `IsSucceeded === false` (kesin iş hatası)
+      // engellenir. Alan HİÇ YOKSA (başka uçlarda olduğu gibi) davranış
+      // DEĞİŞMEZ — 'belirsiz' durumda "başarısız" demek uydurma olurdu
+      // (bkz. `IsSeviyesiSonuc` dürüstlük notu).
+      if (isSeviyesiSonucuOku(res.data) === 'basarisiz') {
+        const msg = isSeviyesiMesaji(res.data) || 'Entegratör gelen belge listesini iş hatasıyla reddetti.';
+        console.warn('[HIZLI_CONNECT] GetDocumentReceiverAllList iş hatası:', msg);
+        return { success: false, message: `Gelen belgeler alınamadı: ${msg}` };
+      }
+
       return { success: true, data: res.data };
     } catch (err: any) {
       // FAZ 12: Boş gelen-belge listesi yerine gerçek hata döndürülür

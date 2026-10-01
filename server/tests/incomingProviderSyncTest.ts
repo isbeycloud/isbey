@@ -92,6 +92,14 @@ interface TaklitBelge {
   documentKind: 'INVOICE' | 'DESPATCH';
   appType: number;
   icerikHatasi?: boolean;
+  /**
+   * Gerçek indirilen dosya UTF-8 BOM (U+FEFF) ile başlayabilir. BOM'lu içerik,
+   * `trim()`'in silmediği görünmez bir karakter taşır — ayrıştırıcının bunu
+   * tolere ettiği 2026-10-01'de ölçüldü (bkz. test 5d).
+   */
+  bomluMu?: boolean;
+  /** Başa eklenen görünmez ön ek (boşluk / satır sonu) — BOM'dan ayrı senaryo. */
+  onEk?: string;
 }
 
 /** Liste ucunun taşıma davranışı — 401/500/timeout senaryoları için. */
@@ -150,7 +158,9 @@ class TaklitSaglayici {
     if (b.icerikHatasi) {
       return { success: false, content: '', message: 'Entegratör belge içeriğini boş döndürdü.' };
     }
-    return { success: true, content: b.xmlContent };
+    // BOM/ön ek GERÇEK yükleme yolunda olduğu gibi HAM içeriğin başına eklenir.
+    const onEk = (b.bomluMu ? '﻿' : '') + (b.onEk || '');
+    return { success: true, content: onEk + b.xmlContent };
   }
 }
 
@@ -445,6 +455,94 @@ test('5b) aynı ETTN listede İKİ KEZ gelirse de tek kayıt oluşur', async () 
   assert.equal(r.duplicateCount, 1);
   const havuz = (storage.getState().incomingInvoices || []).filter(i => i.uuid === b.uuid);
   assert.equal(havuz.length, 1);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5c — AYNI ETTN FARKLI BELGE NUMARASIYLA (GERÇEK SAĞLAYCI BOZULMASI)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * KAPSAM BOŞLUĞU KAPATILDI (2026-10-01) — bu bir HATA DEĞİL, kilitlenen
+ * doğru davranıştır.
+ *
+ * Entegratör aynı ETTN'i birden fazla liste satırında döndürebilir (taslak →
+ * onaylı geçişi, uygulama yanıtı sonrası güncellenen kayıt). Bizim havuzdaki
+ * kayıt `UNREADABLE` ise senkron onu "tekrar denenmeli" sayar. Test 5b "aynı
+ * ETTN iki kez" durumunu kapsıyordu ama listedeki İKİNCİ satırın belge
+ * numarası birinciden FARKLI olduğu durum hiç sınanmamıştı.
+ *
+ * ⚠️ Bu senaryo incelendi ve mevcut kodun DOĞRU davrandığı ÖLÇÜLDÜ: aynı ETTN
+ * için havuzda tek kayıt kalır. Bu test o davranışı kalıcı kılar; ileride
+ * `guncellenecekId` mantığı bozulursa (aynı ETTN'den iki satır → kullanıcı
+ * aynı faturayı iki kez içeri aktarabilir) regresyon burada yakalanır.
+ */
+test('5c) UNREADABLE kayıt, aynı ETTN farklı belge no ile gelirse: HAVUZDA TEK KAYIT kalır', async () => {
+  const ilk = faturaBelgesi(650);
+  // 1. tur: içerik alınamıyor → havuzda UNREADABLE tek kayıt.
+  saglayiciKur([{ ...ilk, icerikHatasi: true }]);
+  const r1 = await senkronEtVeGuvenligiKanitla('INVOICE');
+  assert.equal(r1.newCount, 1);
+  assert.equal(ettnAdedi('INVOICE', ilk.uuid), 1, 'ilk turda tek kayıt olmalı');
+
+  // 2. tur: AYNI ETTN, listede İKİ satır, İKİNCİSİNİN belge numarası FARKLI.
+  // İçerik bu kez alınabiliyor (entegratör sonradan yayımladı).
+  saglayiciKur([
+    { ...ilk, invoiceNo: ilk.invoiceNo },
+    { ...ilk, invoiceNo: `${ilk.invoiceNo}-DUZELTILMIS` },
+  ]);
+  const r2 = await senkronEtVeGuvenligiKanitla('INVOICE');
+
+  assert.equal(
+    ettnAdedi('INVOICE', ilk.uuid), 1,
+    'AYNI ETTN havuzda TEK kayıt olarak kalmalı — ikinci satır YENİ KAYIT açmamalı'
+  );
+  assert.equal(r2.newCount, 0, 'bu turda YENİ kayıt açılmamalı (kayıt zaten vardı)');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5d — BOM'LU / GÖRÜNMEZ ÖN EKLİ XML (GERÇEK SAĞLAYCI DAVRANIŞI)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * KAPSAM BOŞLUĞU KAPATILDI (2026-10-01) — bu bir HATA DEĞİL, doğrulanmış
+ * dayanıklılıktır.
+ *
+ * Gerçekte indirilen XML dosyaları UTF-8 BOM (U+FEFF) ile başlayabilir.
+ * `trim()` BOM'u SİLMEZ, bu yüzden içerik `<` ile başlamaz ve içerik-sniffing
+ * yapan bir çözümleyici belgeyi okuyamaz. Bu senaryo incelendi ve mevcut kodun
+ * DAYANIKLI olduğu ÖLÇÜLDÜ: `parseUblTree`/`parseUblDocument` BOM'u tolere eder
+ * (BOM'lu ve BOM'suz girdi aynı sonucu verir). Bu test o dayanıklılığı kılar;
+ * ayrıştırıcı daha katı bir XML okuyucusuna geçirilirse regresyon burada çıkar.
+ */
+test('5d) BOM\'lu XML: içerik ÇÖZÜMLENİR, çözümleme hatası olmaz', async () => {
+  const b = { ...faturaBelgesi(660), bomluMu: true };
+  saglayiciKur([b]);
+  const r = await senkronEtVeGuvenligiKanitla('INVOICE');
+
+  assert.equal(r.errorCount, 0, 'BOM içerik kaybına yol AÇMAMALI');
+  const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === b.uuid);
+  assert.ok(kayit, 'belge havuza yazılmalı');
+  assert.equal(kayit!.status, 'RECEIVED', 'BOM yüzünden UNREADABLE olmamalı');
+  assert.ok(
+    (kayit!.items || []).length > 0,
+    'kalemler okunmalı — BOM yüzünden içerik boş sayılmamalı'
+  );
+});
+
+test('5e) BOM\'lu XXE yükü: GÜVENLİK KAPISI yine de yakalar (diske YAZILMAZ)', async () => {
+  const xxe = '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>';
+  const b = {
+    ...faturaBelgesi(661),
+    xmlContent: xxe,
+    bomluMu: true,
+  };
+  saglayiciKur([b]);
+  const r = await senkronEtVeGuvenligiKanitla('INVOICE');
+
+  assert.equal(r.errorCount, 1, 'BOM güvenlik kapısını ATLATMAMALI — XXE yakalanmalı');
+  const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === b.uuid);
+  assert.equal(kayit?.status, 'UNREADABLE', 'BOM\'lu XXE UNREADABLE olmalı');
+  assert.equal(kayit?.xmlStoragePath, undefined, 'BOM\'lu XXE DİSKE YAZILMAMALI');
 });
 
 // ════════════════════════════════════════════════════════════════════════════
