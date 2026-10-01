@@ -1,7 +1,7 @@
 # GELEN BELGE — PRODUCTION DOĞRULAMA RAPORU (NİHAİ)
 
-**Tarih:** 2026-09-30
-**Canlı sürüm:** `77da29a2dc6d313fd84e604e7dcf038ebd7bf7f7`
+**Tarih:** 2026-09-30 (güncelleme: 2026-10-01)
+**Canlı sürüm:** `814fb5b258507bf36355de06b2c3bb412bc827dc`
 **Ortam:** `https://bey360.com` (pilot firma, ortam TEST)
 **Kapsam:** Deploy kanıtı → üretim veritabanı yedeği → canlı kontrollü senkron → idempotency → gerçek belgede liste→detay→kalem→XML→görsel zinciri → mutasyon yokluğu.
 
@@ -13,19 +13,35 @@
 
 | Alan | Değer |
 |---|---|
-| Yerel HEAD | `77da29a2dc6d313fd84e604e7dcf038ebd7bf7f7` |
-| `origin/main` | `77da29a2dc6d313fd84e604e7dcf038ebd7bf7f7` |
-| Çalışma ağacı | temiz (yalnız bu rapor takip edilmiyor) |
-| CI Pipeline (77da29a) | **success** |
-| Playwright Tests (77da29a) | **success** |
-| Canlı bundle | `assets/index-DZYQJtDj.js` |
-| Canlı bundle sha256 | `48f2507b05d994ff85ffdc086a532de0338741a1d4f8f99642f8ef5390a028a2` |
-| `77da29a` temiz derleme sha256 | `48f2507b05d994ff85ffdc086a532de0338741a1d4f8f99642f8ef5390a028a2` |
+| Yerel HEAD | `814fb5b258507bf36355de06b2c3bb412bc827dc` |
+| `origin/main` | `814fb5b258507bf36355de06b2c3bb412bc827dc` |
+| Çalışma ağacı | temiz |
+| CI Pipeline (814fb5b) | **success** |
+| Playwright Tests (814fb5b) | **success** |
+| Canlı bundle | `assets/index-BPFtgat2.js` |
+| Canlı bundle sha256 | `823082b4ab26ce2143dd9a8e70a5b65e57fbe62c790304597cd68a780d18cba1` |
+| `814fb5b` temiz derleme sha256 | `823082b4ab26ce2143dd9a8e70a5b65e57fbe62c790304597cd68a780d18cba1` |
 | **Eşleşme** | **BİREBİR** |
 
-Yöntem: `git worktree add --detach /tmp/cleanbuild 77da29a` ile commit'in kendisi ayrı bir dizine alındı, `package-lock.json` sha256'sının çalışma ağacıyla aynı olduğu doğrulandı (`4a49f8e7…`), `npm run build` çalıştırıldı ve çıkan `index-DZYQJtDj.js` dosyasının sha256'sı canlıdan indirilen bundle ile karşılaştırıldı.
+Yöntem: `git worktree add --detach /tmp/cleanbuild 814fb5b` ile commit'in kendisi ayrı bir dizine alındı, `package-lock.json` sha256'sının çalışma ağacıyla aynı olduğu doğrulandı (`41c8eae3…`), `npm run build` çalıştırıldı ve çıkan `index-BPFtgat2.js` dosyasının sha256'sı canlıdan indirilen bundle ile karşılaştırıldı.
 
-**Sonuç: `77da29a` canlıda olduğu hash düzeyinde kanıtlandı.** (Ham iddia yerine bit düzeyinde eşleşme.)
+**Sonuç: `814fb5b` canlıda olduğu hash düzeyinde kanıtlandı.** (Ham iddia yerine bit düzeyinde eşleşme.)
+
+### CI adımları (814fb5b) — atlanan adım yok
+
+| # | Adım | Sonuç |
+|---|---|---|
+| 5 | Typecheck (TypeScript) | success |
+| 6 | Lint Code (Oxlint) | success |
+| 7 | Build Production Assets | success |
+| 8 | Security Audit (`npm audit`) | **success** |
+| 9 | Local regression suites (isolated databases) | **success** |
+
+### CI tarihçesi — kırmızı olay gizlenmiyor
+
+`443edaf` ve `62a7bbc` (her ikisi de yalnız dokümantasyon commit'i) **başarısız** oldu. Sebep: o tarihte yayımlanan yeni advisory'ler (axios 1.19.0'da 12 adet, dompurify 3.4.13). `Security Audit` adımı patlayınca sonraki adım `Local regression suites` **skipped** oldu — yani o commit'lerde regresyon testlerinin geçtiğine dair **kanıt yoktu**; "CI kırmızı ama testler zaten geçiyordur" varsayımı bu raporda kabul edilmez.
+
+`814fb5b` ile bağımlılıklar güvenli sürümlere yükseltildi (axios 1.20.0, dompurify 3.4.16; `npm audit` → 0 zafiyet). Bu commit'te `Security Audit` ve `Local regression suites` adımları **gerçekten çalıştı ve ikisi de success**. `package.json` değişmedi; yalnız `package-lock.json` güncellendi.
 
 ---
 
@@ -199,9 +215,12 @@ Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **bire
 | Yerel suite (`npm test`) | **29 PASS / 0 FAIL** |
 | Sağlayıcı sözleşme testi | **21 PASS** |
 | Entegratörden çek senkron sözleşmesi | **25 PASS / 0 FAIL** |
-| Production build (77da29a temiz worktree) | başarılı |
-| CI (GitHub Actions, 77da29a) | **success** |
-| Playwright CI (77da29a) | **success** |
+| `npm audit` | **0 zafiyet** |
+| Production build (814fb5b temiz worktree) | başarılı |
+| CI (GitHub Actions, 814fb5b) | **success** |
+| ↳ Security Audit adımı | **success** (gerçekten çalıştı) |
+| ↳ Local regression suites adımı | **success** (gerçekten çalıştı, skipped değil) |
+| Playwright CI (814fb5b) | **success** |
 | Hostinger deploy + bundle hash | **BİREBİR EŞLEŞTİ** |
 | Canlı health | `{"status":"healthy","version":"2.0.0"}` |
 
@@ -227,8 +246,9 @@ Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **bire
 
 | Koşul | Durum |
 |---|---|
-| 77da29a canlıda (hash eşleşmesi) | **EVET** |
+| 814fb5b canlıda (hash eşleşmesi) | **EVET** |
 | CI + Playwright yeşil | **EVET** |
+| Security Audit + regression suite gerçekten çalıştı | **EVET** (skipped değil) |
 | Üretim DB yedeği | **EVET** (checksum doğrulandı) |
 | Gerçek belge çekildi | **EVET** (4 belge) |
 | Idempotency (ikinci tur yeni=0) | **EVET** (canlı DB sayılarıyla) |
