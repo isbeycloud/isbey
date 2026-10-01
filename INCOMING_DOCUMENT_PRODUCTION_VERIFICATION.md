@@ -1,6 +1,6 @@
 # GELEN BELGE — PRODUCTION DOĞRULAMA RAPORU (NİHAİ)
 
-**Tarih:** 2026-09-30 (güncelleme: 2026-10-01)
+**Tarih:** 2026-09-30 (güncelleme: 2026-10-01 — bkz. §9)
 **Canlı sürüm:** `814fb5b258507bf36355de06b2c3bb412bc827dc`
 **Ortam:** `https://bey360.com` (pilot firma, ortam TEST)
 **Kapsam:** Deploy kanıtı → üretim veritabanı yedeği → canlı kontrollü senkron → idempotency → gerçek belgede liste→detay→kalem→XML→görsel zinciri → mutasyon yokluğu.
@@ -224,6 +224,10 @@ Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **bire
 | Hostinger deploy + bundle hash | **BİREBİR EŞLEŞTİ** |
 | Canlı health | `{"status":"healthy","version":"2.0.0"}` |
 
+> Bu tablo **`814fb5b` anındaki** kapıları gösterir. Sonraki turda test sayıları
+> arttı (sağlayıcı sözleşme 21 → 23, senkron sözleşmesi 25 → 28, Playwright 33);
+> güncel durum ve henüz yapılmamış adımlar için bkz. §9.
+
 ---
 
 ## 8. Güvenlik / token temizliği
@@ -240,15 +244,113 @@ Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **bire
 
 ---
 
+## 9. Sonraki tur — iş-seviyesi kapısı düzeltmesi (2026-10-01)
+
+Bu bölüm, yukarıdaki `814fb5b` doğrulamasından **sonra** yapılan çalışmayı kaydeder.
+Canlı sürüm bu bölümün yazıldığı anda hâlâ `814fb5b`'dir; aşağıdaki düzeltme
+**henüz canlıya çıkmamıştır** (push kimliği gerekiyor, bkz. §9.4).
+
+### 9.1 Bulunan gerçek hata — iş hatası "boş gelen kutusu" gibi görünüyordu
+
+Hızlı Bilişim e-Connect, iş hatasını HTTP **2xx'in içinde** kökte
+`IsSucceeded:false` + `Message` ile bildirir (ölçüm: `docs/48` §229–232).
+`hizliConnectService.ts` içindeki üç uç bu bayrağı **hiç okumuyordu**:
+
+| Uç | Kapı yokken davranış |
+|---|---|
+| `GetDocumentReceiverAllList` | `IsSucceeded:false` gövdesinde `documents` dizisi yoktur → `res.data?.documents \|\| res.data \|\| []` nesneyi liste sanar → `Array.isArray` kapısında sessizce boşa iner → senkron **"0 belge bulundu / 0 yeni"** der |
+| `GetDocumentList` | Aynı zincir |
+| `GetDocumentFile` | `IsSucceeded:false` gövdesi `belgeGovdesiCoz`'dan boş dize döner → belge `UNREADABLE` olur; "yetki/iş hatası" ile "gerçekten boş belge" **ayırt edilemez** |
+
+Gerçek sonucu: bir iş hatası ile boş bir gelen kutusu operatöre **aynı** görünüyordu.
+Kullanıcı belgelerinin neden gelmediğini öğrenemiyordu. Sessiz veri kaybı sınıfı.
+
+**Düzeltme:** üç uca da dar bir kapı eklendi — yalnız kesin `IsSucceeded === false`
+engellenir ve API'nin kendi iş mesajı kullanıcıya taşınır. Alan **hiç yoksa**
+davranış **değişmez** (`'belirsiz'`): var olmayan bir bayrağa dayanıp "başarısız"
+demek uydurma olurdu. (`isSeviyesiSonucuOku` / `isSeviyesiMesaji` yardımcıları
+zaten mevcuttu; yalnız bu üç uca bağlanmamıştı.)
+
+### 9.2 Sync sınırı korundu
+
+`SYNC` aşamasında değişen tek şey hata raporlamasıdır. **Mutation sınırı aynen
+yürürlükte:** purchase invoice oluşturma YOK, stok hareketi YOK, cari hareket YOK,
+ürün oluşturma YOK, cari oluşturma YOK. Sync yalnız `draft.incomingInvoices`
+havuzunu günceller; ETTN/UUID idempotency işlem (transaction) içinde korunur.
+Kod düzeyinde `incomingInvoiceService.ts` / `incomingDespatchService.ts` yalnız
+havuz dizisine yazar.
+
+### 9.3 Yeni commit ve kapılar
+
+| Alan | Değer |
+|---|---|
+| Yeni commit | `efb2d31` — `fix(hizli-bilisim): iş hatası (IsSucceeded:false) sessiz "0 belge" olarak görünmesin` |
+| Rapor commit'i | `00f0f5e` (docs-only, bu dosyanın önceki güncellemesi) |
+| Değişen dosyalar | 3 dosya, +201 / −1 |
+| `tsc -b` | 0 hata |
+| `oxlint src server` | 0 hata (1008 uyarı) |
+| `npm audit --audit-level=high` | **0 zafiyet** |
+| `npm test` (yerel suite) | **29 PASS / 0 FAIL** |
+| ↳ Sağlayıcı sözleşme testi | **23 PASS** (21 → 23) |
+| ↳ Entegratörden çek senkron sözleşmesi | **28 PASS / 0 FAIL** (25 → 28) |
+| ↳ Gelen belge A–O matrisi | 14 PASS / 0 FAIL |
+| Playwright FULL | **33 PASS / 0 FAIL / 0 skipped** |
+| Production build (`efb2d31`) | başarılı |
+| ↳ bundle adı / sha256 | `assets/index-BPFtgat2.js` / `823082b4ab26ce2143dd9a8e70a5b65e57fbe62c790304597cd68a780d18cba1` |
+| Canlı bundle (ölçüm) | `assets/index-BPFtgat2.js` / aynı sha256 |
+
+> **Not:** Bundle hash'inin değişmemesi beklenen sonuçtur: düzeltme **sunucu
+> tarafındadır**, istemci paketini değiştirmez. Bu yüzden istemci bundle'ı canlıyla
+> birebir aynı kalır; sunucu kodunun dağıtıldığı ancak **yeni bir deploy** ile
+> kanıtlanır (o an çalışan sunucu sürecinin `efb2d31`'i içerdiği ayrıca doğrulanmalıdır).
+
+### 9.4 Push durumu — AÇIKÇA
+
+`git push origin main` **yapılamadı**: bu VM'de yazma kimliği yok
+(`~/.git-credentials` yok, `credential.helper` boş, `.verify-tmp/push-token.txt` yok).
+`fatal: could not read Username for 'https://github.com'` — **placeholder token
+uydurulmadı, sahte push başarısı raporlanmadı.** Her iki commit
+(`00f0f5e`, `efb2d31`) yerelde hazırdır ve kullanıcı kimlik bilgisini verdiğinde
+tek `git push origin main` ile gönderilebilir.
+
+Bu nedenle **CI Pipeline / Playwright CI / Hostinger deploy / canlı bundle hash
+eşleşmesi `efb2d31` için HENÜZ YOKTUR.** Aşağıdaki SONUÇ tablosu bu satırları
+"bekliyor" olarak işaretler; bunlar yapılmamış bir şeyi yapılmış gibi göstermez.
+
+Canlı durum (bu bölümün yazıldığı an, salt okunur):
+
+| Ölçüm | Değer |
+|---|---|
+| Canlı bundle | `assets/index-BPFtgat2.js` |
+| Canlı sha256 | `823082b4ab26ce2143dd9a8e70a5b65e57fbe62c790304597cd68a780d18cba1` |
+| Canlı health | 200 — `{"status":"healthy","version":"2.0.0"}` |
+| Sonuç | Canlı hâlâ **`814fb5b`**; düzeltme canlıya **çıkmadı** |
+
+---
+
 ## SONUÇ
 
-**DEPLOY VE TEMİZLİK DOĞRULANDI — CANLI GELEN BELGE ZİNCİRİ %100 EKSİKSİZ ÇALIŞIYOR**
+**`814fb5b` DEPLOY VE TEMİZLİK DOĞRULANDI — CANLI ZİNCİR EKSİKSİZ ÇALIŞIYOR**
+
+Aşağıdaki tablo **iki ayrı durumu** ayırır: `814fb5b` (canlıda) ve `efb2d31`
+(yerelde hazır, **canlıya çıkmadı**). Yapılmamış bir şey yapılmış gibi gösterilmez.
+
+| Koşul | 814fb5b (canlı) | efb2d31 (yerel) |
+|---|---|---|
+| CI Pipeline | **success** | **bekliyor (push yok)** |
+| Playwright CI | **success** | **bekliyor (push yok)** |
+| Security Audit adımı | **success** (gerçekten çalıştı) | yerelde 0 zafiyet; CI bekliyor |
+| Local regression suites adımı | **success** (skipped değil) | yerelde 29 suite PASS; CI bekliyor |
+| Yerel testler | — | **29 PASS / 0 FAIL**, Playwright **33 PASS** |
+| Production build | birebir eşleşti | başarılı (istemci bundle'ı aynı) |
+| Canlıda olduğu hash ile kanıt | **EVET** | **HAYIR — deploy edilmedi** |
+| Hostinger deploy | **EVET** | **bekliyor** |
+| Canlı health | 200 `healthy v2.0.0` | 200 (hâlâ 814fb5b sunuyor) |
+
+**`814fb5b` dönemi için doğrulanmış olanlar:**
 
 | Koşul | Durum |
 |---|---|
-| 814fb5b canlıda (hash eşleşmesi) | **EVET** |
-| CI + Playwright yeşil | **EVET** |
-| Security Audit + regression suite gerçekten çalıştı | **EVET** (skipped değil) |
 | Üretim DB yedeği | **EVET** (checksum doğrulandı) |
 | Gerçek belge çekildi | **EVET** (4 belge) |
 | Idempotency (ikinci tur yeni=0) | **EVET** (canlı DB sayılarıyla) |
@@ -257,4 +359,9 @@ Konsol çıktısındaki iki sayı, bu raporda bağımsız ölçülenlerle **bire
 | SEND/RESEND | **YOK** |
 | Legacy kayıt temizliği | **EVET — tamamlandı (1 kayıt silindi, havuz=4, restart verildi)** |
 
-Tüm maddeler ve tek eksik kalan legacy temizlik kalemi başarıyla tamamlanmıştır. Sistem üretimde hatasız ve temiz veriyle çalışmaktadır.
+**`814fb5b` dönemi için** tüm maddeler ve tek eksik kalan legacy temizlik kalemi
+başarıyla tamamlanmıştır. Sistem üretimde hatasız ve temiz veriyle çalışmaktadır.
+
+**`efb2d31` için kalan tek adım:** yazma kimliği ile `git push origin main` →
+CI/Playwright yeşili → Hostinger deploy → çalışan sunucunun `efb2d31`'i içerdiğinin
+doğrulanması. Bu adımlar **yapılmadı**; bu raporda yapılmış sayılmaz.
