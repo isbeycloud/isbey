@@ -981,12 +981,35 @@ export const api = {
   syncHizliCustomers: () =>
     request<{
       success: boolean;
-      totalFetched: number;
-      newCount: number;
-      updatedCount: number;
-      matchedCount: number;
+      checked: number;
+      updated: number;
+      unchanged: number;
+      failed: number;
+      hatalar: { vkn: string; sinif?: string }[];
+      bos: boolean;
       message: string;
     }>('/admin/hizli-bilisim/sync', { method: 'POST' }),
+
+  // 2026-10-01 — İlk mükellef bootstrap akışı.
+  // `sorgula` YAZMAZ (yalnız önizleme), `ekle` MUTASYON'dur (onay sonrası).
+  sorgulaHizliMukellef: (vknTckn: string) =>
+    request<{
+      success: boolean;
+      durum: 'BULUNDU' | 'BULUNAMADI' | 'HATA' | 'GECERSIZ';
+      musteri?: ExternalCustomer;
+      mevcutKayit?: boolean;
+      mevcutId?: string;
+      hataSinifi?: string;
+      message: string;
+    }>('/admin/hizli-bilisim/customers/sorgula', { method: 'POST', body: JSON.stringify({ vknTckn }) }),
+
+  ekleHizliMukellef: (vknTckn: string) =>
+    request<{
+      success: boolean;
+      durum: 'EKLENDI' | 'MEVCUT' | 'BULUNAMADI' | 'HATA' | 'GECERSIZ';
+      customer?: ExternalCustomer;
+      message: string;
+    }>('/admin/hizli-bilisim/customers/ekle', { method: 'POST', body: JSON.stringify({ vknTckn }) }),
   convertHizliToCompany: (data: {
     customerId: string;
     plan?: string;

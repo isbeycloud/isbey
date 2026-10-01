@@ -1,219 +1,280 @@
 import { storage } from '../../db/storage';
-import { HizliBilisimClient } from './hizliBilisimClient';
+import { HizliBilisimClient, RemoteHizliCustomer } from './hizliBilisimClient';
 import { ExternalCustomer } from '../../db/schema';
+import { validateTaxId, normalizeTaxId } from './taxIdValidation';
+
+/** Uzak mükellef kaydını havuz kaydına çevirir (id deterministik: VKN). */
+function uzaktanHavuza(remote: RemoteHizliCustomer, mevcut?: ExternalCustomer): ExternalCustomer {
+  return {
+    ...(mevcut || {}),
+    id: mevcut?.id || `hbc-${remote.taxNumber}`,
+    externalId: remote.externalId,
+    provider: 'HIZLI_BILISIM',
+    companyName: remote.companyName,
+    title: remote.title,
+    taxNumber: remote.taxNumber,
+    taxOffice: remote.taxOffice,
+    contactName: remote.contactName,
+    phone: remote.phone,
+    email: remote.email,
+    address: remote.address,
+    city: remote.city,
+    district: remote.district,
+    status: mevcut?.status || 'NEW',
+    registeredAt: mevcut?.registeredAt || remote.registeredAt || new Date().toISOString(),
+    syncedAt: new Date().toISOString(),
+  };
+}
 
 export class HizliBilisimSyncService {
   /**
-   * Hızlı Bilişim'den müşteri senkronizasyonunu icra eder.
+   * 2026-10-01 — İLK KURULUMDA "0 KAYIT" ÇIKMAZI.
    *
-   * 2026-09-12 (uydurma temizliği): Bu servis eskiden parametresiz
-   * `fetchRemoteCustomers()` çağırıyordu; o metod da sabit bir VKN listesini
-   * döngüye sokup sonucu "canlı çekildi" diye raporluyordu. Hızlı Bilişim
-   * eConnect API'sinde "tüm mükellefleri listele" uç noktası YOK. Bu yüzden
-   * senkronizasyon artık SORGULANACAK VKN listesine dayanır:
-   *   1) Çağıran VKN verirse (panelden seçim) onlar kullanılır.
-   *   2) Verilmezse, panelde KAYITLI firmaların (dealerCustomers) VKN'leri
-   *      kullanılır — bunlar kullanıcının girdiği gerçek kayıtlardır.
-   *   3) Hiçbiri yoksa uydurma liste ÜRETİLMEZ; açık hata döner.
+   * ÖNCEKİ DAVRANIŞ: `executeSync` sorgulanacak VKN'leri yalnız
+   * `dealerCustomers`'tan (Hızlı Bilişim Bayi ekranının kendi kayıtları) ve
+   * istek listesinden alıyordu. Panel sıfır kayıtla açıldığında liste boş
+   * kalıyor, uç nokta teknik bir metinle (`eConnect API'sinde "tüm
+   * mükellefleri listele" uç noktası bulunmuyor...`) hata dönüyordu. Operatör
+   * için bu bir ÇIKMAZDI: sıfırdan ilk kaydı oluşturacak hiçbir yol yoktu ve
+   * mesaj entegrasyonun tamamen bozuk olduğu izlenimi veriyordu.
+   *
+   * KÖK NEDEN: "ilk kaydı VKN ile sorgula" adımı hiç yoktu. Oysa sağlayıcı
+   * tam da bunu destekliyor (`MusteriGetir?vergikimlikno=`).
+   *
+   * BU TURDA EKLENEN: sorgulanacak liste artık üç kaynaktan birleştirilir ve
+   * ayrıştırılmış (checked/updated/unchanged/failed) sonuç döner. Teknik
+   * sağlayıcı mesajı KULLANICIYA GİTMEZ; log/audit'te kalır.
    */
-  public static async executeSync(triggeredBy: string = 'admin', vknTcknList?: string[]): Promise<{
+  public static async hbDenGuncelle(triggeredBy: string = 'admin', ekVknler?: string[]): Promise<{
     success: boolean;
-    totalFetched: number;
-    newCount: number;
-    updatedCount: number;
-    matchedCount: number;
+    checked: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    hatalar: { vkn: string; sinif?: string }[];
     message: string;
+    bos: boolean;
   }> {
+    const db = storage.getState();
+
+    // Kaynak 1+2: bu kiracının bayi kayıtları ve (varsa) tekilleştirilmiş
+    // dış müşteri havuzu. Kaynak 3: istekte açıkça verilen VKN'ler.
+    const havuz = new Set<string>();
+    for (const d of db.dealerCustomers || []) {
+      const t = normalizeTaxId(d.taxNumber);
+      if (t) havuz.add(t);
+    }
+    for (const e of db.externalCustomers || []) {
+      const t = normalizeTaxId(e.taxNumber);
+      if (t) havuz.add(t);
+    }
+    for (const v of ekVknler || []) {
+      const t = normalizeTaxId(v);
+      if (t) havuz.add(t);
+    }
+
+    const liste = [...havuz];
+
+    if (liste.length === 0) {
+      // Teknik ayrıntı YOK. Operatörün atacağı adım açıkça söylenir.
+      const msg = 'Güncellenecek Hızlı Bilişim mükellefi bulunamadı. ' +
+        'VKN/TCKN ile ilk mükellefinizi sorgulayıp portföye ekleyebilirsiniz.';
+      storage.addSyncLog({
+        provider: 'HIZLI_BILISIM', action: 'SYNC_STARTED', username: triggeredBy,
+        details: 'HB\'den Güncelle çağrıldı ancak güncellenecek VKN yok (boş portföy).',
+        status: 'SUCCESS',
+      });
+      return { success: true, checked: 0, updated: 0, unchanged: 0, failed: 0, hatalar: [], message: msg, bos: true };
+    }
+
+    let updated = 0;
+    let unchanged = 0;
+    const hatalar: { vkn: string; sinif?: string }[] = [];
+
+    for (const vkn of liste) {
+      const sonuc = await HizliBilisimClient.sorgulaMukellef(vkn);
+      if (sonuc.durum !== 'BULUNDU' || !sonuc.musteri) {
+        hatalar.push({ vkn, sinif: sonuc.durum === 'HATA' ? sonuc.hataSinifi : 'BULUNAMADI' });
+        continue;
+      }
+      const degisti = await this.upsertRemoteCustomer(sonuc.musteri);
+      if (degisti) updated++; else unchanged++;
+    }
+
+    const checked = liste.length;
+    const failed = hatalar.length;
+    const msg = `${checked} mükellef kontrol edildi: ${updated} güncellendi, ` +
+      `${unchanged} değişiklik yok, ${failed} hata.`;
+
     storage.addSyncLog({
-      provider: 'HIZLI_BILISIM',
-      action: 'SYNC_STARTED',
-      username: triggeredBy,
-      details: 'Hızlı Bilişim müşteri/üye senkronizasyonu başlatıldı.',
-      status: 'SUCCESS',
+      provider: 'HIZLI_BILISIM', action: 'CUSTOMER_UPDATED', username: triggeredBy,
+      details: msg,
+      status: failed > 0 ? 'ERROR' : 'SUCCESS',
     });
 
-    try {
-      // Sorgulanacak VKN kümesini çözümle (uydurma yok).
-      const db = storage.getState();
-      const registeredVkns = (db.dealerCustomers || [])
-        .map(d => (d.taxNumber || '').trim())
-        .filter(Boolean);
-      const queryList = (vknTcknList && vknTcknList.length > 0)
-        ? vknTcknList.map(v => String(v).trim()).filter(Boolean)
-        : registeredVkns;
+    return { success: failed === 0, checked, updated, unchanged, failed, hatalar, message: msg, bos: false };
+  }
 
-      if (queryList.length === 0) {
-        const msg =
-          'Hızlı Bilişim eConnect API\'sinde "tüm mükellefleri listele" uç noktası bulunmuyor. ' +
-          'Senkronizasyon için sorgulanacak VKN/TCKN gerekir — panelde kayıtlı firma yok ve ' +
-          'istekte liste verilmedi. Uydurma liste üretilmedi.';
-        storage.addSyncLog({
-          provider: 'HIZLI_BILISIM',
-          action: 'SYNC_ERROR',
-          username: triggeredBy,
-          details: msg,
-          status: 'ERROR',
-        });
-        return { success: false, totalFetched: 0, newCount: 0, updatedCount: 0, matchedCount: 0, message: msg };
+  /**
+   * Tek bir uzak müşteriyi `externalCustomers` havuzuna yazar/günceller.
+   * Değişiklik olduysa `true`, aynıysa `false` döner (mutasyon yoksa yazmaz).
+   */
+  private static async upsertRemoteCustomer(remote: RemoteHizliCustomer): Promise<boolean> {
+    let degisti = false;
+    await storage.runTransaction(draft => {
+      if (!draft.externalCustomers) draft.externalCustomers = [];
+      const mevcut = draft.externalCustomers.find(
+        c => c.taxNumber === remote.taxNumber || c.externalId === remote.externalId
+      );
+      if (!mevcut) {
+        draft.externalCustomers.push(uzaktanHavuza(remote));
+        degisti = true;
+        return;
       }
-
-      const remoteRes = await HizliBilisimClient.fetchRemoteCustomers(queryList);
-
-      // Kaynak etiketi: gerçek kaynak yalnız 'API' olabilir. Önceki sürümdeki
-      // 'PORTAL' (web arayüzü) etiketi hiçbir zaman üretilmeyen bir daldı.
-      const sourceLabel = remoteRes.source === 'API' ? 'e-Connect REST API' : 'kaynak yok';
-
-      if (!remoteRes.success || remoteRes.customers.length === 0) {
-        storage.addSyncLog({
-          provider: 'HIZLI_BILISIM',
-          action: 'SYNC_ERROR',
-          username: triggeredBy,
-          details: remoteRes.message || `Hızlı Bilişim (${sourceLabel}) veri çekme hatası.`,
-          status: 'ERROR',
-        });
-        return {
-          success: false,
-          totalFetched: 0,
-          newCount: 0,
-          updatedCount: 0,
-          matchedCount: 0,
-          message: remoteRes.message,
-        };
+      // Yalnız gerçekten farklı alanlar yazılır — "her turda güncellendi"
+      // demek operatörü yanıltırdı.
+      const alanlar: (keyof ExternalCustomer)[] = [
+        'companyName', 'title', 'taxOffice', 'contactName', 'phone', 'email', 'address', 'city', 'district',
+      ];
+      for (const alan of alanlar) {
+        const yeni = remote[alan];
+        if (yeni !== undefined && yeni !== '' && mevcut[alan] !== yeni) {
+          (mevcut as any)[alan] = yeni;
+          degisti = true;
+        }
       }
+      mevcut.syncedAt = new Date().toISOString();
+    });
+    return degisti;
+  }
 
-      storage.addSyncLog({
-        provider: 'HIZLI_BILISIM',
-        action: 'CUSTOMER_IMPORTED',
-        username: triggeredBy,
-        details: `${remoteRes.customers.length} müşteri kaydı ${sourceLabel} üzerinden çekildi (${queryList.length} VKN sorgulandı).`,
-        status: 'SUCCESS',
-      });
+  /**
+   * VKN/TCKN ile Hızlı Bilişim'den TEKİL mükellef sorgusu + önizleme.
+   * **HİÇBİR ŞEY YAZMAZ** — yalnız sağlayıcıdan okur ve mevcut kaydı işaretler.
+   */
+  public static async sorgula(hamVkn: string): Promise<{
+    success: boolean;
+    durum: 'BULUNDU' | 'BULUNAMADI' | 'HATA' | 'GECERSIZ';
+    musteri?: ExternalCustomer;
+    mevcutKayit?: boolean;
+    mevcutId?: string;
+    hataSinifi?: string;
+    message: string;
+  }> {
+    const bicim = validateTaxId(hamVkn);
+    if (!bicim.ok) {
+      return { success: false, durum: 'GECERSIZ', message: bicim.message || 'Geçersiz VKN/TCKN.' };
+    }
+    const vkn = normalizeTaxId(hamVkn);
 
-      let newCount = 0;
-      let updatedCount = 0;
-      let matchedCount = 0;
-
-      await storage.runTransaction(draft => {
-        if (!draft.externalCustomers) draft.externalCustomers = [];
-
-        for (const remote of remoteRes.customers) {
-          // 1. Check existing in externalCustomers by externalId or taxNumber
-          const existing = draft.externalCustomers.find(
-            c => c.externalId === remote.externalId || (c.taxNumber && c.taxNumber === remote.taxNumber)
-          );
-
-          // 2. Check if already exists in İŞBEY Tenants
-          const matchedTenant = (draft.tenants || []).find(
-            t => t.taxNumber === remote.taxNumber || t.externalCustomerId === remote.externalId
-          );
-
-          if (existing) {
-            // Update fields if changed
-            let hasChange = false;
-            if (existing.companyName !== remote.companyName) { existing.companyName = remote.companyName; hasChange = true; }
-            if (existing.title !== remote.title) { existing.title = remote.title; hasChange = true; }
-            if (existing.phone !== remote.phone) { existing.phone = remote.phone; hasChange = true; }
-            if (existing.email !== remote.email) { existing.email = remote.email; hasChange = true; }
-            if (existing.contactName !== remote.contactName) { existing.contactName = remote.contactName; hasChange = true; }
-            if (existing.address !== remote.address) { existing.address = remote.address; hasChange = true; }
-
-            if (matchedTenant && !existing.isbeyCompanyId) {
-              existing.isbeyCompanyId = matchedTenant.id;
-              existing.isbeyCompanyCode = matchedTenant.companyCode;
-              if (existing.status === 'NEW') existing.status = 'MATCHED';
-              matchedCount++;
-            }
-
-            existing.syncedAt = new Date().toISOString();
-            if (hasChange) updatedCount++;
-          } else {
-            // New external customer record
-            const newCustomer: ExternalCustomer = {
-              id: `hbc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              externalId: remote.externalId,
-              provider: 'HIZLI_BILISIM',
-              companyName: remote.companyName,
-              title: remote.title || remote.companyName,
-              taxNumber: remote.taxNumber,
-              taxOffice: remote.taxOffice || 'Merkez',
-              contactName: remote.contactName,
-              phone: remote.phone,
-              email: remote.email,
-              address: remote.address,
-              city: remote.city,
-              district: remote.district,
-              status: matchedTenant ? 'MATCHED' : 'NEW',
-              isbeyCompanyId: matchedTenant?.id,
-              isbeyCompanyCode: matchedTenant?.companyCode,
-              registeredAt: remote.registeredAt || new Date().toISOString(),
-              syncedAt: new Date().toISOString(),
-            };
-
-            draft.externalCustomers.push(newCustomer);
-            if (matchedTenant) matchedCount++;
-            else newCount++;
-          }
-        }
-
-        // Update settings stats
-        if (!draft.hizliBilisimSettings) {
-          draft.hizliBilisimSettings = {
-            // E-7: varsayılan TEST URL'idir (canlı URL yanıltıcı izdi).
-            apiUrl: 'https://econnecttest.hizliteknoloji.com.tr',
-            apiKey: process.env.HIZLI_BILISIM_API_KEY || '', // FAZ 10
-            apiUsername: 'isbey_admin',
-            isTestMode: true,
-            autoSyncEnabled: false,
-            autoSyncIntervalMinutes: 15,
-            autoCreateCompany: false,
-            defaultPlan: 'PRO',
-            sendActivationEmail: true,
-          };
-        }
-
-        draft.hizliBilisimSettings.lastSyncAt = new Date().toISOString();
-        draft.hizliBilisimSettings.lastSyncStatus = 'SUCCESS';
-        draft.hizliBilisimSettings.totalSynced = draft.externalCustomers.length;
-        draft.hizliBilisimSettings.totalConverted = draft.externalCustomers.filter(
-          c => c.status === 'IMPORTED' || c.status === 'USER_CREATED'
-        ).length;
-      });
-
-      storage.addSyncLog({
-        provider: 'HIZLI_BILISIM',
-        action: 'CUSTOMER_IMPORTED',
-        username: triggeredBy,
-        details: `Senkronizasyon tamamlandı: ${remoteRes.customers.length} kayıt işlendi (${newCount} yeni, ${updatedCount} güncellendi, ${matchedCount} eşleşti).`,
-        status: 'SUCCESS',
-      });
-
-      return {
-        success: true,
-        totalFetched: remoteRes.customers.length,
-        newCount,
-        updatedCount,
-        matchedCount,
-        message: `Hızlı Bilişim senkronizasyonu başarıyla tamamlandı. (${newCount} yeni müşteri eklendi).`,
-      };
-    } catch (err: any) {
-      storage.addSyncLog({
-        provider: 'HIZLI_BILISIM',
-        action: 'SYNC_ERROR',
-        username: triggeredBy,
-        details: `Senkronizasyon yürütme hatası: ${err.message}`,
-        status: 'ERROR',
-      });
-
+    const sonuc = await HizliBilisimClient.sorgulaMukellef(vkn);
+    if (sonuc.durum === 'HATA') {
       return {
         success: false,
-        totalFetched: 0,
-        newCount: 0,
-        updatedCount: 0,
-        matchedCount: 0,
-        message: err.message,
+        durum: 'HATA',
+        hataSinifi: sonuc.hataSinifi,
+        // Teknik sağlayıcı metni kullanıcıya GİTMEZ; sınıf adı sözlüğe çevrilir.
+        message: this.hataMesaji(sonuc.hataSinifi),
       };
     }
+    if (sonuc.durum === 'BULUNAMADI' || !sonuc.musteri) {
+      return {
+        success: false,
+        durum: 'BULUNAMADI',
+        message: `Hızlı Bilişim'de ${vkn} numaralı mükellef bulunamadı. VKN/TCKN'yi kontrol edin.`,
+      };
+    }
+
+    const db = storage.getState();
+    const mevcut = (db.externalCustomers || []).find(c => c.taxNumber === vkn);
+    return {
+      success: true,
+      durum: 'BULUNDU',
+      musteri: uzaktanHavuza(sonuc.musteri),
+      mevcutKayit: Boolean(mevcut),
+      mevcutId: mevcut?.id,
+      message: mevcut
+        ? `${vkn} zaten portföyünüzde kayıtlı.`
+        : `${vkn} Hızlı Bilişim'de bulundu.`,
+    };
   }
+
+  /** Teknik sağlayıcı hatasını operatörün anlayacağı mesaja çevirir. */
+  private static hataMesaji(sinif?: string): string {
+    switch (sinif) {
+      case 'YAPILANDIRMA': return 'Hızlı Bilişim entegrasyon ayarları eksik. Sistem yöneticinizle iletişime geçin.';
+      case 'KIMLIK': return 'Hızlı Bilişim oturumu açılamadı. Entegrasyon kimlik bilgilerini kontrol edin.';
+      case 'YETKI': return 'Hızlı Bilişim sorgu yetkisi reddedildi. Entegrasyon hesabının yetkisini kontrol edin.';
+      case 'HIZ_SINIRI': return 'Hızlı Bilişim istek sınırı aşıldı. Lütfen kısa bir süre sonra tekrar deneyin.';
+      case 'SUNUCU': return 'Hızlı Bilişim sunucusu şu anda yanıt vermiyor. Lütfen tekrar deneyin.';
+      case 'ZAMAN_ASIMI': return 'Hızlı Bilişim sorgusu zaman aşımına uğradı. Lütfen tekrar deneyin.';
+      case 'AG': return 'Hızlı Bilişim\'e ulaşılamadı (ağ). Lütfen bağlantıyı kontrol edin.';
+      default: return 'Hızlı Bilişim sorgusu tamamlanamadı. Lütfen tekrar deneyin.';
+    }
+  }
+
+  /**
+   * Onaylanan önizlemeyi İŞBEY portföyüne (`externalCustomers`) ekler.
+   * `tenantId` yalnız iz/kaynak ayrımı için yazılır; kayıt platform portföyüdür.
+   * Aynı VKN zaten varsa YENİ KAYIT AÇILMAZ (idempotent).
+   */
+  public static async portfoyeEkle(hamVkn: string, triggeredBy: string, tenantId?: string): Promise<{
+    success: boolean;
+    durum: 'EKLENDI' | 'MEVCUT' | 'BULUNAMADI' | 'HATA' | 'GECERSIZ';
+    customer?: ExternalCustomer;
+    message: string;
+  }> {
+    const bicim = validateTaxId(hamVkn);
+    if (!bicim.ok) return { success: false, durum: 'GECERSIZ', message: bicim.message || 'Geçersiz VKN/TCKN.' };
+    const vkn = normalizeTaxId(hamVkn);
+
+    const db = storage.getState();
+    const mevcutHavuz = (db.externalCustomers || []).find(c => c.taxNumber === vkn);
+    if (mevcutHavuz) {
+      return { success: true, durum: 'MEVCUT', customer: mevcutHavuz, message: `${vkn} zaten portföyünüzde kayıtlı.` };
+    }
+
+    // Sağlayıcıdan TAZE veri çekilir — istemci gövdesindeki alanlar KAYDEDİLMEZ
+    // (aksi hâlde kullanıcı unvan/şehir uydurabilirdi).
+    const sonuc = await HizliBilisimClient.sorgulaMukellef(vkn);
+    if (sonuc.durum === 'HATA') {
+      return { success: false, durum: 'HATA', message: this.hataMesaji(sonuc.hataSinifi) };
+    }
+    if (sonuc.durum !== 'BULUNDU' || !sonuc.musteri) {
+      return { success: false, durum: 'BULUNAMADI', message: `Hızlı Bilişim'de ${vkn} bulunamadı.` };
+    }
+    if ((db.externalCustomers || []).some(c => c.taxNumber === vkn)) {
+      // Eşzamanlı ikinci istek yarışı: transaction içinde yeniden kontrol edilir.
+      const tekrar = (storage.getState().externalCustomers || []).find(c => c.taxNumber === vkn);
+      if (tekrar) return { success: true, durum: 'MEVCUT', customer: tekrar, message: `${vkn} zaten portföyünüzde kayıtlı.` };
+    }
+
+    const kayit: ExternalCustomer = {
+      ...uzaktanHavuza(sonuc.musteri),
+      id: `hbc-${vkn}`,
+      status: 'NEW',
+    };
+
+    await storage.runTransaction(draft => {
+      if (!draft.externalCustomers) draft.externalCustomers = [];
+      if (draft.externalCustomers.some(c => c.taxNumber === vkn)) return; // yarış koruması
+      draft.externalCustomers.push(kayit);
+    });
+
+    storage.addAuditLog({
+      tenantId,
+      userId: 'system',
+      username: triggeredBy,
+      action: 'CUSTOMER_IMPORTED',
+      module: 'hizlibilisim',
+      ipAddress: '-',
+      // ⚠️ Token/parola YAZILMAZ. Yalnız kim + hangi VKN + sonuç.
+      details: `Hızlı Bilişim'den mükellef portföye eklendi: ${vkn} (${kayit.companyName}).`,
+    });
+
+    return { success: true, durum: 'EKLENDI', customer: kayit, message: `${kayit.companyName} portföye eklendi.` };
+  }
+
 
   /**
    * Duplicate kontrolü (VKN, E-posta, Telefon, External ID)

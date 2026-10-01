@@ -3,6 +3,7 @@ import { migrateMemberships } from '../security/memberships';
 import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
+import { resolveRequestTenantId } from '../security/policies';
 import { HizliBilisimClient } from '../services/hizliBilisim/hizliBilisimClient';
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
 import { HizliBilisimSyncService } from '../services/hizliBilisim/hizliBilisimSyncService';
@@ -107,7 +108,14 @@ hizliBilisimRouter.get('/customers/:id', requireAuth, requireRole('SUPER_ADMIN',
   }
 });
 
-// POST /api/admin/hizli-bilisim/sync - Trigger sync with Hızlı Bilişim API
+// POST /api/admin/hizli-bilisim/sync — "HB'den Güncelle"
+//
+// 2026-10-01: Eskiden `executeSync` çağrılıyordu; portföy boşken teknik bir
+// sağlayıcı metniyle (`... "tüm mükellefleri listele" uç noktası bulunmuyor`)
+// bitiyordu. Bu, ilk kurulumda kilitlenme + entegrasyon tamamen bozuk izlenimi
+// veriyordu. Artık `hbDenGuncelle`: mevcut VKN'leri tek tek günceller ve
+// ayrıştırılmış sonuç (checked/updated/unchanged/failed) döner; portföy boşsa
+// teknik olmayan, aksiyon odaklı mesaj verir.
 hizliBilisimRouter.post('/sync', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
   try {
     // 2026-09-12 (uydurma temizliği): İşlem logunda operatör kimliği, token'da
@@ -115,10 +123,45 @@ hizliBilisimRouter.post('/sync', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'
     // bilinmediğinde log "admin yaptı" diyordu. Denetim izi (audit trail)
     // uydurma kimlik taşıyamaz; bilinmiyorsa açıkça belirtilir.
     const username = req.user?.username || 'bilinmeyen-kullanici';
-    const result = await HizliBilisimSyncService.executeSync(username);
+    const ekVknler = Array.isArray(req.body?.vknTcknList) ? req.body.vknTcknList : undefined;
+    const result = await HizliBilisimSyncService.hbDenGuncelle(username, ekVknler);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/admin/hizli-bilisim/customers/sorgula — VKN/TCKN ile TEKİL sorgu
+//
+// **HİÇBİR ŞEY YAZMAZ.** Sağlayıcıdan okur, bulunan gerçek mükellef bilgisini
+// önizleme olarak döner. İlk kurulumda "0 kayıt" çıkmazını açan uç budur.
+hizliBilisimRouter.post('/customers/sorgula', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const { vknTckn } = req.body || {};
+    const result = await HizliBilisimSyncService.sorgula(String(vknTckn ?? ''));
+    // Teknik hata sınıfı istemciye ayrıntı sızdırmaz; mesaj zaten sözlüğe çevrildi.
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, durum: 'HATA', message: 'Sorgu tamamlanamadı.' });
+  }
+});
+
+// POST /api/admin/hizli-bilisim/customers/ekle — onaylanan mükellefi portföye ekle
+//
+// MUTASYON. Sağlayıcıdan TAZE veri çekilir (istemci gövdesindeki alanlar
+// kaydedilmez); aynı VKN varsa yeni kayıt AÇILMAZ (idempotent).
+hizliBilisimRouter.post('/customers/ekle', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const { vknTckn } = req.body || {};
+    const username = req.user?.username || 'bilinmeyen-kullanici';
+    // Platform portföyü GLOBAL'dir; SUPER_ADMIN'in tenant'ı olmayabilir. Bu
+    // yüzden burada fail-closed `resolveRequestTenantId` KULLANILMAZ — audit
+    // kaydındaki tenant alanı boş kalabilir (uydurma tenant yazmaktansa boş).
+    const tenantId = req.tenantId;
+    const result = await HizliBilisimSyncService.portfoyeEkle(String(vknTckn ?? ''), username, tenantId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, durum: 'HATA', message: 'Kayıt eklenemedi.' });
   }
 });
 

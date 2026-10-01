@@ -321,10 +321,77 @@ export class HizliBilisimClient {
 
   /**
    * 3. Tekil Müşteri Bilgisini Canlı API'den Çek (MusteriGetir + MukellefBilgisi)
+   *
+   * 2026-10-01: Gövde `musteriGetirCagri`'ya taşındı. Bu sarmalayıcı, taşıma
+   * hatasını YUTAR ve `null` döndürür (mevcut çağıranların beklediği davranış).
+   * Hata SINIFINI bilmek isteyen çağıran `sorgulaMukellef` kullanmalıdır —
+   * "bulunamadı" ile "yetki hatası" ayırt edilemezse operatör yanlış yönlenir.
    */
   public static async fetchCustomerByVkn(vknTckn: string): Promise<RemoteHizliCustomer | null> {
+    try {
+      return await this.musteriGetirCagri(vknTckn);
+    } catch (err: any) {
+      console.warn(`[HizliBilisim] VKN (${vknTckn}) sorgu uyarısı:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * 3b. Sınıflandırılmış tekil mükellef sorgusu (2026-10-01).
+   *
+   * NEDEN: `fetchCustomerByVkn` her hatayı `null`'a indiriyordu; çağıran
+   * "mükellef yok" ile "oturum açılamadı / yetki yok / sunucu hatası"nı ayırt
+   * edemiyordu. Operatör "bulunamadı" görüp VKN'yi yanlış sanabilirdi.
+   *
+   * Yalnız TAŞIMA/kimlik hataları sınıflandırılır; "kayıt yok" ayrı bir
+   * durumdur (`BULUNAMADI`). API'nin söylemediği bir sonuç UYDURULMAZ.
+   */
+  public static async sorgulaMukellef(vknTckn: string): Promise<{
+    durum: 'BULUNDU' | 'BULUNAMADI' | 'HATA';
+    musteri: RemoteHizliCustomer | null;
+    hataSinifi?: 'YAPILANDIRMA' | 'KIMLIK' | 'YETKI' | 'HIZ_SINIRI' | 'SUNUCU' | 'ZAMAN_ASIMI' | 'AG' | 'BILINMEYEN';
+    hataMesaji?: string;
+  }> {
+    try {
+      const musteri = await this.musteriGetirCagri(vknTckn);
+      return musteri ? { durum: 'BULUNDU', musteri } : { durum: 'BULUNAMADI', musteri: null };
+    } catch (err: any) {
+      const sinif = this.hataSiniflandir(err);
+      console.warn(`[HizliBilisim] Mükellef sorgu hatası (${vknTckn}) [${sinif}]:`, err?.message);
+      return { durum: 'HATA', musteri: null, hataSinifi: sinif, hataMesaji: err?.message };
+    }
+  }
+
+  /**
+   * Taşıma hatalarını operatörün anlayacağı sınıfa çevirir.
+   * Kimlik/parola DÖNDÜRÜLMEZ — yalnız sınıf adı.
+   */
+  public static hataSiniflandir(err: any): 'YAPILANDIRMA' | 'KIMLIK' | 'YETKI' | 'HIZ_SINIRI' | 'SUNUCU' | 'ZAMAN_ASIMI' | 'AG' | 'BILINMEYEN' {
+    const msg = String(err?.message || '');
+    if (msg.includes('Eksik yapılandırma')) return 'YAPILANDIRMA';
+    // Oturum açılamadı → kimlik/parola ya da SecretKey sorunu (token alınamadı).
+    if (err?.isAuth) return 'KIMLIK';
+    const status = err?.response?.status;
+    if (status === 401 || status === 403) return 'YETKI';
+    if (status === 429) return 'HIZ_SINIRI';
+    if (typeof status === 'number' && status >= 500) return 'SUNUCU';
+    if (err?.code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout')) return 'ZAMAN_ASIMI';
+    if (err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED' || err?.code === 'EAI_AGAIN') return 'AG';
+    // UtilEncrypt/Login başarısızlığı burada 'KIMLIK' olarak işaretlenir.
+    if (msg.includes('kimlik') || msg.includes('Login') || msg.includes('UtilEncrypt')) return 'KIMLIK';
+    return 'BILINMEYEN';
+  }
+
+  /**
+   * Ham çağrı: başarılıysa müşteri, bulunamazsa `null`, taşıma hatasında FIRLATIR.
+   */
+  private static async musteriGetirCagri(vknTckn: string): Promise<RemoteHizliCustomer | null> {
     const auth = await this.getAuthToken();
-    if (!auth.token) return null;
+    if (!auth.token) {
+      const hata: any = new Error(auth.error || 'Hızlı Bilişim API oturumu açılamadı.');
+      hata.isAuth = true;
+      throw hata;
+    }
 
     const config = this.getConfig();
     const headers = {
@@ -332,7 +399,7 @@ export class HizliBilisimClient {
       'Content-Type': 'application/json',
     };
 
-    try {
+    {
       // 1. MusteriGetir API çağrısı
       const mgRes = await axios.get(
         `${config.apiUrl}/HizliApi/RestApi/MusteriGetir?vergikimlikno=${vknTckn}`,
@@ -432,9 +499,10 @@ export class HizliBilisimClient {
           customerType: isTckn ? 'Şahıs Firması' : 'Tüzel Şirket',
         };
       }
-    } catch (err: any) {
-      console.warn(`[HizliBilisim] VKN (${vknTckn}) sorgu uyarısı:`, err.message);
     }
+    // Taşıma hatası YUTULMAZ: sınıflandırmayı `sorgulaMukellef` yapar.
+    // (Eski davranış — burada `null` dönmek — "yetki hatası"nı "kayıt yok"
+    // gibi gösteriyordu; 2026-10-01'de ayrıştırıldı.)
 
     return null;
   }
@@ -473,8 +541,8 @@ export class HizliBilisimClient {
         success: false,
         customers: [],
         message:
-          'Hızlı Bilişim eConnect API\'sinde "tüm mükellefleri listele" uç noktası bulunmuyor. ' +
-          'Toplu çekim için sorgulanacak VKN/TCKN listesi gerekir.',
+          'Toplu müşteri çekimi için sorgulanacak VKN/TCKN listesi gerekir. ' +
+          'Hızlı Bilişim yalnız VKN/TCKN ile tekil sorgu destekler.',
         source: 'NONE',
       };
     }

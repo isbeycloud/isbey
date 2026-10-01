@@ -48,6 +48,14 @@ const suites = [
   // 28 yerel suite + 33 Playwright spec YEŞİLKEN bu hata canlıdaydı; bu dosya
   // yalnız o boşluğu kapatır. Ağa ÇIKMAZ.
   'providerResponseContractTest.ts',
+  // 2026-10-01: HIZLI BİLİŞİM MÜKELLEF SORGU / PORTFÖY YÖNETİMİ. Panel sıfır
+  // kayıtla açıldığında "HB'den Güncelle" çıkmazda kalıyordu ve kullanıcıya
+  // teknik sağlayıcı metni ("...listele uç noktası bulunmuyor") gösteriyordu.
+  // Bu dosya yeni akışı ölçer: VKN/TCKN biçim kapısı, BULUNDU/BULUNAMADI/401/
+  // 429/500/timeout sınıfları, idempotent ekleme, 20 kayıtlık toplu güncelleme
+  // (17/2/1), tenant izolasyonu, audit'te secret yokluğu ve MUHASEBE yetkisizliği.
+  // Ağa ÇIKMAZ (sağlayıcı yerel taklit edilir).
+  'hizliMusteriSorguTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {

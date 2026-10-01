@@ -8,6 +8,7 @@ import type { ExternalCustomer } from '../../../types';
 import { ConvertToCompanyModal } from './ConvertToCompanyModal';
 import { MatchCompanyModal } from './MatchCompanyModal';
 import { HizliCustomerDetailModal } from './HizliCustomerDetailModal';
+import { HizliMukellefEkleModal } from './HizliMukellefEkleModal';
 import {
   Users,
   Building,
@@ -29,6 +30,7 @@ import {
   Package,
   Filter,
   Eye,
+  Inbox,
 } from 'lucide-react';
 
 interface SearchForm {
@@ -68,6 +70,7 @@ export const HizliBilisimCustomerListView: React.FC = () => {
   const [showBulkMenu, setShowBulkMenu] = useState(false);
   const [showEnvelopeModal, setShowEnvelopeModal] = useState(false);
   const [envelopeForm, setEnvelopeForm] = useState({ hizmetTuru: '', envelopeNo: '', yil: '2026' });
+  const [showEkleModal, setShowEkleModal] = useState(false);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState<SearchForm>(emptyForm());
@@ -113,15 +116,22 @@ export const HizliBilisimCustomerListView: React.FC = () => {
     setSyncing(true);
     try {
       const res = await api.syncHizliCustomers();
-      if (res.success) {
+      // 2026-10-01: Sonuç artık AYRIŞTIRILMIŞ (checked/updated/unchanged/failed).
+      // Portföy boşsa teknik sağlayıcı metni yerine aksiyon odaklı mesaj gelir
+      // ve kullanıcı doğrudan "Mükellef Ekle" akışına yönlendirilir.
+      if (res.bos) {
+        showToast(res.message, 'info');
+        setShowEkleModal(true);
+      } else if (res.success) {
         showToast(res.message, 'success');
         loadData();
         triggerRefresh();
       } else {
-        showToast(res.message, 'warning');
+        showToast(res.message, res.failed > 0 ? 'warning' : 'info');
+        loadData();
       }
     } catch (err: any) {
-      showToast(err.message || 'Senkronizasyon başarısız.', 'error');
+      showToast(err.message || 'Güncelleme başarısız.', 'error');
     } finally {
       setSyncing(false);
     }
@@ -320,7 +330,7 @@ export const HizliBilisimCustomerListView: React.FC = () => {
             Hızlı Bilişim — Müşteri İşlemleri
           </h2>
           <p style={{ margin: '3px 0 0', fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)' }}>
-            Portföydeki firmayı seçin, İŞBEY'i kullanacak yetkiliyi belirleyin ve şirket ile aktivasyon hesabını tek akışta kurun.
+            Hızlı Bilişim'deki mükellefleri VKN/TCKN ile sorgulayın, İŞBEY portföyünüze ekleyin ve mevcut kayıtları güncelleyin.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -333,20 +343,40 @@ export const HizliBilisimCustomerListView: React.FC = () => {
               {bulkConverting ? 'Aktarılıyor...' : `Seçilenleri İŞBEY'e Aktar (${selectedIds.length})`}
             </button>
           )}
-          <button type="button" className="btn btn-secondary"
-            onClick={() => setShowEnvelopeModal(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          <button type="button" className="btn btn-success"
+            onClick={() => setShowEkleModal(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
           >
-            <Search size={14} /> Zarf Sorgula
+            <Plus size={14} /> Hızlı Bilişim'den Mükellef Ekle
           </button>
           <button type="button" className="btn btn-primary"
             onClick={handleSync} disabled={syncing}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
           >
             <RefreshCw size={15} className={syncing ? 'spin' : ''} />
-            {syncing ? 'Senkronize Ediliyor...' : "HB'den Güncelle"}
+            {syncing ? 'Güncelleniyor...' : "HB'den Güncelle"}
           </button>
         </div>
+      </div>
+
+      {/* ── AYRIM NOTU (2026-10-01) ──────────────────────────────────────
+          Bu ekran GELEN BELGE çekme ekranı DEĞİLDİR. Karışıklığı önlemek
+          için kullanıcı doğru ekrana yönlendirilir. */}
+      <div style={{
+        display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap',
+        padding: '10px 14px', background: 'var(--bg-surface-secondary)',
+        border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md, 8px)', fontSize: '12px',
+      }}>
+        <Inbox size={15} style={{ color: 'var(--info)', flexShrink: 0 }} />
+        <span style={{ color: 'var(--text-muted)' }}>
+          Bu ekran <b>mükellef sorgulama ve portföy yönetimi</b> içindir; gelen e-Fatura/e-İrsaliye belgeleri burada çekilmez.
+        </span>
+        <button type="button" className="btn btn-ghost btn-xs"
+          onClick={() => setActiveView('gelen-belgeler')}
+          style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, color: 'var(--info)' }}
+        >
+          <ExternalLink size={12} /> Gelen Belgeler ekranına git
+        </button>
       </div>
 
       {/* ── KPI Kartları ── */}
@@ -511,10 +541,10 @@ export const HizliBilisimCustomerListView: React.FC = () => {
               )}
             </div>
             <button type="button"
-              onClick={() => showToast('Yeni firma oluşturma açılıyor...', 'info')}
+              onClick={() => setShowEkleModal(true)}
               style={{ ...fieldStyle, width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '7px 14px', cursor: 'pointer' }}
             >
-              <Plus size={13} /> Yeni Firma Oluştur
+              <Plus size={13} /> Hızlı Bilişim'den Mükellef Ekle
             </button>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -569,60 +599,49 @@ export const HizliBilisimCustomerListView: React.FC = () => {
           columns={columns}
           data={customers}
           loading={loading}
-          emptyMessage="Kriterlere uygun Hızlı Bilişim müşteri kaydı bulunamadı."
+          emptyMessage={
+            kpis.total === 0
+              ? 'Güncellenecek Hızlı Bilişim mükellefi bulunamadı. VKN/TCKN ile ilk mükellefinizi sorgulayıp portföye ekleyebilirsiniz.'
+              : 'Kriterlere uygun Hızlı Bilişim müşteri kaydı bulunamadı.'
+          }
         />
+        {/* 0 KAYIT — ÇIKMAZ DEĞİL (2026-10-01): portföy tamamen boşsa
+            kullanıcıya atacağı ADIM gösterilir. */}
+        {!loading && kpis.total === 0 && (
+          <div style={{
+            padding: '22px 20px', borderTop: '1px solid var(--border-color)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)' }}>
+              Güncellenecek Hızlı Bilişim mükellefi bulunamadı.
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '520px' }}>
+              Hızlı Bilişim'de "tüm mükellefleri listele" özelliği yoktur; mükellefler VKN/TCKN ile tek tek
+              sorgulanır. İlk mükellefinizi sorgulayıp portföye ekleyerek başlayın.
+            </div>
+            <button type="button" className="btn btn-success"
+              onClick={() => setShowEkleModal(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+            >
+              <Plus size={15} /> Hızlı Bilişim'den Mükellef Ekle
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Zarf Sorgula Modal ── */}
-      {showEnvelopeModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(10, 15, 30, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-xl, 12px)', width: '460px', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-color)', animation: 'fadeIn 0.2s ease' }}>
-            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h4 style={{ margin: 0, fontWeight: 700, fontSize: 'var(--fs-lg, 16px)', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <Search size={16} style={{ color: 'var(--primary)' }} /> Zarf Sorgulama
-              </h4>
-              <button onClick={() => setShowEnvelopeModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}>
-                <X size={18} />
-              </button>
-            </div>
-            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={labelStyle}>Hizmet Türü</label>
-                <select style={fieldStyle} value={envelopeForm.hizmetTuru} onChange={e => setEnvelopeForm(f => ({ ...f, hizmetTuru: e.target.value }))}>
-                  <option value="">Seçiniz</option>
-                  <option value="1">e-Fatura</option>
-                  <option value="2">e-İrsaliye</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Zarf Numarası</label>
-                <input style={fieldStyle} placeholder="Zarf no giriniz..." value={envelopeForm.envelopeNo} onChange={e => setEnvelopeForm(f => ({ ...f, envelopeNo: e.target.value }))} />
-              </div>
-              <div>
-                <label style={labelStyle}>Yıl</label>
-                <select style={fieldStyle} value={envelopeForm.yil} onChange={e => setEnvelopeForm(f => ({ ...f, yil: e.target.value }))}>
-                  {[2026,2025,2024,2023,2022,2021,2020,2019,2018,2017].map(y => (
-                    <option key={y} value={String(y)}>{y}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between' }}>
-              <button type="button" className="btn btn-ghost btn-sm"
-                onClick={() => setEnvelopeForm({ hizmetTuru: '', envelopeNo: '', yil: '2026' })}
-              >Temizle</button>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowEnvelopeModal(false)}>Kapat</button>
-                <button type="button" className="btn btn-success btn-sm"
-                  onClick={() => showToast('Zarf sorgulanıyor... (HB API bağlantısı gerekli)', 'info')}
-                >Sorgula</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Zarf Sorgulama KALDIRILDI (2026-10-01) ─────────────────────────
+          Önceki buton sahte bir "Zarf Sorgulama" modalı açıp yalnızca
+          "Zarf sorgulanıyor... (HB API bağlantısı gerekli)" toast'ı
+          gösteriyordu — hiçbir sorgu YAPMIYORDU. Hızlı Bilişim eConnect REST
+          sözleşmesinde "zarf numarası ile sorgula" uç noktası YOKTUR
+          (bkz. kullanılan tüm uçlar; envelope durumu yalnız gönderim/iptal
+          yanıtlarının içinde döner). Gerçek karşılığı olmadığı için sahte
+          işlev bırakılmadı. */}
 
       {/* ── Bağımlı Modals ── */}
+      {showEkleModal && (
+        <HizliMukellefEkleModal isOpen onClose={() => setShowEkleModal(false)} onSuccess={loadData} />
+      )}
       {convertCustomer && (
         <ConvertToCompanyModal isOpen={Boolean(convertCustomer)} onClose={() => setConvertCustomer(null)} customer={convertCustomer} onSuccess={loadData} />
       )}
