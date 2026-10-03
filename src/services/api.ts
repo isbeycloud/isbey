@@ -86,6 +86,26 @@ import type {
 
 const API_BASE = '/api';
 
+// 2026-10-02: CANLI HATA — `params ? \`?${new URLSearchParams(params as any)}\` : ''`
+// kalıbı `undefined`/`null` alanları "undefined"/"null" STRING'ine çeviriyordu.
+// Nesne her zaman truthy olduğu için boş filtrede bile `?search=undefined`
+// gidiyor, backend bunu GERÇEK arama terimi sanıp TÜM kayıtları eliyordu
+// (Hızlı Bilişim listesi: KPI "Toplam Müşteri = 1" ama liste boş).
+// Bu yardımcı yalnız DOLU değerleri geçirir; undefined/null/boş metin düşer.
+// `0` ve `false` KORUNUR (geçerli filtre değerleridir).
+export function buildQuery(params?: Record<string, unknown>): string {
+  if (!params) return '';
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    const text = String(value);
+    if (text.trim() === '') continue;
+    usp.append(key, text);
+  }
+  const qs = usp.toString();
+  return qs ? '?' + qs : '';
+}
+
 export class ApiError extends Error {
   status?: number;
   constructor(message: string, status?: number) {
@@ -302,8 +322,8 @@ export const api = {
 
   // Customers & Suppliers
   getCustomers: (params?: { type?: string; search?: string }) => {
-    const query = new URLSearchParams(params as Record<string, string>).toString();
-    return request<{ success: boolean; customers: Customer[] }>(`/customers?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; customers: Customer[] }>(`/customers${query}`);
   },
   getCustomer: (id: string) => request<{ success: boolean; customer: Customer }>(`/customers/${id}`),
   getCustomerStatement: (id: string) => request<{ success: boolean; customer: Customer; statement: any[]; summary: any }>(`/customers/${id}/statement`),
@@ -312,8 +332,8 @@ export const api = {
 
   // Products & Stock
   getProducts: (params?: { groupId?: string; warehouseId?: string; search?: string; criticalOnly?: boolean }) => {
-    const query = new URLSearchParams(params as any).toString();
-    return request<{ success: boolean; products: Product[] }>(`/products?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; products: Product[] }>(`/products${query}`);
   },
   getProductByBarcode: (barcode: string) => request<{ success: boolean; product: Product }>(`/products/barcode/${barcode}`),
   getProductMeta: () => request<{ success: boolean; groups: any[]; warehouses: any[] }>('/products/meta/groups-warehouses'),
@@ -325,8 +345,8 @@ export const api = {
 
   // Invoices & Sales
   getInvoices: (params?: { type?: string; customerId?: string; status?: string; search?: string; startDate?: string; endDate?: string }) => {
-    const query = new URLSearchParams(params as any).toString();
-    return request<{ success: boolean; invoices: Invoice[] }>(`/invoices?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; invoices: Invoice[] }>(`/invoices${query}`);
   },
   getInvoice: (id: string) => request<{ success: boolean; invoice: Invoice }>(`/invoices/${id}`),
   createInvoice: (data: any) => request<{ success: boolean; invoice: Invoice; message: string }>('/invoices', { method: 'POST', body: JSON.stringify(data) }),
@@ -337,8 +357,8 @@ export const api = {
   // Cash Registers
   getCashRegisters: () => request<{ success: boolean; cashRegisters: CashRegister[] }>('/cash'),
   getCashTransactions: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; transactions: CashTransaction[] }>(`/cash/transactions?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; transactions: CashTransaction[] }>(`/cash/transactions${query}`);
   },
   createCashTransaction: (data: any) => request<{ success: boolean; transaction: CashTransaction; message: string }>('/cash/transaction', { method: 'POST', body: JSON.stringify(data) }),
   transferCashToBank: (data: any) => request<{ success: boolean; message: string }>('/cash/transfer-to-bank', { method: 'POST', body: JSON.stringify(data) }),
@@ -346,16 +366,16 @@ export const api = {
   // Bank Accounts
   getBankAccounts: () => request<{ success: boolean; bankAccounts: BankAccount[] }>('/banks'),
   getBankTransactions: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; transactions: BankTransaction[] }>(`/banks/transactions?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; transactions: BankTransaction[] }>(`/banks/transactions${query}`);
   },
   createBankTransaction: (data: any) => request<{ success: boolean; transaction: BankTransaction; message: string }>('/banks/transaction', { method: 'POST', body: JSON.stringify(data) }),
   transferBankToCash: (data: any) => request<{ success: boolean; message: string }>('/banks/transfer-to-cash', { method: 'POST', body: JSON.stringify(data) }),
 
   // Checks & Notes
   getChecksNotes: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; checksNotes: CheckNote[] }>(`/checks?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; checksNotes: CheckNote[] }>(`/checks${query}`);
   },
   createCheckNote: (data: any) => request<{ success: boolean; checkNote: CheckNote; message: string }>('/checks', { method: 'POST', body: JSON.stringify(data) }),
   updateCheckStatus: (id: string, data: any) => request<{ success: boolean; checkNote: CheckNote; message: string }>(`/checks/${id}/status`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -367,30 +387,30 @@ export const api = {
 
   // Reports
   getProfitLossReport: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; data: any }>(`/reports/profit-loss?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; data: any }>(`/reports/profit-loss${query}`);
   },
   getAgingReport: () => request<{ success: boolean; report: any[] }>('/reports/aging'),
   getStockValuationReport: () => request<{ success: boolean; report: any[]; totals: any }>('/reports/stock-valuation'),
   getCashFlowReport: () => request<{ success: boolean; months: any[]; summary: any }>('/reports/cash-flow'),
-  getVatReport: (params?: any) => { const query = new URLSearchParams(params).toString(); return request<{ success: boolean; rows: any[]; totals: any }>(`/reports/vat-report?${query}`); },
-  getExpenseReport: (params?: any) => { const query = new URLSearchParams(params).toString(); return request<{ success: boolean; rows: any[]; byCategory: any[]; totals: any }>(`/reports/expense-report?${query}`); },
-  getCollectionReport: (params?: any) => { const query = new URLSearchParams(params).toString(); return request<{ success: boolean; data: any; details: any }>(`/reports/collection-report?${query}`); },
+  getVatReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; rows: any[]; totals: any }>(`/reports/vat-report${query}`); },
+  getExpenseReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; rows: any[]; byCategory: any[]; totals: any }>(`/reports/expense-report${query}`); },
+  getCollectionReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; data: any; details: any }>(`/reports/collection-report${query}`); },
 
   // Cost Centers
   getCostCenters: () => request<{ success: boolean; costCenters: any[] }>('/cost-centers'),
   createCostCenter: (data: any) => request<{ success: boolean; costCenter: any; message: string }>('/cost-centers', { method: 'POST', body: JSON.stringify(data) }),
   updateCostCenter: (id: string, data: any) => request<{ success: boolean; costCenter: any; message: string }>(`/cost-centers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteCostCenter: (id: string) => request<{ success: boolean; message: string }>(`/cost-centers/${id}`, { method: 'DELETE' }),
-  getCostCenterExpenses: (id: string, params?: any) => { const query = new URLSearchParams(params).toString(); return request<{ success: boolean; expenses: any[]; summary: any }>(`/cost-centers/${id}/expenses?${query}`); },
+  getCostCenterExpenses: (id: string, params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; expenses: any[]; summary: any }>(`/cost-centers/${id}/expenses${query}`); },
 
   // AI Assistant
   getAIInsights: () => request<{ success: boolean; insights: any }>('/ai/insights'),
 
   // Quotes & Orders
   getQuotes: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; quotes: Quote[] }>(`/quotes?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; quotes: Quote[] }>(`/quotes${query}`);
   },
   getQuoteById: (id: string) => request<{ success: boolean; quote: Quote }>(`/quotes/${id}`),
   createQuote: (data: any) => request<{ success: boolean; quote: Quote; message: string }>('/quotes', { method: 'POST', body: JSON.stringify(data) }),
@@ -398,8 +418,8 @@ export const api = {
   convertQuoteToOrder: (id: string, data?: any) => request<{ success: boolean; message: string; data: any }>(`/quotes/${id}/convert-to-order`, { method: 'POST', body: JSON.stringify(data || {}) }),
   convertQuoteToInvoice: (id: string) => request<{ success: boolean; message: string; data: any }>(`/quotes/${id}/convert-to-invoice`, { method: 'POST' }),
   getOrders: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; orders: Order[] }>(`/quotes/orders/list?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; orders: Order[] }>(`/quotes/orders/list${query}`);
   },
   getOrderById: (id: string) => request<{ success: boolean; order: Order }>(`/quotes/orders/${id}`),
   createOrder: (data: any) => request<{ success: boolean; order: Order; message: string }>('/quotes/orders', { method: 'POST', body: JSON.stringify(data) }),
@@ -407,8 +427,8 @@ export const api = {
 
   // Waybills
   getWaybills: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; waybills: Waybill[] }>(`/waybills?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; waybills: Waybill[] }>(`/waybills${query}`);
   },
   createWaybill: (data: any) => request<{ success: boolean; waybill: Waybill; message: string }>('/waybills', { method: 'POST', body: JSON.stringify(data) }),
   convertWaybillToInvoice: (id: string) => request<{ success: boolean; message: string; data: any }>(`/waybills/${id}/convert-to-invoice`, { method: 'POST' }),
@@ -416,8 +436,8 @@ export const api = {
 
   // Expenses
   getExpenses: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; expenses: Expense[]; summary: any }>(`/expenses?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; expenses: Expense[]; summary: any }>(`/expenses${query}`);
   },
   getExpenseCategories: () => request<{ success: boolean; categories: ExpenseCategory[] }>('/expenses/categories'),
   createExpenseCategory: (data: any) => request<{ success: boolean; category: ExpenseCategory; message: string }>('/expenses/categories', { method: 'POST', body: JSON.stringify(data) }),
@@ -448,8 +468,8 @@ export const api = {
   updateSystemSettings: (data: any) => request<{ success: boolean; settings: any; message: string }>('/settings/system', { method: 'PUT', body: JSON.stringify(data) }),
   createBackup: () => request<{ success: boolean; filename: string; message: string }>('/settings/backup', { method: 'POST' }),
   getAuditLogs: (params?: any) => {
-    const query = new URLSearchParams(params).toString();
-    return request<{ success: boolean; auditLogs: AuditLog[] }>(`/settings/audit-logs?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; auditLogs: AuditLog[] }>(`/settings/audit-logs${query}`);
   },
 
   // Global Search (F10)
@@ -511,7 +531,7 @@ export const api = {
 
   // Multi-Tenant & Company Management
   getCompanies: (params?: any) => {
-    const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       companies: Tenant[];
@@ -561,7 +581,7 @@ export const api = {
 
   // Admin User Management & Security
   getAdminUsers: (params?: any) => {
-    const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; users: User[]; totalUsers: number; activeUsers: number }>(`/admin/users${query}`);
   },
   getAdminUser: (id: string) =>
@@ -589,7 +609,7 @@ export const api = {
 
   // Legacy Tenant Aliases
   getTenants: (params?: any) => {
-    const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       tenants: Tenant[];
@@ -777,7 +797,7 @@ export const api = {
     documentNo?: string;
     ettn?: string;
   }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       data: IncomingInvoice[];
@@ -901,7 +921,7 @@ export const api = {
     documentNo?: string;
     ettn?: string;
   }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       data: IncomingDespatch[];
@@ -955,7 +975,7 @@ export const api = {
 
   // Hızlı Bilişim Müşteri & Üye Entegrasyonu
   getHizliCustomers: (params?: { status?: string; search?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       customers: ExternalCustomer[];
@@ -1269,7 +1289,7 @@ export const api = {
 
   // Profesyonel XSLT Belge Tasarımları (e-Fatura, e-Arşiv, e-İrsaliye, e-SMM)
   getDocumentTemplates: (params?: { documentType?: string; search?: string; companyId?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; templates: any[]; stats: any }>(`/document-templates${query}`);
   },
   getDocumentTemplate: (id: string) =>
@@ -1342,7 +1362,7 @@ export const api = {
   quoteEServiceApplication: (id: string, amountMinor: number) => request<{ success: boolean }>(`/e-services/applications/${id}/quote`, { method: 'POST', body: JSON.stringify({ amountMinor }) }),
   checkoutEServiceApplication: (id: string) => request<{ success: boolean; url: string }>(`/e-services/applications/${id}/checkout`, { method: 'POST' }),
   getHizliDocuments: (params?: { appType?: number; dateType?: string; startDate?: string; endDate?: string; isNew?: boolean }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; documents: any[] }>(`/efatura/hizli/documents${query}`);
   },
   getHizliDocumentFile: (appType: number, uuid: string, format: 'PDF' | 'HTML' | 'XML' = 'PDF') =>
@@ -1404,7 +1424,7 @@ export const api = {
   getDealerDashboardStats: () =>
     request<{ success: boolean; stats: any }>('/hizli-bayi/dashboard-stats'),
   getDealerCustomers: (params?: { search?: string; status?: string; service?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; customers: any[]; count: number }>(`/hizli-bayi/customers${query}`);
   },
   createDealerCustomer: (data: any) =>
@@ -1542,12 +1562,12 @@ export const api = {
 
   // ── Yeni: Belge Sorgulama ─────────────────────────────────────────────────
   getHizliDocumentViewer: (params: { vknTckn: string; documentNo: string; payableAmount: number; appType?: number }) => {
-    const query = new URLSearchParams(params as any).toString();
-    return request<{ success: boolean; data: any }>(`/efatura/hizli/document-viewer?${query}`);
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; data: any }>(`/efatura/hizli/document-viewer${query}`);
   },
 
   getHizliIncomingAll: (params?: { dateType?: string; startDate?: string; endDate?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; data: any }>(`/efatura/hizli/incoming-all${query}`);
   },
 
@@ -1572,7 +1592,7 @@ export const api = {
 
   // ── Yeni: Son Fatura Numarası ─────────────────────────────────────────────
   getHizliLastInvoiceId: (params?: { appType?: number; seri?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; data: { lastInvoiceId: string; lastDate: string } }>(
       `/efatura/hizli/last-invoice-id${query}`
     );
@@ -1862,7 +1882,7 @@ export const api = {
 
   // Saha Tahsilat
   getFieldCollections: (params?: { status?: string; userId?: string; customerId?: string; startDate?: string; endDate?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; count: number; collections: FieldCollection[] }>(`/v1/field-collections${query}`);
   },
 
@@ -1903,7 +1923,7 @@ export const api = {
 
   // Ziyaretler & Rota
   getVisits: (params?: { date?: string; agentId?: string; status?: string }) => {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+    const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; count: number; visits: CustomerVisit[] }>(`/v1/visits${query}`);
   },
 

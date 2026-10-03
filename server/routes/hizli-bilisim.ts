@@ -31,8 +31,16 @@ hizliBilisimRouter.get('/customers', requireAuth, requireRole('SUPER_ADMIN', 'AD
       list = list.filter(c => c.status === status);
     }
 
-    if (search) {
-      const q = String(search).toLowerCase().trim();
+    // 2026-10-02: CANLI HATA (ikinci savunma katmanı). Bazı istemciler filtre
+    // boşken `?search=undefined` gönderiyordu; bu blok onu GERÇEK bir arama
+    // terimi sayıp tüm kayıtları eliyordu → "KPI 1 kayıt, liste boş".
+    // İstemci tarafı düzeltildi (buildQuery), ama sunucu da artık "yok"
+    // anlamına gelen değerleri arama terimi KABUL ETMEZ. Bu bir veri
+    // gizlemez: yalnız "undefined"/"null" metinleri yok sayılır.
+    const q = String(search ?? '').toLowerCase().trim();
+    const gecerliArama = q !== '' && q !== 'undefined' && q !== 'null';
+
+    if (gecerliArama) {
       list = list.filter(c =>
         (c.companyName || '').toLowerCase().includes(q) ||
         (c.title || '').toLowerCase().includes(q) ||

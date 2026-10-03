@@ -445,6 +445,44 @@ test('30) kaynak denetimi: kullanıcıya dönen teknik sağlayıcı metni KALMAD
 });
 
 // ════════════════════════════════════════════════════════════════════════════
+// 5b. CANLI HATA — filtre boşken `search=undefined` listeyi BOŞALTIYORDU
+//     (2026-10-02: portföye eklenen kayıt listede görünmüyordu; KPI=1, liste=0)
+// ════════════════════════════════════════════════════════════════════════════
+test('32) CANLI HATA: search=undefined listeyi BOŞALTMAZ (KPI dolu, liste boş olmaz)', async () => {
+  // Canlıdaki tam akış: mükellef eklendi, sonra liste yeniden yüklendi.
+  // Frontend o gün `?status=ALL&search=undefined` gönderiyordu.
+  const ekle = await istek('u-super', '/api/admin/hizli-bilisim/customers/ekle', 'POST', { vknTckn: '7171717171' });
+  assert.equal(ekle.status, 200);
+
+  const hatali = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL&search=undefined');
+  assert.equal(hatali.status, 200);
+  assert.ok(hatali.json.kpis.total >= 1, 'KPI kaydı görüyor');
+  assert.ok(hatali.json.customers.length >= 1,
+    'CANLI HATA GERİ GELDİ: search=undefined listeyi boşalttı (KPI dolu, liste boş)');
+
+  // Doğru istemci davranışı: parametre HİÇ gönderilmez
+  const dogru = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL');
+  assert.equal(dogru.json.customers.length, hatali.json.customers.length,
+    'search=undefined ile gerçek boş arama aynı sonucu vermeli');
+});
+
+test('33) gerçek arama hâlâ çalışır (undefined/boş koruması aramayı bozmadı)', async () => {
+  const eslesen = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL&search=7171717171');
+  assert.equal(eslesen.json.customers.length, 1, 'VKN ile arama bulmalı');
+
+  const eslesmeyen = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL&search=yokboylefirma');
+  assert.equal(eslesmeyen.json.customers.length, 0, 'eşleşmeyen terim 0 dönmeli');
+
+  const bos = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL&search=');
+  assert.ok(bos.json.customers.length >= 1, 'boş arama listeyi boşaltmamalı');
+});
+
+test('34) null metni de arama terimi sayılmaz', async () => {
+  const r = await istek('u-super', '/api/admin/hizli-bilisim/customers?status=ALL&search=null');
+  assert.ok(r.json.customers.length >= 1, 'search=null listeyi boşaltmamalı');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
 // 6. MUTASYON SINIRI — muhasebe koleksiyonlarına dokunulmadı
 // ════════════════════════════════════════════════════════════════════════════
 test('31) MUTASYON SINIRI: ürün/cari/fatura/stok hareketi DEĞİŞMEDİ', () => {

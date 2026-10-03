@@ -166,8 +166,8 @@ Doğrulanan adımlar ve kanıtlar:
 | Kontrol / Eylem | Sonuç |
 |---|---|
 | Kuru çalışma (dry-run) | Başarılı — DB yolu ve 4 güvenlik kapısı doğrulandı |
-| Üretim veritabanı | `/home/u455582886/isbey-private/database.prod.json` |
-| Temizlik öncesi anlık yedek | `/home/u455582886/isbey-backups/before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` |
+| Üretim veritabanı | `/home/<SUNUCU>/isbey-private/database.prod.json` |
+| Temizlik öncesi anlık yedek | `/home/<SUNUCU>/isbey-backups/before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` |
 | Havuz boyutu | 5 → **4** (sağlam 4 gerçek fatura korundu) |
 | Muhasebe / Cari / Stok mutasyonu | **YOK (0)** — hiçbir ilişkili veriye dokunulmadı |
 | Passenger yeniden başlatma | **TETİKLENDİ** (`tmp/restart.txt` güncellendi, bellek dirilmesi önlendi) |
@@ -197,7 +197,7 @@ Kalan üç kalem, sunucu konsol çıktısıyla kapatıldı:
 
 | Kalem | Konsol kanıtı |
 |---|---|
-| Veritabanı yolu | `Veritabanı : /home/u455582886/isbey-private/database.prod.json` — betiğin varsayımı beklenen dosyaya düştü |
+| Veritabanı yolu | `Veritabanı : /home/<SUNUCU>/isbey-private/database.prod.json` — betiğin varsayımı beklenen dosyaya düştü |
 | Yedek dosyası | `Yedek alındı: .../before-incoming-cleanup-2026-09-30T19-48-44-485Z.json` (silmeden **önce**) |
 | Passenger restart | `✔ Yeniden başlatma tetiklendi: ...current/nodejs/tmp/restart.txt (mevcut dosya güncellendi)` |
 

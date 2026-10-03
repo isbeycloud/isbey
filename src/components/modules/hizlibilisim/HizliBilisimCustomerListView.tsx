@@ -99,7 +99,9 @@ export const HizliBilisimCustomerListView: React.FC = () => {
     try {
       const res = await api.getHizliCustomers({
         status: statusFilter,
-        search: form.vknTckn || form.musteriAdi || form.unvan || undefined,
+        // 2026-10-02: `|| undefined` KALDIRILDI. `buildQuery` undefined'i zaten
+        // duser; burada undefined uretmek eski hatanin (search=undefined) kaynagiydi.
+        search: form.vknTckn || form.musteriAdi || form.unvan || '',
       });
       if (res.success) {
         setCustomers(res.customers || []);

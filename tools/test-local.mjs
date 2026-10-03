@@ -56,6 +56,11 @@ const suites = [
   // (17/2/1), tenant izolasyonu, audit'te secret yokluğu ve MUHASEBE yetkisizliği.
   // Ağa ÇIKMAZ (sağlayıcı yerel taklit edilir).
   'hizliMusteriSorguTest.ts',
+  // 2026-10-02: CANLI HATA (liste bos, KPI dolu). `params ? ...URLSearchParams(params): ''`
+  // kalibi `undefined`'i "undefined" string'ine ceviriyordu; backend bunu gercek
+  // arama terimi sanip TUM kayitlari eliyordu. buildQuery yalniz dolu degerleri gecirir.
+  // Aga CIKMAZ (saf fonksiyon + router filtresinin kopyasi).
+  'hizliQueryParamSanitizeTest.mjs',
 ];
 let failures = 0;
 for (const suite of suites) {
