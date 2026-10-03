@@ -146,6 +146,73 @@ export function belgeGovdesiCoz(veri: any): string {
   return ham;
 }
 
+/**
+ * `TcbmKurGetir` yanıt gövdesini TCMB kuruna çözer (saf fonksiyon: ağ/DB yok).
+ *
+ * ⚠️ 2026-10-03 ÖLÇÜLDÜ (salt okunur, canlı econnect):
+ *     GET /HizliApi/RestApi/TcbmKurGetir?kurTipi=SatisKur&paraBirimi=USD
+ *     → {"Kuru":49.0582,"IsSucceeded":true,"Message":"Başarılı, Kur Getirildi."}
+ *
+ * ⚠️ NEDEN AYRI FONKSİYON: kur alanının adı **`Kuru`**'dur. Eski kod
+ * `res.data?.rate ?? res.data?.Kur ?? res.data?.Rate` arıyordu; hiçbiri
+ * tutmadığı için `Number({...})` → NaN oluyor ve servis "sağlayıcı geçerli bir
+ * kur döndürmedi" diyerek DÖVİZLİ FATURAYI İÇERİ ALINAMAZ hâle getiriyordu.
+ * Alan adı canlı yanıtla eşleşmediği sürece yeni bir ad uydurulmaz; ölçülmüş
+ * sıra kullanılır.
+ *
+ * ⚠️ İŞ-SEVİYESİ HATA: sağlayıcı geçersiz token'da HTTP 200 + `IsSucceeded:false`
+ * + `Kuru:0` döner. Bu durumda `Kuru` sayı olarak OKUNSA BİLE kur YOKTUR;
+ * `IsSucceeded:false` tartışmasız iş hatasıdır ve hata mesajı iletilir. Aksi
+ * hâlde `Kuru:0` sıfır kur sanılıp finansal hesap bozulurdu.
+ *
+ * ⚠️ KUR UYDURULMAZ (md.1): alan yok/geçersizse `success:false` döner; varsayılan
+ * bir kur üretilmez.
+ */
+export function tcbmKurCoz(veri: unknown): {
+  success: boolean;
+  rate: number | null;
+  rateDate?: string;
+  message?: string;
+} {
+  const hedef = Array.isArray(veri) ? veri[0] : veri;
+
+  // Sağlayıcı düz sayı da dönebilir (küçük olasılık) — onu da ele al.
+  if (typeof hedef === 'number') {
+    return Number.isFinite(hedef) && hedef > 0
+      ? { success: true, rate: hedef }
+      : { success: false, rate: null, message: 'TCMB kuru okunamadı; sağlayıcı geçerli bir kur döndürmedi.' };
+  }
+
+  if (!hedef || typeof hedef !== 'object') {
+    return { success: false, rate: null, message: 'TCMB kuru okunamadı; sağlayıcı geçerli bir kur döndürmedi.' };
+  }
+
+  // 1) İŞ-SEVİYESİ HATA ÖNCE: `IsSucceeded:false` ise `Kuru` 0 olsa bile kur YOK.
+  if (isSeviyesiSonucuOku(veri) === 'basarisiz') {
+    return {
+      success: false,
+      rate: null,
+      message: isSeviyesiMesaji(veri) || 'TCMB kuru alınamadı; sağlayıcı iş hatası döndürdü.',
+    };
+  }
+
+  const d = hedef as Record<string, unknown>;
+  // Ölçülmüş alan adı `Kuru` başta; diğer adlar geniş uyum içindir.
+  const ham = d.Kuru ?? d.kuru ?? d.rate ?? d.Rate ?? d.Kur ?? d.kur;
+  const sayi = typeof ham === 'number' ? ham : Number(ham);
+  if (!Number.isFinite(sayi) || sayi <= 0) {
+    return { success: false, rate: null, message: 'TCMB kuru okunamadı; sağlayıcı geçerli bir kur döndürmedi.' };
+  }
+
+  // Kur tarihi YALNIZ sağlayıcı verdiyse taşınır; tarih uydurulmaz.
+  const tarih = d.KurTarihi ?? d.kurTarihi ?? d.Tarih ?? d.tarih ?? d.date ?? d.Date;
+  return {
+    success: true,
+    rate: sayi,
+    ...(tarih ? { rateDate: String(tarih) } : {}),
+  };
+}
+
 export class HizliConnectService {
   public static getBaseUrl(isTest: boolean): string {
     if (!isTest && process.env.HIZLI_BILISIM_ALLOW_PROD !== 'true') throw new Error('Hızlı Bilişim canlı ortam kilidi kapalı.');
@@ -1079,7 +1146,12 @@ export class HizliConnectService {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
-      return { success: true, rate: res.data?.rate || res.data, currency: paraBirimi };
+      // Ayrıştırma TEK yerde: `tcbmKurCoz` (alan adı `Kuru`, iş-seviyesi hata).
+      const cozulen = tcbmKurCoz(res.data);
+      if (!cozulen.success) {
+        return { success: false, rate: null, currency: paraBirimi, message: cozulen.message };
+      }
+      return { success: true, rate: cozulen.rate, currency: paraBirimi, ...(cozulen.rateDate ? { rateDate: cozulen.rateDate } : {}) };
     } catch (err: any) {
       // FAZ 12: Sahte döviz kuru (33.85 vb.) ÜRETİLMEZ — yanlış kur finansal hesabı bozar
       console.warn('[HIZLI_CONNECT] TcbmKurGetir hatası:', err?.response?.data?.Message || err?.message);
@@ -1107,25 +1179,15 @@ export class HizliConnectService {
     const isTest = tokenStore.isTestMode;
     try {
       const token = await this.ensureToken(isTest);
+      // Ayrıştırma `tcmbKurGetir` içindeki `tcbmKurCoz` ile AYNI yerde yapılır;
+      // burada yeniden sayı çözümü YAPILMAZ (aksi hâlde iki kopya ayrışır).
       const sonuc: any = await this.tcmbKurGetir(paraBirimi, kurTipi, token, isTest);
-      if (!sonuc?.success) {
+      if (!sonuc?.success || typeof sonuc.rate !== 'number') {
         return { success: false, rate: null, currency: paraBirimi, message: sonuc?.message };
       }
-      // Sağlayıcı ham nesne dönebilir (`res.data`). Kur alanı hangi adla
-      // gelirse gelsin AYNI değeri okuruz; uydurma yol yok.
-      const ham = sonuc.rate;
-      const sayi = typeof ham === 'number' ? ham : Number(ham?.rate ?? ham?.Kur ?? ham?.Rate ?? ham);
-      if (!Number.isFinite(sayi) || sayi <= 0) {
-        return {
-          success: false, rate: null, currency: paraBirimi,
-          message: 'TCMB kuru okunamadı; sağlayıcı geçerli bir kur döndürmedi.',
-        };
-      }
-      // Kur tarihi YALNIZ sağlayıcı verdiyse taşınır; tarih uydurulmaz.
-      const tarih = ham?.date ?? ham?.Date ?? ham?.kurTarihi ?? ham?.Tarih;
       return {
-        success: true, rate: sayi, currency: paraBirimi,
-        ...(tarih ? { rateDate: String(tarih) } : {}),
+        success: true, rate: sonuc.rate, currency: paraBirimi,
+        ...(sonuc.rateDate ? { rateDate: String(sonuc.rateDate) } : {}),
       };
     } catch (err: any) {
       return {

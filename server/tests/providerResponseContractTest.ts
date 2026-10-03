@@ -343,6 +343,74 @@ test('23) iş-seviyesi bayrağı OKUYUCUSU kökte `IsSucceeded:false` görür', 
   );
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// TCMB KURU SÖZLEŞMESİ (2026-10-03)
+//
+// ⚠️ NEDEN VAR: Canlıda dövizli (USD) alış faturası İÇERİ ALINAMIYORDU; onay
+// ekranında "TCMB kuru alınamadı; bu belge şu an içeri alınamaz" görünüyordu.
+// Kök neden ÖLÇÜLDÜ (salt okunur, canlı `econnect`):
+//
+//   GET /HizliApi/RestApi/TcbmKurGetir?kurTipi=SatisKur&paraBirimi=USD
+//   → {"Kuru":49.0582,"IsSucceeded":true,"Message":"Başarılı, Kur Getirildi."}
+//
+// Kur alanının adı **`Kuru`**'dur. Servis `rate`/`Kur`/`Rate` arıyordu; hiçbiri
+// tutmadığı için `Number({...})` → NaN oluyor ve kur "yok" sayılıyordu. Üstelik
+// `IsSucceeded:false` (geçersiz token) durumunda da `Kuru:0` döndüğü için,
+// iş-seviyesi hata kontrol edilmezse 0 (sıfır) kur sanılabilirdi.
+//
+// Bu test CANLI YANITIN GERÇEK ŞEKLİNİ sabitler: alan adı `Kuru` sessizce
+// değişirse veya iş-seviyesi kapı kaldırılırsa burada kırılır. Ağa ÇIKMAZ.
+// ════════════════════════════════════════════════════════════════════════════
+
+const { tcbmKurCoz } = await import('../services/hizliConnectService');
+
+test('24) TCMB kur çözücü: canlı `Kuru` alanı okunur (regresyon)', () => {
+  // 2026-10-03 canlı yanıt şekli — birebir.
+  const canli = { Kuru: 49.0582, IsSucceeded: true, Message: 'Başarılı, Kur Getirildi.' };
+  const r = tcbmKurCoz(canli);
+  assert.equal(r.success, true, 'canlı gövde çözülmeli');
+  assert.equal(r.rate, 49.0582, 'kur değeri AYNEN okunmalı — eski kod NaN veriyordu');
+});
+
+test('25) TCMB kur çözücü: `IsSucceeded:false` iş hatası — `Kuru:0` kur SAYILMAZ', () => {
+  // Geçersiz token'da sağlayıcı HTTP 200 + bu gövdeyi döner.
+  const gecersizToken = { Kuru: 0, IsSucceeded: false, Message: 'Geçersiz Token! Lütfen tekrar giriş yapınız!' };
+  const r = tcbmKurCoz(gecersizToken);
+  assert.equal(r.success, false, 'iş hatası başarı sayılmamalı');
+  assert.equal(r.rate, null, 'kur YOK — 0 sıfır kur olarak kullanılmamalı');
+  assert.match(String(r.message), /Geçersiz Token/, 'sağlayıcının iş mesajı iletilmeli');
+});
+
+test('26) TCMB kur çözücü: alan adı değişse de (camel/alias) çalışır, kur UYDURULMAZ', () => {
+  // İleri uyum: sağlayıcı camelCase'e dönerse.
+  assert.equal(tcbmKurCoz({ kuru: 47.5, isSucceeded: true }).rate, 47.5);
+  assert.equal(tcbmKurCoz({ rate: 47.5, IsSucceeded: true }).rate, 47.5);
+  // Kur alanı HİÇ yoksa: uydurma yok, dürüst başarısızlık.
+  const bos = tcbmKurCoz({ IsSucceeded: true });
+  assert.equal(bos.success, false, 'kur yoksa başarı DENMEMELİ');
+  assert.equal(bos.rate, null, 'varsayılan kur ÜRETİLMEMELİ');
+  // Sağlayıcı düz sayı dönerse de kabul (küçük olasılık).
+  assert.equal(tcbmKurCoz(49.0582).rate, 49.0582);
+});
+
+test('27) TCMB kur ayrıştırması TEK yerde (`tcbmKurCoz`) — kopya ayrışma kapısı', () => {
+  const kaynak = fs.readFileSync(
+    path.join(process.cwd(), 'server/services/hizliConnectService.ts'),
+    'utf8'
+  );
+  // `tcmbKurGetirGuvenli` artık KENDİ sayı çözümünü yapmamalı; ortak fonksiyonu kullanmalı.
+  assert.match(
+    kaynak,
+    /export function tcbmKurCoz/,
+    'tcbmKurCoz saf fonksiyonu kaldırılmış'
+  );
+  assert.doesNotMatch(
+    kaynak,
+    /ham\?\.rate \?\? ham\?\.Kur/,
+    'eski (bozuk) alan-adı sırası geri gelmiş — `Kuru` alanı okunmaz ve döviz faturası içeri alınamaz'
+  );
+});
+
 console.log(`\nSonuç: ${gecti} PASS`);
 if (process.exitCode === 1) {
   console.error('BAZI TESTLER BAŞARISIZ — PASS sayılmaz.');
