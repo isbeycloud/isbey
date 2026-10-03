@@ -3,6 +3,7 @@ import {
   IncomingInvoice,
   IncomingInvoiceItem,
   Invoice,
+  CashRegister,
   Customer,
   Product,
   Tenant,
@@ -10,6 +11,7 @@ import {
 import { ProviderFactory } from './providers/providerFactory';
 import { DocumentStorageService } from './documentStorageService';
 import { DocumentConversionService } from './documentConversionService';
+import { ensureCurrencyCashRegister, normalizeCurrency } from './currencyCashRegister';
 import { parseUblDocument } from './ubl/ublParser';
 import { XmlValidatorService } from './ubl/xmlValidatorService';
 import {
@@ -548,6 +550,9 @@ export class IncomingInvoiceService {
       // 2026-09-29: öğrenilmiş tedarikçi-ürün eşleştirmeleri. Bu olmadan her
       // faturada aynı eşleştirme yeniden elle yapılırdı.
       savedMappings: db.productSupplierMappings || [],
+      // 2026-10-03: Döviz faturasında onay ekranı "hangi kasaya gidecek"
+      // bilgisini ONAYDAN ÖNCE gösterebilsin. Verilmezse önizleme üretilmez.
+      cashRegisters: db.cashRegisters || [],
     });
   }
 
@@ -570,6 +575,27 @@ export class IncomingInvoiceService {
       supplierId?: string;
       createSupplier?: boolean;
       lines?: Array<{ lineNo: string; productId?: string; createProduct?: boolean }>;
+      /**
+       * 2026-10-03 — DÖVİZ DÖNÜŞÜMÜ.
+       *
+       * Belge TRY dışıysa, çağıran taraf GERÇEK TCMB kurunu burada verir.
+       * `createInvoice` motoru kur parametresi ALMAZ (md.3); bu yüzden
+       * dönüşüm BURADA yapılır ve motora TL tutarlar geçilir.
+       *
+       * ⚠️ Kur UYDURULMAZ: dövizli belgede bu alan YOKSA işlem hata ile
+       * durur. Arayüz kur alınamadığında "içeri al" düğmesini kapalı tutar;
+       * ama sunucu da kendi kapısını kurar — düğme gizlemek güvence değildir.
+       */
+      currencyConversion?: {
+        /** Belgenin para birimi (ör. `USD`). */
+        documentCurrency: string;
+        /** 1 birim belge para birimi kaç TL. Pozitif olmalı. */
+        exchangeRate: number;
+        /** Kurun tarihi (`YYYY-MM-DD`). */
+        rateDate?: string;
+        /** Kurun kaynağı (`TCMB`). */
+        rateSource?: string;
+      };
     }
   ): Promise<Invoice> {
     // ⚠️ TEK TRANSACTION — BURADA TUTULMASI ZORUNLU.
@@ -630,6 +656,51 @@ export class IncomingInvoiceService {
       const plan = this.getIngestionPlan(incomingInvoiceId, tenantId);
       if (plan.blockedReason) {
         throw new IncomingDocumentError('NOT_INGESTIBLE', `Belge içeri aktarılamaz: ${plan.blockedReason}`);
+      }
+
+      // ── DÖVİZ DÖNÜŞÜMÜ (2026-10-03) ──────────────────────────────────────
+      //
+      // ⚠️ KUR SUNUCUDA DOĞRULANIR: `createInvoice` motoru TL yazar ve kur
+      // almaz (md.3). Dövizli belgeyi olduğu gibi geçirmek "1.000 USD"i
+      // "1.000 TL" yapardı. Bu yüzden tutarlar burada TL'ye çevrilir.
+      //
+      // ⚠️ KUR ZORUNLU ve GERÇEK olmalı (md.1: sahte başarı yok). Arayüz kur
+      // göndermezse işlem DURUR; varsayılan 1.0 kullanmak, 1 USD = 1 TL
+      // yazmak demek olurdu ve bu sessiz bir muhasebe felaketidir.
+      const dovizBilgisi = plan.currencyConversion;
+      let kur = 1;
+      let kurTarihi: string | undefined;
+      let kurKaynagi: string | undefined;
+      let dovizKasasi: CashRegister | undefined;
+
+      if (dovizBilgisi?.isForeign) {
+        const dc = (decisions?.currencyConversion?.documentCurrency || '').trim().toUpperCase();
+        const gelenKur = Number(decisions?.currencyConversion?.exchangeRate);
+
+        // Belgedeki para birimi ile gönderilen kur para birimi AYNI olmalı:
+        // USD belgeye EUR kuru uygulamak borcu yanlış hesaplardı.
+        if (!dc || normalizeCurrency(dc) !== normalizeCurrency(dovizBilgisi.documentCurrency)) {
+          throw new IncomingDocumentError(
+            'INVALID_STATE',
+            `Belge ${dovizBilgisi.documentCurrency} para biriminde. ` +
+              `İçeri almak için ${dovizBilgisi.documentCurrency} kurunun doğrulanması gerekir; ` +
+              `gönderilen para birimi: ${dc || '(boş)'}. Kur sorgulayıp tekrar deneyin.`
+          );
+        }
+        if (!Number.isFinite(gelenKur) || gelenKur <= 0) {
+          throw new IncomingDocumentError(
+            'INVALID_STATE',
+            `Belge ${dovizBilgisi.documentCurrency} para biriminde; geçerli bir kur gelmedi. ` +
+              `Kur olmadan içeri alınamaz — aksi hâlde ${dovizBilgisi.documentCurrency} tutarı TL gibi yazılır.`
+          );
+        }
+
+        kur = gelenKur;
+        kurTarihi = decisions?.currencyConversion?.rateDate;
+        kurKaynagi = decisions?.currencyConversion?.rateSource;
+        // Döviz kasası: yoksa BURADA, transaction içinde açılır. Böylece
+        // onay ekranının vaat ettiği kasa ile gerçekte yazılan kasa aynıdır.
+        dovizKasasi = ensureCurrencyCashRegister(draft, tenantId, dovizBilgisi.documentCurrency);
       }
 
       const tenant = (draft.tenants || []).find(t => t.id === tenantId);
@@ -740,7 +811,14 @@ export class IncomingInvoiceService {
         items.push({
           productId: product.id,
           quantity: lm.line.quantity,
-          unitPrice: lm.line.unitPrice,
+          // 2026-10-03: Dövizli belgede birim fiyat GERÇEK kurla TL'ye çevrilir.
+          // Motor TL yazar ve kur almaz (md.3); çevrim burada yapılmazsa 1.000
+          // USD kalemi "1.000 TL" olarak stok maliyetine ve cari borca yazılırdı.
+          // KDV oranı bir yüzde olduğundan çevrilmez; oran para biriminden
+          // bağımsızdır.
+          unitPrice: dovizKasasi
+            ? Math.round(lm.line.unitPrice * kur * 1e6) / 1e6
+            : lm.line.unitPrice,
           vatRate: lm.line.vatRate,
           // ⚠️ 2026-09-29: Belgede satır iskontosu varsa YÜZDE olarak geçilir.
           // Geçilmezse fatura motoru brüt tutarı esas alır ve alış faturası
@@ -762,8 +840,23 @@ export class IncomingInvoiceService {
         customerId: supplier.id,
         date: inc.issueDate || new Date().toISOString().slice(0, 10),
         items,
+        // 2026-10-03: Dövizli belgede tutar TL'ye çevrildiği için fatura döviz
+        // kasasına bağlanır. TRY belgede `undefined` kalır; motor kendi
+        // varsayılan davranışını sürdürür ve mevcut akış değişmez.
+        ...(dovizKasasi ? { cashRegisterId: dovizKasasi.id } : {}),
         notes:
           `Gelen e-Faturadan aktarıldı (ETTN: ${inc.uuid}, Fatura No: ${inc.invoiceNo}).` +
+          // ⚠️ DÖVİZ KÜNYESİ ZORUNLU: Tutar TL'ye çevrildi; belgenin KENDİ
+          // tutarı ve kuru faturada görünmezse, belgeyi sonradan inceleyen
+          // kullanıcı fiyatı yanlış okuyamaz ama "kur kaçtı, kim çevirdi"
+          // sorusunun cevabını da bulamazdı. Orijinal değerler KORUNUR.
+          (dovizBilgisi?.isForeign && dovizKasasi
+            ? ` Belge ${dovizBilgisi.documentCurrency} para biriminde düzenlenmişti ` +
+              `(${dovizBilgisi.documentPayable.toFixed(2)} ${dovizBilgisi.documentCurrency}); ` +
+              `tutarlar ${kurTarihi ? `${kurTarihi} tarihli ` : ''}` +
+              `${kurKaynagi || 'TCMB'} kuruyla (1 ${dovizBilgisi.documentCurrency} = ${kur} TL) ` +
+              `TL'ye çevrilerek kaydedildi. Döviz kasası: ${dovizKasasi.name} (${dovizKasasi.code}).`
+            : '') +
           // KDV dışı vergi varsa fark AÇIKÇA yazılır: sessizce yutmak, cari
           // borcun belgedeki ödenecek tutardan küçük olmasına yol açar ve
           // kullanıcı nedenini bulamazdı.

@@ -4,6 +4,7 @@ import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../.
 import { ElectronicDocumentService } from '../../services/electronicDocumentService';
 import { IncomingInvoiceService } from '../../services/incomingInvoiceService';
 import { IncomingDespatchService } from '../../services/incomingDespatchService';
+import { HizliConnectService } from '../../services/hizliConnectService';
 import { DocumentStorageService } from '../../services/documentStorageService';
 import { ProviderConfigurationError, ProviderTransportError } from '../../services/providers/providerFactory';
 import { IncomingDocumentError } from '../../errors/incomingDocumentError';
@@ -533,6 +534,72 @@ v1EDocumentsRouter.get(
 );
 
 /**
+ * GET /api/v1/e-documents/incoming/:id/exchange-rate
+ *
+ * Dövizli gelen faturanın TL'ye çevrilmesi için GERÇEK TCMB kurunu getirir.
+ * **Salt-okunur** — hiçbir şey yazmaz, belgeye dokunmaz.
+ *
+ * ⚠️ NEDEN AYRI UÇ: `getIngestionPlan` sözleşmesi gereği ağ çağrısı yapmaz
+ * (saf fonksiyondur). Kur için sağlayıcıya çıkılması gerekir; bunu plan
+ * ucunun yan etkisi yapmak, "sadece ekrana baktım" durumunda bile entegratör
+ * çağrısı doğururdu — üstelik kullanıcı belgeyi dövizli diye açmadıysa
+ * gereksiz yere.
+ *
+ * ⚠️ BAŞARISIZSA `success:false` DÖNER, kur UYDURULMAZ (md.1). Arayüz bu
+ * durumda "içeri al" düğmesini KAPALI tutar; sunucu da kur olmadan içeri
+ * almaz (`approveAndConvert` kendi kapısını kurar — düğme güvence değildir).
+ *
+ * Yetki `einvoice.view`: bu bir OKUMA işlemidir, malî sonuç doğurmaz.
+ */
+v1EDocumentsRouter.get(
+  '/incoming/:id/exchange-rate',
+  requirePermission(PERMISSIONS.EINVOICE_VIEW),
+  async (req: Request, res: Response) => {
+    const tenantId = req.tenantId!;
+    try {
+      // Belgenin para birimi KAYITTAN okunur; sorgu parametresine güvenmeyiz.
+      // Aksi hâlde istemci USD belgeye EUR kuru isteyebilirdi.
+      const plan = IncomingInvoiceService.getIngestionPlan(String(req.params.id), tenantId);
+      const doviz = plan.currencyConversion;
+      if (!doviz?.isForeign) {
+        return res.json({
+          success: false,
+          isForeign: false,
+          message: 'Belge TL para biriminde; kur gerekmez.',
+        });
+      }
+
+      const kurTipi = req.query.type === 'AlisKur' ? 'AlisKur' : 'SatisKur';
+      const sonuc = await HizliConnectService.tcmbKurGetirGuvenli(doviz.documentCurrency, kurTipi);
+      if (!sonuc.success || !sonuc.rate) {
+        return res.json({
+          success: false,
+          isForeign: true,
+          currency: doviz.documentCurrency,
+          message: sonuc.message || 'TCMB kuru alınamadı.',
+        });
+      }
+
+      res.json({
+        success: true,
+        isForeign: true,
+        currency: doviz.documentCurrency,
+        rate: sonuc.rate,
+        rateType: kurTipi,
+        ...(sonuc.rateDate ? { rateDate: sonuc.rateDate } : {}),
+        source: 'TCMB',
+        // Önizleme: kullanıcı içeri almadan önce TL karşılığını görür.
+        documentPayable: doviz.documentPayable,
+        payableInTry: Math.round(doviz.documentPayable * sonuc.rate * 100) / 100,
+        cashRegister: doviz.cashRegister,
+      });
+    } catch (err: any) {
+      return belgeHatasi(res, err);
+    }
+  }
+);
+
+/**
  * POST /api/v1/e-documents/incoming/:id/reviewed
  *
  * Kullanıcının belgeyi İNCELEDİĞİNİ işaretler. **Hiçbir malî etkisi yoktur.**
@@ -589,7 +656,7 @@ v1EDocumentsRouter.post(
 v1EDocumentsRouter.post('/incoming/:id/convert', requirePermission(PERMISSIONS.INVOICES_CREATE), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
-  const { supplierId, createSupplier, lines } = req.body || {};
+  const { supplierId, createSupplier, lines, currencyConversion } = req.body || {};
 
   try {
     const invoice = await IncomingInvoiceService.approveAndConvert(
@@ -597,7 +664,9 @@ v1EDocumentsRouter.post('/incoming/:id/convert', requirePermission(PERMISSIONS.I
       tenantId,
       user.id,
       user.fullName || user.username,
-      { supplierId, createSupplier, lines }
+      // 2026-10-03: Dövizli belgede kur ZORUNLU. Gönderilmezse servis işlemi
+      // durdurur — burada varsayılan kur ATANMAZ (uydurma kur yasağı, md.1).
+      { supplierId, createSupplier, lines, currencyConversion }
     );
     res.status(201).json({
       success: true,

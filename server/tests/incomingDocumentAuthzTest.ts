@@ -33,6 +33,12 @@ if (process.env.NODE_ENV !== 'test' || path.basename(configuredPath) !== 'incomi
 }
 process.env.JWT_SECRET ||= crypto.randomBytes(48).toString('hex');
 
+// XML deposu geçici klasöre taşınır — bu testte dövizli belge kurulurken
+// belge içeriği diske yazılır; depo köküne dosya BIRAKILMAZ.
+if (!process.env.ISBEY_DATA_DIR) {
+  process.env.ISBEY_DATA_DIR = path.join(os.tmpdir(), 'isbey-authz-data');
+}
+
 const { storage } = await import('../db/storage');
 const { v1EDocumentsRouter } = await import('../routes/v1/e-documents');
 const { generateToken } = await import('../routes/auth');
@@ -450,6 +456,146 @@ test('inceleme işareti: plan ucu SALT-OKUNUR kalır, işaret AYRI uçtan atıl�
   assert.equal(sonra.sayaclar.PENDING_MATCH, once.sayaclar.PENDING_MATCH + 1, 'bekleyen sayacı bir artmalı');
   // Bekleyen toplam DEĞİŞMEZ: iş yükü aynı, yalnız sınıfı değişti.
   assert.equal(sonra.sayaclar.pendingOperation, once.sayaclar.pendingOperation);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5b. DÖVİZ KURU UCU (2026-10-03)
+//
+// ⚠️ ÖLÇÜLEN RİSK: Dövizli faturayı TL'ye çeviren kur yanlış olursa tedarikçi
+// borcu ve stok maliyeti yanlış yazılır. Kur ucunun (a) yetkisiz kullanıcıya
+// AÇILMADIĞINI, (b) TL belgede sağlayıcıya HİÇ ÇIKMADIĞINI ve (c) çağrıldığında
+// döviz kasasını AÇMADIĞINI (salt-okunur) kanıtlamak gerekir.
+//
+// ⚠️ AĞ İSTEĞİ YOK: `tcmbKurGetirGuvenli` yerel bir taklit ile değiştirilir.
+// Taklit kur UYDURMAZ — testin verdiği değeri aynen döndürür; amaç sağlayıcıyı
+// değil, UÇ SÖZLEŞMESİNİ ölçmek.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Dövizli / TL belgeler için gerçek XML diske yazılır: plan ancak o zaman kurulur.
+async function belgeKur(id: string, uuid: string, belgeNo: string, paraBirimi: string, fiyat: number) {
+  const { DocumentStorageService } = await import('../services/documentStorageService');
+  const { faturaXml } = await import('./fixtures/ublFixtureBuilder');
+  const xml = faturaXml({
+    uuid, belgeNo, paraBirimi,
+    saticiVkn: '5556667778', saticiUnvan: 'Kur Testi Tedarikçisi',
+    aliciVkn: '1111111111', aliciUnvan: 'Yetki Testi Firma',
+    satirlar: [{ no: '1', ad: 'Kur Testi Kalem', kod: 'KUR-1', miktar: 1, fiyat, kdv: 20 }],
+  });
+  const yol = DocumentStorageService.saveXml(T, 'incoming_invoice', uuid, xml);
+  storage.update(db => {
+    (db.incomingInvoices || []).push({
+      id, tenantId: T, uuid, invoiceNo: belgeNo,
+      supplierTitle: 'Kur Testi Tedarikçisi', supplierTaxNumber: '5556667778',
+      issueDate: '2026-09-20', status: 'RECEIVED', xmlStoragePath: yol, items: [],
+    } as any);
+  });
+}
+
+function dovizKasaSayisi(): number {
+  return (storage.getState().cashRegisters || []).filter(k => k.tenantId === T && k.currency === 'USD').length;
+}
+
+/** Sağlayıcı çağrısını yerel taklitle değiştirir; `cagrildi` ile sayılır. */
+function saglayiciSahte(yanit: any) {
+  let cagri = 0;
+  return {
+    cagrildi: () => cagri,
+    kur: () => async (pb: string) => {
+      cagri++; // ⚠️ sayaç YALNIZ gerçek çağrıda artar; fabrika üretirken değil
+      return { ...yanit, currency: pb };
+    },
+  };
+}
+
+test('kur ucu: yetki sözleşmesi — SATIS/VIEWER 403, anonim 401, MUHASEBE geçer', async () => {
+  // Yetkisizlik denetimi işleyiciden ÖNCE olur: sağlayıcıya ÇIKILMAZ.
+  const s = await istek('k-satis', '/api/v1/e-documents/incoming/ii-hic-yok/exchange-rate');
+  const v = await istek('k-rapor', '/api/v1/e-documents/incoming/ii-hic-yok/exchange-rate');
+  assert.equal(s.status, 403, `SATIS kur ucunda 403 almalı, gelen ${s.status}`);
+  assert.equal(v.status, 403, `VIEWER kur ucunda 403 almalı, gelen ${v.status}`);
+  assert.equal(s.json.code, 'FORBIDDEN_PERMISSION');
+
+  const anon = await fetch(base + '/api/v1/e-documents/incoming/ii-hic-yok/exchange-rate');
+  assert.equal(anon.status, 401, "token'sız istek 401 olmalı — 'ilk kullanıcı' fallback'i YASAK");
+
+  // MUHASEBE yetkiyi GEÇER (kayıt olmadığı için 404 — ama 403 DEĞİL).
+  const m = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-hic-yok/exchange-rate');
+  assert.equal(m.status, 404, `MUHASEBE yetkiyi geçmeli (kayıt yok → 404), gelen ${m.status}`);
+
+  const fa = await istek('k-firmaadmin', '/api/v1/e-documents/incoming/ii-hic-yok/exchange-rate');
+  assert.equal(fa.status, 404, `COMPANY_ADMIN yetkiyi geçmeli (kayıt yok → 404), gelen ${fa.status}`);
+});
+
+test('kur ucu: TL belgede sağlayıcıya HİÇ ÇIKMAZ (isForeign:false)', async () => {
+  await belgeKur('ii-kur-tl', 'inv-uuid-kur-tl', 'AF-KUR-TL', 'TRY', 100);
+
+  const { HizliConnectService } = await import('../services/hizliConnectService');
+  const gercek = (HizliConnectService as any).tcmbKurGetirGuvenli;
+  const sahte = saglayiciSahte({ success: true, rate: 40, rateDate: '2026-09-20' });
+  (HizliConnectService as any).tcmbKurGetirGuvenli = sahte.kur();
+  try {
+    const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-kur-tl/exchange-rate');
+    assert.equal(r.status, 200);
+    assert.equal(r.json.isForeign, false, 'TL belge dövizli sayılmamalı');
+    assert.equal(r.json.rate, undefined, 'TL belgede kur alanı DÖNMEMELİ');
+    assert.equal(sahte.cagrildi(), 0, 'TL belgede sağlayıcıya ÇIKILMAMALI');
+  } finally {
+    (HizliConnectService as any).tcmbKurGetirGuvenli = gercek;
+  }
+});
+
+test('kur ucu: dövizli belgede kasa BİLDİRİR + TL karşılık verir, kasa AÇMAZ', async () => {
+  await belgeKur('ii-kur-usd', 'inv-uuid-kur-usd', 'AF-KUR-USD', 'USD', 1000);
+  assert.equal(dovizKasaSayisi(), 0, 'başlangıçta USD kasası YOK');
+
+  const { HizliConnectService } = await import('../services/hizliConnectService');
+  const gercek = (HizliConnectService as any).tcmbKurGetirGuvenli;
+  const sahte = saglayiciSahte({ success: true, rate: 40, rateDate: '2026-09-20' });
+  (HizliConnectService as any).tcmbKurGetirGuvenli = sahte.kur();
+  try {
+    const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-kur-usd/exchange-rate');
+    assert.equal(r.status, 200);
+    assert.equal(r.json.success, true, `kur gelmeli: ${JSON.stringify(r.json)}`);
+    assert.equal(r.json.isForeign, true);
+    assert.equal(r.json.currency, 'USD');
+    assert.equal(r.json.rate, 40, 'takladin verdiği kur AYNEN dönmeli — dönüşüm uçta değil');
+    assert.equal(r.json.source, 'TCMB');
+    assert.equal(r.json.documentPayable, 1200);
+    assert.equal(r.json.payableInTry, 48000, 'önizleme TL karşılığı doğru hesaplanmalı');
+    // Kullanıcıya "hangi döviz kasası" BİLDİRİLİR.
+    assert.equal(r.json.cashRegister.code, 'KAS-USD');
+    assert.equal(r.json.cashRegister.currency, 'USD');
+    assert.equal(r.json.cashRegister.exists, false, 'kasa henüz yok — onayda açılacak');
+    assert.equal(sahte.cagrildi(), 1, 'sağlayıcı TAM BİR kez çağrılmalı');
+  } finally {
+    (HizliConnectService as any).tcmbKurGetirGuvenli = gercek;
+  }
+
+  // SALT-OKUNUR: kur ucu ne kasa açar ne fatura oluşturur.
+  assert.equal(dovizKasaSayisi(), 0, 'kur ucu döviz kasası AÇMAMALI');
+  assert.equal(
+    (storage.getState().invoices || []).filter(i => i.tenantId === T).length, 0,
+    'kur ucu fatura OLUŞTURMAMALI'
+  );
+});
+
+test('kur ucu: sağlayıcı kur VERMEZSE success:false döner, kur UYDURULMAZ', async () => {
+  const { HizliConnectService } = await import('../services/hizliConnectService');
+  const gercek = (HizliConnectService as any).tcmbKurGetirGuvenli;
+  (HizliConnectService as any).tcmbKurGetirGuvenli = saglayiciSahte({
+    success: false, rate: null, message: 'TCMB kuru alınamadı (taklit).',
+  }).kur();
+  try {
+    const r = await istek('k-muhasebe', '/api/v1/e-documents/incoming/ii-kur-usd/exchange-rate');
+    assert.equal(r.status, 200, 'sağlayıcı hatası HTTP hatası DEĞİL — gövdede bildirilir');
+    assert.equal(r.json.success, false, 'başarısızlık DÜRÜSTÇE bildirilmeli');
+    assert.equal(r.json.isForeign, true);
+    assert.equal(r.json.rate, undefined, 'kur yoksa kur ALANI OLMAMALI');
+    assert.match(String(r.json.message), /kur/i, 'başarısızlığın NEDENİ söylenmeli');
+  } finally {
+    (HizliConnectService as any).tcmbKurGetirGuvenli = gercek;
+  }
+  assert.equal(dovizKasaSayisi(), 0, 'kur alınamadıysa da kasa AÇILMAMALI');
 });
 
 test('inceleme işareti: olmayan belge 404 döner (400 değil)', async () => {

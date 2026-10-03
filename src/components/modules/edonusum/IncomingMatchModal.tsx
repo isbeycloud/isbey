@@ -38,6 +38,20 @@ interface Props {
   yeniSatici: boolean;
   setYeniSatici: (v: boolean) => void;
   islemde: boolean;
+  /**
+   * 2026-10-03 — Döviz kuru durumu. Yalnız TRY dışı faturalarda doludur.
+   * `rate:null` → kur YOK; onay düğmesi kapalı kalır (varsayılan kur yasak).
+   */
+  kur?: {
+    yukleniyor: boolean;
+    rate: number | null;
+    currency?: string;
+    rateDate?: string;
+    source?: string;
+    payableInTry?: number;
+    cashRegister?: { id: string; name: string; code: string; currency: string; exists: boolean };
+    hata?: string;
+  };
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -71,9 +85,23 @@ const miktar = (n: number) =>
 export const IncomingMatchModal: React.FC<Props> = ({
   isOpen, loading, tur, plan, urunler, cariler,
   urunSecimi, setUrunSecimi, saticiSecimi, setSaticiSecimi,
-  yeniSatici, setYeniSatici, islemde, onClose, onConfirm,
+  yeniSatici, setYeniSatici, islemde, kur, onClose, onConfirm,
 }) => {
   const irsaliyeMi = tur === 'DESPATCH';
+
+  /**
+   * Döviz bloğu gösterilsin mi? Yalnız TRY dışı FATURADA (irsaliyede cari
+   * borç oluşmaz; kur sorunu yoktur) ve plan döviz bilgisi taşıyorsa.
+   */
+  const doviz = plan?.currencyConversion;
+  const dovizMi = !irsaliyeMi && !!doviz?.isForeign;
+
+  /**
+   * ⚠️ KUR YOKSA İÇERİ ALINAMAZ. Sunucu da aynı kapıyı kurar; buradaki
+   * kapanış kullanıcıya NEDEN tıklayamadığını gösteren kolaylıktır, güvence
+   * sunucudadır. Varsayılan kur (1.0) kullanmak 1 USD = 1 TL yazmak olurdu.
+   */
+  const kurYok = dovizMi && (!kur || (!kur.yukleniyor && !kur.rate));
 
   /** Toplu eşleştirme yardımcıları (100 satırlık fatura için). */
   const [yalnizEksik, setYalnizEksik] = useState(false);
@@ -189,11 +217,21 @@ export const IncomingMatchModal: React.FC<Props> = ({
         <button
           className="btn btn-primary"
           onClick={onConfirm}
-          disabled={islemde || !!plan.blockedReason}
-          title={plan.blockedReason ? `İçeri aktarılamaz: ${plan.blockedReason}` : undefined}
+          disabled={islemde || !!plan.blockedReason || kurYok || !!kur?.yukleniyor}
+          title={
+            plan.blockedReason
+              ? `İçeri aktarılamaz: ${plan.blockedReason}`
+              : kurYok
+              ? 'Dövizli belge: TCMB kuru alınamadan içeri alınamaz.'
+              : kur?.yukleniyor
+              ? 'TCMB kuru sorgulanıyor...'
+              : undefined
+          }
         >
           {islemde
             ? 'İşleniyor...'
+            : kur?.yukleniyor
+            ? 'Kur sorgulanıyor...'
             : irsaliyeMi ? 'STOK GİRİŞİNİ ONAYLA' : 'ALIŞ FATURASI OLARAK İÇERİ AL'}
         </button>
       </div>
@@ -221,6 +259,87 @@ export const IncomingMatchModal: React.FC<Props> = ({
                 <b>Bu belge içeri aktarılamaz.</b>
                 <div style={{ marginTop: '2px' }}>{plan.blockedReason}</div>
               </div>
+            </div>
+          )}
+
+          {/* ── DÖVİZ DÖNÜŞÜMÜ (2026-10-03) ─────────────────────────────── */}
+          {dovizMi && doviz && (
+            <div style={{
+              padding: '12px', background: 'rgba(37,99,235,0.06)',
+              border: '1px solid var(--primary)', borderRadius: 'var(--radius-md, 8px)',
+              fontSize: '13px',
+            }}>
+              <b style={{ color: 'var(--primary)' }}>
+                Bu belge {doviz.documentCurrency} para biriminde düzenlenmiş
+              </b>
+              <div style={{ marginTop: '6px', color: 'var(--text-main)' }}>
+                Alış faturası TL olarak kaydedilir. Belgedeki{' '}
+                <b>{tutar(doviz.documentPayable).replace('₺', doviz.documentCurrency)}</b> tutar,
+                aşağıdaki TCMB kuruyla TL'ye çevrilerek yazılacak.
+              </div>
+
+              {kur?.yukleniyor && (
+                <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
+                  TCMB kuru sorgulanıyor...
+                </div>
+              )}
+
+              {!kur?.yukleniyor && kur?.rate && (
+                <div style={{
+                  marginTop: '10px', display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Kur ({kur.rateDate || 'güncel'}{kur.source ? ` · ${kur.source}` : ' · TCMB'})
+                    </div>
+                    <div style={{ fontWeight: 700 }}>
+                      1 {kur.currency || doviz.documentCurrency} = {kur.rate.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ₺
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Faturaya yazılacak TL tutarı
+                    </div>
+                    <div style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                      {tutar(kur.payableInTry ?? doviz.documentPayable * kur.rate)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!kur?.yukleniyor && !kur?.rate && (
+                <div style={{
+                  marginTop: '8px', padding: '8px 10px',
+                  background: 'var(--danger-bg, rgba(220,38,38,0.08))',
+                  border: '1px solid var(--danger)', borderRadius: '6px',
+                  color: 'var(--danger)',
+                }}>
+                  <b>TCMB kuru alınamadı; bu belge şu an içeri alınamaz.</b>
+                  <div style={{ marginTop: '2px' }}>
+                    {kur?.hata || 'Kur olmadan içeri alınırsa döviz tutarı TL gibi yazılır ve tedarikçi borcu yanlış oluşur.'}
+                  </div>
+                  <div style={{ marginTop: '2px', color: 'var(--text-muted)' }}>
+                    Kur hizmeti düzelince onay ekranını yeniden açın.
+                  </div>
+                </div>
+              )}
+
+              {doviz.cashRegister && (
+                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    Hedef döviz kasası
+                  </div>
+                  <div style={{ fontWeight: 600 }}>
+                    {doviz.cashRegister.name} ({doviz.cashRegister.code})
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {doviz.cashRegister.exists
+                      ? `Bu ${doviz.documentCurrency} kasası mevcut; tutar bu kasaya işlenecek.`
+                      : `Bu para biriminde kasa henüz yok; içeri alırken "${doviz.cashRegister.name}" kasası otomatik açılacak.`}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -560,12 +679,37 @@ export const IncomingMatchModal: React.FC<Props> = ({
                 {!irsaliyeMi && (
                   <>
                     <div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>BELGE TUTARI</div>
-                      <div style={{ fontWeight: 600 }}>{tutar(iceriAlinacakTutar)}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                        {dovizMi && doviz
+                          ? `BELGE TUTARI (${doviz.documentCurrency})`
+                          : 'BELGE TUTARI'}
+                      </div>
+                      <div style={{ fontWeight: 600 }}>
+                        {dovizMi && doviz
+                          ? `${doviz.documentPayable.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${doviz.documentCurrency}`
+                          : tutar(iceriAlinacakTutar)}
+                      </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>CARİ BORÇ</div>
-                      <div style={{ fontWeight: 700, color: 'var(--primary)' }}>{tutar(iceriAlinacakTutar)}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>CARİ BORÇ (TL)</div>
+                      {/*
+                        ⚠️ Dövizli belgede cari borç TL'dir ve KUR GEREKTİRİR.
+                        Kur yoksa "hesaplanacak" yazılır — tutarın yazılmış gibi
+                        gösterilmesi, kullanıcıya olmayan bir sonucu vaat ederdi.
+                      */}
+                      {dovizMi ? (
+                        kur?.rate ? (
+                          <div style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                            {tutar(kur.payableInTry ?? doviz!.documentPayable * kur.rate)}
+                          </div>
+                        ) : (
+                          <div style={{ fontWeight: 700, color: 'var(--warning)' }}>
+                            {kur?.yukleniyor ? 'Kur bekleniyor…' : 'HESAPLANAMADI (kur yok)'}
+                          </div>
+                        )
+                      ) : (
+                        <div style={{ fontWeight: 700, color: 'var(--primary)' }}>{tutar(iceriAlinacakTutar)}</div>
+                      )}
                     </div>
                   </>
                 )}

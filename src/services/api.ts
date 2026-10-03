@@ -881,6 +881,29 @@ export const api = {
     request<{ success: boolean; plan: IngestionPlan }>(`/v1/e-documents/incoming/${id}/plan`),
 
   /**
+   * Dövizli gelen faturanın TL'ye çevrilmesi için GERÇEK TCMB kurunu getirir.
+   *
+   * ⚠️ SALT OKUNUR — belgeye dokunmaz, hiçbir şey yazmaz.
+   * ⚠️ `success:false` dönebilir (sağlayıcı kur vermezse). Bu durumda kur
+   * UYDURULMAZ; arayüz "içeri al" düğmesini kapalı tutmalıdır. Varsayılan bir
+   * kur kullanmak, 1 USD = 1 TL gibi sessiz bir muhasebe hatası demek olurdu.
+   */
+  getIncomingExchangeRate: (id: string, type: 'AlisKur' | 'SatisKur' = 'SatisKur') =>
+    request<{
+      success: boolean;
+      isForeign?: boolean;
+      currency?: string;
+      rate?: number;
+      rateType?: string;
+      rateDate?: string;
+      source?: string;
+      documentPayable?: number;
+      payableInTry?: number;
+      cashRegister?: { id: string; name: string; code: string; currency: string; exists: boolean };
+      message?: string;
+    }>(`/v1/e-documents/incoming/${id}/exchange-rate?type=${type}`),
+
+  /**
    * Gelen faturayı ONAYLANAN eşleştirmelerle alış faturasına dönüştürür.
    * Stok girişi ve tedarikçi borcu yalnız burada oluşur.
    */
@@ -890,6 +913,16 @@ export const api = {
       supplierId?: string;
       createSupplier?: boolean;
       lines?: Array<{ lineNo: string; productId?: string; createProduct?: boolean }>;
+      /**
+       * Dövizli belgede ZORUNLU: gerçek TCMB kuru. Gönderilmezse sunucu
+       * içeri almayı durdurur — varsayılan kur atanmaz (uydurma kur yasağı).
+       */
+      currencyConversion?: {
+        documentCurrency: string;
+        exchangeRate: number;
+        rateDate?: string;
+        rateSource?: string;
+      };
     }
   ) =>
     request<{ success: boolean; message: string; invoice: Invoice }>(

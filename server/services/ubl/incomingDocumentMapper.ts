@@ -18,7 +18,8 @@
  * Stok ve cari yalnız onay anında `DocumentConversionService.createInvoice`
  * üzerinden hareket görür (bkz. `incomingInvoiceService`).
  */
-import type { Customer, Product, Tenant, ProductSupplierMapping } from '../../db/schema';
+import type { CashRegister, Customer, Product, Tenant, ProductSupplierMapping } from '../../db/schema';
+import { isForeignCurrency, normalizeCurrency, previewCurrencyCashRegister } from '../currencyCashRegister';
 import type { ParsedUblDocument, ParsedUblLine } from './ublParser';
 
 /** Onay ekranında kullanıcıya sunulan eşleştirme önerisi. */
@@ -100,6 +101,33 @@ export interface IngestionPlan {
   };
   /** İçeri aktarma engelliyse neden (boş = aktarılabilir). */
   blockedReason?: string;
+  /**
+   * 2026-10-03 — DÖVİZ BİLGİSİ (yalnız TRY dışı faturalarda dolar).
+   *
+   * ⚠️ Bu blok bir ENGEL DEĞİLDİR. Eskiden dövizli fatura toptan
+   * engellenirdi; artık onay ekranı gerçek TCMB kuruyla TL karşılığını
+   * hesaplayıp gösterebilir. `blockedReason` YALNIZ kur alınamazsa dolar.
+   *
+   * ⚠️ NEDEN PLANDA TUTULUR: kullanıcı "içeri alırsam hangi kasaya, kaç
+   * TL olarak girecek" sorusunun cevabını ONAYDAN ÖNCE görmelidir. Kur
+   * burada ÇEKİLMEZ (plan salt-okunurdur, ağ çağrısı yapmaz); arayüz kuru
+   * ayrı uçtan alır ve bu bloktaki kasa bilgisiyle birlikte gösterir.
+   */
+  currencyConversion?: {
+    /** Belgede yazan para birimi (normalize edilmiş, ör. `USD`). */
+    documentCurrency: string;
+    /** TRY dışı bir para birimi mi? `false` ise diğer alanlar anlamsızdır. */
+    isForeign: boolean;
+    /** Tutarın yazılacağı para birimi — her zaman TRY. */
+    targetCurrency: 'TRY';
+    /** Belgenin ödenecek toplamı, belgenin KENDİ para biriminde. */
+    documentPayable: number;
+    /**
+     * İçeri alınca tutarın gideceği kasa. `exists:false` ise kasa onay
+     * anında otomatik açılır; `id` boştur.
+     */
+    cashRegister: { id: string; name: string; code: string; currency: string; exists: boolean };
+  };
 }
 
 /** Karşılaştırma için VKN/TCKN'yi sadeleştirir (boşluk, nokta, tire atılır). */
@@ -335,6 +363,11 @@ export function buildIngestionPlan(
     tenantId: string;
     /** 2026-09-29: öğrenilmiş tedarikçi-ürün eşleştirmeleri (varsa). */
     savedMappings?: ProductSupplierMapping[];
+    /**
+     * 2026-10-03: Döviz faturasının gideceği kasayı ÖNİZLEMEK için.
+     * Verilmezse döviz kasa önizlemesi üretilmez (eski çağrılar bozulmaz).
+     */
+    cashRegisters?: CashRegister[];
   }
 ): IngestionPlan {
   const party = matchSupplier(doc, ctx.customers, ctx.tenantId);
@@ -348,27 +381,40 @@ export function buildIngestionPlan(
   const matchedCount = lines.filter(l => !!l.product).length;
   const highConfidenceCount = lines.filter(l => l.confidence === 'HIGH' && !!l.product).length;
 
-  // ── DÖVİZ KAPISI (2026-09-29) ───────────────────────────────────────────
-  // ⚠️ NEDEN ENGELLENİR: Alış faturası motoru (`DocumentConversionService
-  // .createInvoice`) tutarları ve `currency` alanını TRY olarak yazar; kur
-  // parametresi ALMAZ. 1.000 USD'lik bir belgeyi olduğu gibi geçirmek, cari
-  // borcu ve stok maliyetini "1.000 TL" olarak diske yazardı — belgede yazan
-  // para biriminden kat kat farklı, üstelik SESSİZ bir muhasebe hatası.
+  // ── DÖVİZ DÖNÜŞÜMÜ (2026-10-03 — eski "döviz kapısı"nın yerini aldı) ────
   //
-  // Kur UYDURULMAZ (CLAUDE.md md.1: sahte başarı yok) ve muhasebe motoru
-  // DEĞİŞTİRİLMEZ (md.3: muhasebe mantığı dokunulmaz). Doğru davranış, belgeyi
-  // eksiksiz GÖSTERMEK ama TRY karşılığı doğrulanmadan içeri ALMAMAKTIR.
+  // ESKİ DAVRANIŞ (2026-09-29): TRY dışı fatura TOPTAN engellenirdi. Gerekçe
+  // geçerliydi: `DocumentConversionService.createInvoice` tutarları ve
+  // `currency` alanını TRY olarak yazar, kur parametresi ALMAZ. 1.000 USD'lik
+  // belgeyi olduğu gibi geçirmek "1.000 TL" yazardı.
   //
-  // Belge yine de tam okunur: para birimi, tutarlar ve kalemler detay
-  // ekranında GERÇEK hâliyle görünür. Engellenen yalnız "içeri al" adımıdır.
-  const doviz = (doc.currency || 'TRY').trim().toUpperCase();
-  const dovizEngeli =
-    doc.kind === 'INVOICE' && doviz !== 'TRY' && (doc.payableTotal > 0 || doc.grandTotal > 0)
-      ? `Belge ${doviz} para biriminde düzenlenmiş. Alış faturası TL olarak kaydedildiği için, ` +
-        `belgedeki tutarın TL karşılığı doğrulanmadan içeri alınamaz — aksi hâlde ${doviz} tutarı ` +
-        `TL gibi yazılır ve tedarikçi borcu yanlış oluşur. Belgeyi TL karşılığı üzerinden elle ` +
-        `faturalandırın veya entegratörden TL düzenlenmiş belgeyi çekin.`
-      : undefined;
+  // YENİ DAVRANIŞ: Engellemek yerine tutar GERÇEK TCMB kuruyla TL'ye çevrilir
+  // ve fatura TL olarak yazılır — motorun sözleşmesi böylece KORUNUR (md.3).
+  // Kur UYDURULMAZ (md.1): kur `HizliConnectService.tcmbKurGetir`'den gelir,
+  // alınamazsa içeri alma YİNE engellenir. Dönüşümü `approveAndConvert`
+  // uygular; bu fonksiyon yalnız BİLGİ üretir.
+  //
+  // ⚠️ SALT-OKUNUR KALIR: Burada ağ çağrısı YAPILMAZ. `buildIngestionPlan`
+  // sözleşmesi gereği hiçbir şey yazmaz/çekmez (test doğrular). Arayüz kuru
+  // ayrı uçtan alır; plan yalnız "hangi para birimi, hangi kasa" bilgisini
+  // taşır ki kullanıcı ONAYDAN ÖNCE nereye yazılacağını görebilsin.
+  const doviz = normalizeCurrency(doc.currency);
+  const dovizliMi = doc.kind === 'INVOICE' && isForeignCurrency(doviz) &&
+    (doc.payableTotal > 0 || doc.grandTotal > 0);
+
+  const dovizBilgisi = dovizliMi
+    ? {
+        documentCurrency: doviz,
+        isForeign: true as const,
+        targetCurrency: 'TRY' as const,
+        documentPayable: doc.payableTotal || doc.grandTotal,
+        cashRegister: previewCurrencyCashRegister(
+          ctx.cashRegisters || [],
+          ctx.tenantId,
+          doviz
+        ),
+      }
+    : undefined;
 
   return {
     document: doc,
@@ -396,11 +442,8 @@ export function buildIngestionPlan(
     // Engelleme nedeni: önce belgenin kendi okunamama hatası (daha temel),
     // yoksa döviz kapısı. İkisi birden varsa kullanıcıya ÖNCE belgenin kendi
     // sorunu söylenir; döviz notu ondan sonra anlamlıdır.
-    ...(doc.errors.length > 0
-      ? { blockedReason: doc.errors[0] }
-      : dovizEngeli
-      ? { blockedReason: dovizEngeli }
-      : {}),
+    ...(doc.errors.length > 0 ? { blockedReason: doc.errors[0] } : {}),
+    ...(dovizBilgisi ? { currencyConversion: dovizBilgisi } : {}),
   };
 }
 

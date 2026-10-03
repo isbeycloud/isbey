@@ -348,14 +348,19 @@ test('E2) iskonto, fatura motoruna YÜZDE olarak geçer (brüt geçilirse borç 
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// F — TRY DIŞI PARA BİRİMİ
+// F — TRY DIŞI PARA BİRİMİ (2026-10-03: kapı → dönüşüm)
 //
-// ⚠️ BURADA ÖLÇÜLEN GERÇEK BİR MUHASEBE RİSKİDİR: `createInvoice` tutarları ve
-// `currency` alanını TRY olarak yazar, kur parametresi ALMAZ. 1.000 USD'lik bir
-// belgenin "1.000 TL" olarak içeri alınması, tedarikçi borcunu ve stok
-// maliyetini sessizce yanlış yazardı. Kur uydurmak da (CLAUDE.md md.1), motoru
-// değiştirmek de (md.3) yasaktır — doğru davranış belgeyi GÖSTERMEK ama
-// onayı ENGELLEMEKTİR.
+// ⚠️ ÖLÇÜLEN GERÇEK MUHASEBE RİSKİ: `createInvoice` tutarları ve `currency`
+// alanını TRY olarak yazar, kur parametresi ALMAZ (md.3: motor değişmez).
+// 1.000 USD'lik belgeyi olduğu gibi geçirmek "1.000 TL" yazardı.
+//
+// ÇÖZÜM: belge okunur, kullanıcıya GERÇEK hâliyle gösterilir, kur GERÇEK
+// TCMB'den alınır ve tutarlar TL'ye çevrilerek yazılır. Kur UYDURULMAZ (md.1):
+// kur yoksa içeri alma YİNE engellenir. Aşağıdaki testler dört şeyi kanıtlar:
+//   1. Okuma ve gösterim bozulmadı (para birimi uydurulmaz)
+//   2. Plan döviz bilgisini + hedef kasayı taşır
+//   3. Gerçek kurla dönüşüm: TL tutar, döviz kasası, orijinal künye korunur
+//   4. Kur YOKSA içeri alma durur (sessiz "1 USD = 1 TL" felaketi imkânsız)
 // ════════════════════════════════════════════════════════════════════════════
 
 test('F) dövizli fatura: GERÇEK hâliyle gösterilir (para birimi uydurulmaz)', async () => {
@@ -371,44 +376,182 @@ test('F) dövizli fatura: GERÇEK hâliyle gösterilir (para birimi uydurulmaz)'
   assert.equal(kayit.grandTotal, 1200, 'tutar belgede yazdığı gibi (USD) saklanmalı');
 
   const plan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
-  assert.ok(plan.blockedReason, 'içeri alma ENGELLENMELİ');
-  assert.match(plan.blockedReason!, /USD/, 'engel nedeni para birimini AÇIKÇA söylemeli');
-  assert.match(plan.blockedReason!, /TL/i, 'TL karşılığı doğrulanmadan alınamayacağı belirtilmeli');
-  // Belge yine de eksiksiz görünmeli: kalem ve tutarlar okunmuş olmalı.
+  // ⚠️ ARTIK ENGEL YOK: kur ile çevrilebilir. Belge eksiksiz görünür.
+  assert.equal(plan.blockedReason, undefined, 'döviz artık TOPTAN engel değil; kur ile çevrilir');
   assert.equal(plan.lines.length, 1, 'dövizli belgenin kalemleri de okunmalı');
-  assert.equal(plan.totals.computedPayableTotal, 1200);
+  assert.equal(plan.totals.computedPayableTotal, 1200, 'belge tutarı USD olarak AYNEN okunur');
+  // Kalem birim fiyatı PLANDA belgenin kendi para biriminde kalır; çevrim
+  // yalnız ONAY anında yapılır (kullanıcı belgeyi olduğu gibi görmeli).
+  assert.equal(plan.lines[0].line.unitPrice, 500, 'kalem fiyatı belgedeki hâliyle gösterilmeli');
 });
 
-test('F2) dövizli belge ONAYLANAMAZ: 422 ve HİÇBİR iz yok', async () => {
+test('F2) planda döviz bilgisi ve HEDEF KASA bildirilir (kasa henüz yokken)', () => {
   const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === U(6))!;
-  const once = izSayilari();
+  const plan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
+  const dc = plan.currencyConversion;
 
+  assert.ok(dc, 'dövizli faturada currencyConversion bloğu dolu olmalı');
+  assert.equal(dc!.documentCurrency, 'USD');
+  assert.equal(dc!.isForeign, true);
+  assert.equal(dc!.targetCurrency, 'TRY');
+  assert.equal(dc!.documentPayable, 1200, 'belgenin kendi tutarı (USD)');
+  // Kasa henüz açılmamış: plan bunu DÜRÜSTÇE söyler, vaat etmez.
+  assert.equal(dc!.cashRegister.currency, 'USD');
+  assert.equal(dc!.cashRegister.code, 'KAS-USD');
+  assert.equal(dc!.cashRegister.exists, false, 'kasa henüz yok — onayda açılacak');
+  assert.match(dc!.cashRegister.name, /USD/, 'kasa adı para birimini içermeli');
+
+  // Plan SALT-OKUNUR kalmalı: kasa ÖNİZLEME sırasında OLUŞMAMALI.
+  const kasaVar = (storage.getState().cashRegisters || []).some(
+    k => k.tenantId === tenantId && k.currency === 'USD'
+  );
+  assert.equal(kasaVar, false, 'plan açmak kasa AÇMAMALI — salt-okunur sözleşmesi');
+});
+
+test('F3) kur YOKSA içeri alma DURUR — sessiz "1 USD = 1 TL" imkânsız', async () => {
+  const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === U(6))!;
+  const onceki = izSayilari();
+
+  // (a) hiç kur gönderilmedi
   await assert.rejects(
     () => IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test'),
     (err: any) => {
-      assert.ok(IncomingDocumentError.is(err), 'alan hatası (domain error) olmalı');
-      assert.equal(err.code, 'NOT_INGESTIBLE', 'NOT_INGESTIBLE beklenir');
-      assert.equal(err.httpStatus, 422);
+      assert.equal(err.code, 'INVALID_STATE', 'kur eksikliği bir DURUM hatasıdır (400)');
+      assert.match(err.message, /USD/, 'hangi para birimi olduğu söylenmeli');
+      assert.match(err.message, /kur/i, 'kurdan söz edilmeli');
       return true;
     },
-    'dövizli belge içeri alınmamalı'
+    'kur verilmeden dövizli belge içeri alınmamalı'
   );
 
-  assert.equal(izSayilari(), once, 'engellenen onay fatura/stok/cari HİÇBİR ŞEY yazmamalı');
-  const sonra = (disktenOku().incomingInvoices || []).find((i: any) => i.uuid === U(6));
-  assert.equal(sonra.status, 'RECEIVED', 'belge durumu DEĞİŞMEMELİ (yarım dönüşüm yok)');
+  // (b) 0 / negatif / NaN kur
+  for (const kotu of [0, -1, NaN, 'abc']) {
+    await assert.rejects(
+      () => IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test', {
+        currencyConversion: { documentCurrency: 'USD', exchangeRate: kotu as number },
+      }),
+      (err: any) => { assert.equal(err.code, 'INVALID_STATE'); return true; },
+      `geçersiz kur (${String(kotu)}) kabul edilmemeli`
+    );
+  }
+
+  // (c) para birimi uyuşmazlığı: USD belgeye EUR kuru
+  await assert.rejects(
+    () => IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test', {
+      currencyConversion: { documentCurrency: 'EUR', exchangeRate: 35 },
+    }),
+    (err: any) => {
+      assert.equal(err.code, 'INVALID_STATE');
+      assert.match(err.message, /para birim/i, 'uyuşmazlık AÇIKÇA söylenmeli');
+      return true;
+    },
+    'belge USD iken EUR kuru uygulanmamalı'
+  );
+
+  assert.equal(izSayilari(), onceki, 'başarısız denemeler HİÇBİR İZ BIRAKMAMALI');
 });
 
-test('F3) TL belge döviz kapısına TAKILMAZ (kapı yalnız yabancı parayı engeller)', async () => {
-  const xml = faturaXml({
-    uuid: U(7), belgeNo: 'MTX-F-TRY', paraBirimi: 'TRY',
-    saticiVkn: SATICI_VKN, saticiUnvan: tedarikci.title, aliciVkn: ALICI_VKN, aliciUnvan: tenant.title,
-    satirlar: [{ no: '1', ad: 'TL Kalem', kod: 'MTX-100', miktar: 1, fiyat: 100, kdv: 20 }],
-  });
-  const kayit = await senkronlaVeAl(U(7), xml, 'MTX-F-TRY');
-  const plan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
-  assert.equal(plan.blockedReason, undefined, 'TL belge engellenmemeli');
+test('F4) gerçek kurla dönüşüm: TL tutar, döviz kasası, orijinal künye korunur', async () => {
+  const kayit = (storage.getState().incomingInvoices || []).find(i => i.uuid === U(6))!;
+  const evvelkiFatura = izSayilari();
+
+  // 1 USD = 40 TL (test kuru — üretimde TCMB'den gelir, burada SABİT veriyoruz;
+  // uydurma değil, testin kendi girdisi).
+  const KUR = 40;
+  const fatura = await IncomingInvoiceService.approveAndConvert(
+    kayit.id, tenantId, 'usr-test', 'Matris Test',
+    { currencyConversion: { documentCurrency: 'USD', exchangeRate: KUR, rateDate: '2026-09-20', rateSource: 'TCMB' } }
+  );
+
+  // ── Belge USD 1200 → TL 48.000 yazılmalı (KDV %20 ithal kalem, 2×500=1000 net)
+  assert.equal(fatura.currency, 'TRY', 'fatura TL olarak yazılır (motor sözleşmesi korunur)');
+  assert.equal(fatura.subTotal, 1000 * KUR, "net tutar TL'ye çevrilmeli");
+  assert.equal(fatura.grandTotal, 1200 * KUR, "genel toplam TL'ye çevrilmeli");
+  // Kalem birim fiyatı çevrilmiş olmalı.
+  assert.equal(fatura.items[0].unitPrice, 500 * KUR, "kalem birim fiyatı TL'ye çevrilmeli");
+  assert.equal(fatura.items[0].vatRate, 20, 'KDV ORANI çevrilmez — yüzdedir');
+
+  // ── Döviz kasası OTURMALI ve fatura ona bağlı olmalı
+  const kasalar = storage.getState().cashRegisters || [];
+  const dovizKasasi = kasalar.find(k => k.tenantId === tenantId && k.currency === 'USD');
+  assert.ok(dovizKasasi, 'USD kasası ONAY anında açılmalı');
+  assert.equal(dovizKasasi!.code, 'KAS-USD');
+  assert.equal(dovizKasasi!.isDefault, false, 'döviz kasası VARSAYILAN olmamalı (TRY kasası varsayılan kalır)');
+  assert.equal(fatura.cashRegisterId, dovizKasasi!.id, 'fatura döviz kasasına bağlanmalı');
+
+  // ── Orijinal künye notes'ta KORUNMALI: kur kaçtı, kim çevirdi, hangi kasa
+  assert.match(fatura.notes || '', /USD/, 'orijinal para birimi notta kalmalı');
+  assert.match(fatura.notes || '', /1200\.00 USD/, 'belgenin KENDİ tutarı notta kalmalı');
+  assert.match(fatura.notes || '', /1 USD = 40 TL/, 'uygulanan kur notta kalmalı');
+  assert.match(fatura.notes || '', /KAS-USD/, 'hangi kasaya gittiği notta kalmalı');
+
+  // ── Cari borç TL ve doğru: tedarikçi borcu 48.000
+  const ctx = (storage.getState().currentTransactions || []).find(
+    t => t.tenantId === tenantId && t.relatedInvoiceId === fatura.id
+  );
+  assert.ok(ctx, 'cari hareket yazılmalı');
+  assert.equal(ctx!.credit, 1200 * KUR, 'tedarikçi borcu TL karşılığı olmalı');
+
+  // ── İz bıraktı: fatura + stok + cari sayıları arttı
+  const sonraki = izSayilari();
+  assert.notEqual(sonraki, evvelkiFatura, 'başarılı dönüşüm İZ BIRAKMALI');
+
+  // ── İdempotentlik korunur: aynı belge ikinci kez alınamaz
+  await assert.rejects(
+    () => IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test', {
+      currencyConversion: { documentCurrency: 'USD', exchangeRate: KUR },
+    }),
+    (err: any) => { assert.equal(err.code, 'ALREADY_INGESTED'); return true; },
+    'dönüşüm sonrası tekrar deneme 409 vermeli'
+  );
 });
+
+test('F5) aynı para biriminde İKİNCİ fatura aynı kasayı kullanır (kasa çoğalmaz)', async () => {
+  const xml = faturaXml({
+    uuid: U(7), belgeNo: 'MTX-F-USD-2', paraBirimi: 'USD',
+    saticiVkn: SATICI_VKN, saticiUnvan: tedarikci.title, aliciVkn: ALICI_VKN, aliciUnvan: tenant.title,
+    satirlar: [{ no: '1', ad: 'İthal Kalem 2', kod: 'MTX-100', miktar: 1, fiyat: 100, kdv: 20 }],
+  });
+  const kayit = await senkronlaVeAl(U(7), xml, 'MTX-F-USD-2');
+
+  const oncekiKasaSayisi = (storage.getState().cashRegisters || []).filter(
+    k => k.tenantId === tenantId && k.currency === 'USD'
+  ).length;
+  assert.equal(oncekiKasaSayisi, 1, 'F4 sonrası tek USD kasası olmalı');
+
+  const fatura = await IncomingInvoiceService.approveAndConvert(
+    kayit.id, tenantId, 'usr-test', 'Matris Test',
+    { currencyConversion: { documentCurrency: 'USD', exchangeRate: 41 } }
+  );
+
+  const sonrakiKasalar = (storage.getState().cashRegisters || []).filter(
+    k => k.tenantId === tenantId && k.currency === 'USD'
+  );
+  assert.equal(sonrakiKasalar.length, 1, 'yeni kasa AÇILMAMALI — var olan kullanılmalı');
+  assert.equal(fatura.cashRegisterId, sonrakiKasalar[0].id, 'aynı kasaya bağlanmalı');
+
+  // Planda artık kasa MEVCUT olarak görünmeli (exists:true)
+  const plan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
+  assert.equal(plan.currencyConversion!.cashRegister.exists, true, 'ikinci belgede kasa mevcut görünmeli');
+});
+
+test('F6) TL faturada döviz bilgisi ÜRETİLMEZ ve akış değişmez', async () => {
+  const xml = faturaXml({
+    uuid: U(8), belgeNo: 'MTX-F-TRY', paraBirimi: 'TRY',
+    saticiVkn: SATICI_VKN, saticiUnvan: tedarikci.title, aliciVkn: ALICI_VKN, aliciUnvan: tenant.title,
+    satirlar: [{ no: '1', ad: 'Yerli Kalem', kod: 'MTX-100', miktar: 1, fiyat: 100, kdv: 20 }],
+  });
+  const kayit = await senkronlaVeAl(U(8), xml, 'MTX-F-TRY');
+  const plan = IncomingInvoiceService.getIngestionPlan(kayit.id, tenantId);
+  assert.equal(plan.currencyConversion, undefined, 'TL belgede döviz bloğu OLMAMALI');
+  assert.equal(plan.blockedReason, undefined);
+
+  // TL akışı: kur GÖNDERİLMEDEN içeri alınabilmeli (eski davranış korunur).
+  const fatura = await IncomingInvoiceService.approveAndConvert(kayit.id, tenantId, 'usr-test', 'Test');
+  assert.equal(fatura.grandTotal, 120);
+  assert.equal(fatura.currency, 'TRY');
+});
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // K — TRANSACTION ORTASINDA HATA → TAM GERİ ALMA
@@ -421,14 +564,14 @@ test('F3) TL belge döviz kapısına TAKILMAZ (kapı yalnız yabancı parayı en
 
 test('K) onay ortasında hata: TAM GERİ ALMA — yarım kayıt kalmaz', async () => {
   const xml = faturaXml({
-    uuid: U(8), belgeNo: 'MTX-K-1', saticiVkn: SATICI_VKN, saticiUnvan: tedarikci.title,
+    uuid: U(20), belgeNo: 'MTX-K-1', saticiVkn: SATICI_VKN, saticiUnvan: tedarikci.title,
     aliciVkn: ALICI_VKN, aliciUnvan: tenant.title,
     satirlar: [
       { no: '1', ad: 'Kalem 1', kod: 'MTX-100', miktar: 2, fiyat: 100, kdv: 20 },
       { no: '2', ad: 'Kalem 2', kod: 'MTX-K-2', miktar: 1, fiyat: 300, kdv: 20 },
     ],
   });
-  const kayit = await senkronlaVeAl(U(8), xml, 'MTX-K-1');
+  const kayit = await senkronlaVeAl(U(20), xml, 'MTX-K-1');
   const once = izSayilari();
   const oncekiDisk = JSON.parse(izSayilari());
   const urunSayisiOnce = (disktenOku().products || []).filter((p: any) => p.tenantId === tenantId).length;
@@ -455,7 +598,7 @@ test('K) onay ortasında hata: TAM GERİ ALMA — yarım kayıt kalmaz', async (
     'yarıda kalan onay ÜRÜN KARTI da bırakmamalı'
   );
   assert.equal(
-    (disk.incomingInvoices || []).find((i: any) => i.uuid === U(8))?.status,
+    (disk.incomingInvoices || []).find((i: any) => i.uuid === U(20))?.status,
     'RECEIVED',
     'belge durumu RECEIVED kalmalı — yarım dönüşüm işareti yazılmamalı'
   );

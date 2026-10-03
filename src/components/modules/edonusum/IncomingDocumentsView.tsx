@@ -176,6 +176,24 @@ export const IncomingDocumentsView: React.FC = () => {
   >(null);
   const [planYukleniyor, setPlanYukleniyor] = useState(false);
 
+  /**
+   * 2026-10-03 — DÖVİZ KURU.
+   *
+   * Belge TRY dışıysa kur sunucudan GERÇEK TCMB'den çekilir. `rate === null`
+   * ise kur yoktur ve "içeri al" KAPALI kalır: varsayılan bir kur kullanmak
+   * (ör. 1 USD = 1 TL) sessiz bir muhasebe hatası olurdu (md.1 uydurma yasağı).
+   */
+  const [kur, setKur] = useState<{
+    yukleniyor: boolean;
+    rate: number | null;
+    currency?: string;
+    rateDate?: string;
+    source?: string;
+    payableInTry?: number;
+    cashRegister?: { id: string; name: string; code: string; currency: string; exists: boolean };
+    hata?: string;
+  }>({ yukleniyor: false, rate: null });
+
   /** Detay ekranı — hangi belge. `null` ise modal kapalıdır. */
   const [detayHedefi, setDetayHedefi] = useState<
     { tur: 'INVOICE'; kayit: IncomingInvoice } | { tur: 'DESPATCH'; kayit: IncomingDespatch } | null
@@ -391,6 +409,36 @@ export const IncomingDocumentsView: React.FC = () => {
       }
       setPlan(res.plan);
 
+      // ── Döviz kuru (2026-10-03) ──────────────────────────────────────
+      // Yalnız TRY dışı faturada çekilir; TL belgede ağ çağrısı YAPILMAZ.
+      // Kur alınamazsa kullanıcı görebilsin diye hata taşınır ve onay kapanır.
+      const doviz = res.plan.currencyConversion;
+      if (doviz?.isForeign && hedef.tur === 'INVOICE') {
+        setKur({ yukleniyor: true, rate: null });
+        try {
+          const k = await api.getIncomingExchangeRate(hedef.kayit.id);
+          setKur({
+            yukleniyor: false,
+            rate: k.success && k.rate ? k.rate : null,
+            currency: k.currency || doviz.documentCurrency,
+            rateDate: k.rateDate,
+            source: k.source,
+            payableInTry: k.payableInTry,
+            cashRegister: k.cashRegister || doviz.cashRegister,
+            ...(k.success ? {} : { hata: k.message || 'TCMB kuru alınamadı.' }),
+          });
+        } catch (err: any) {
+          setKur({
+            yukleniyor: false, rate: null,
+            currency: doviz.documentCurrency,
+            cashRegister: doviz.cashRegister,
+            hata: err?.message || 'TCMB kuru alınamadı.',
+          });
+        }
+      } else {
+        setKur({ yukleniyor: false, rate: null });
+      }
+
       // "Yeni" → "Eşleştirme Bekliyor" geçişinin TEK kanıtı budur. Malî etkisi
       // yoktur; işaret yazılamazsa kullanıcıyı hata ile boğmayız (plan zaten
       // açıldı) ama liste bir sonraki tazelemede eski durumu gösterir.
@@ -429,6 +477,7 @@ export const IncomingDocumentsView: React.FC = () => {
   const planKapat = () => {
     setPlan(null);
     setPlanHedefi(null);
+    setKur({ yukleniyor: false, rate: null });
     // Plan ekranı açılırken belge "incelendi" olarak işaretlendi; liste
     // tazelenmezse kullanıcı az önce açtığı belgeyi hâlâ "Yeni" görür ve
     // işaretin tutmadığını sanır.
@@ -447,6 +496,21 @@ export const IncomingDocumentsView: React.FC = () => {
     const govde: any = { lines };
     if (yeniSatici) govde.createSupplier = true;
     else if (saticiSecimi) govde.supplierId = saticiSecimi;
+
+    // 2026-10-03: Dövizli belgede GERÇEK kur sunucuya taşınır. Sunucu da kuru
+    // doğrular; kur yoksa işlemi durdurur — düğme gizlemek güvence değildir.
+    const doviz = plan.currencyConversion;
+    if (doviz?.isForeign) {
+      if (!kur.rate) {
+        throw new Error('Dövizli belge için geçerli kur yok; içeri alınamaz.');
+      }
+      govde.currencyConversion = {
+        documentCurrency: doviz.documentCurrency,
+        exchangeRate: kur.rate,
+        ...(kur.rateDate ? { rateDate: kur.rateDate } : {}),
+        ...(kur.source ? { rateSource: kur.source } : {}),
+      };
+    }
     return govde;
   };
 
@@ -1023,6 +1087,7 @@ export const IncomingDocumentsView: React.FC = () => {
         yeniSatici={yeniSatici}
         setYeniSatici={setYeniSatici}
         islemde={islemde}
+        kur={kur}
         onClose={planKapat}
         onConfirm={onayla}
       />

@@ -1087,6 +1087,54 @@ export class HizliConnectService {
     }
   }
 
+  /**
+   * 2026-10-03 — GELEN DÖVİZ FATURASI İÇİN TOKEN'LI KUR SORGUSU.
+   *
+   * ⚠️ NEDEN AYRI SARMALAYICI: `tcmbKurGetir` hazır bir token bekler; eski
+   * `/hizli/tcmb-rate` ucu `hizliConfig.token`i doğrudan kullanıyordu ve token
+   * süresi dolduğunda boş dizeyle istek gidiyordu. Gelen belge akışında kur
+   * ZORUNLUDUR (yoksa içeri alma engellenir), bu yüzden burada token
+   * `ensureToken` ile GARANTİ edilir — gerekirse yenilenir.
+   *
+   * ⚠️ KUR UYDURULMAZ (md.1): sağlayıcı yanıt vermezse `success:false` döner.
+   * Varsayılan/örnek bir kur (33.85 vb.) ÜRETİLMEZ; yanlış kur finansal
+   * hesabı bozar.
+   */
+  public static async tcmbKurGetirGuvenli(
+    paraBirimi: string,
+    kurTipi: 'SatisKur' | 'AlisKur' = 'SatisKur'
+  ): Promise<{ success: boolean; rate: number | null; currency: string; rateDate?: string; message?: string }> {
+    const isTest = tokenStore.isTestMode;
+    try {
+      const token = await this.ensureToken(isTest);
+      const sonuc: any = await this.tcmbKurGetir(paraBirimi, kurTipi, token, isTest);
+      if (!sonuc?.success) {
+        return { success: false, rate: null, currency: paraBirimi, message: sonuc?.message };
+      }
+      // Sağlayıcı ham nesne dönebilir (`res.data`). Kur alanı hangi adla
+      // gelirse gelsin AYNI değeri okuruz; uydurma yol yok.
+      const ham = sonuc.rate;
+      const sayi = typeof ham === 'number' ? ham : Number(ham?.rate ?? ham?.Kur ?? ham?.Rate ?? ham);
+      if (!Number.isFinite(sayi) || sayi <= 0) {
+        return {
+          success: false, rate: null, currency: paraBirimi,
+          message: 'TCMB kuru okunamadı; sağlayıcı geçerli bir kur döndürmedi.',
+        };
+      }
+      // Kur tarihi YALNIZ sağlayıcı verdiyse taşınır; tarih uydurulmaz.
+      const tarih = ham?.date ?? ham?.Date ?? ham?.kurTarihi ?? ham?.Tarih;
+      return {
+        success: true, rate: sayi, currency: paraBirimi,
+        ...(tarih ? { rateDate: String(tarih) } : {}),
+      };
+    } catch (err: any) {
+      return {
+        success: false, rate: null, currency: paraBirimi,
+        message: `TCMB kuru alınamadı: ${err?.response?.data?.Message || err?.message || 'bilinmeyen hata'}`,
+      };
+    }
+  }
+
   // ==========================================
   // 9. SERİ NO (ÖNEK / PREFIX) & ŞABLON (XSLT)
   // ==========================================

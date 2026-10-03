@@ -2517,6 +2517,20 @@ export interface IngestionPlan {
     pending: number;
   };
   blockedReason?: string;
+  /**
+   * 2026-10-03 — Döviz faturası dönüşüm bilgisi (yalnız TRY dışı faturalarda).
+   * Engelleme DEĞİLDİR; onay ekranı "hangi kasaya, kaç TL olarak girecek"
+   * bilgisini bundan üretir. Kur burada YOKTUR (ayrı uçtan, gerçek TCMB'den
+   * alınır) — plan ağ çağrısı yapmaz.
+   */
+  currencyConversion?: {
+    documentCurrency: string;
+    isForeign: boolean;
+    targetCurrency: 'TRY';
+    /** Belgenin ödenecek toplamı, belgenin KENDİ para biriminde. */
+    documentPayable: number;
+    cashRegister: { id: string; name: string; code: string; currency: string; exists: boolean };
+  };
 }
 
 export * from '../components/formdesigner/formDesignerTypes';
