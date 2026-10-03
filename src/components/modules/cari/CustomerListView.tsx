@@ -27,6 +27,7 @@ export const CustomerListView: React.FC = () => {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selectedType, setSelectedType] = useState<'ALL' | 'CUSTOMER' | 'SUPPLIER'>('ALL');
 
   // Modal states
@@ -40,13 +41,14 @@ export const CustomerListView: React.FC = () => {
 
   const loadCustomers = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const res = await api.getCustomers({ type: selectedType });
       if (res.success) {
         setCustomers(res.customers);
       }
     } catch (err) {
-      console.error(err);
+      setLoadError(err instanceof Error ? err.message : 'Cari hesaplar yüklenemedi. Lütfen tekrar deneyin.');
     } finally {
       setLoading(false);
     }
@@ -86,14 +88,14 @@ export const CustomerListView: React.FC = () => {
       title: 'Vade (Gün)',
       numeric: true,
       width: '90px',
-      render: c => <span>{c.maturityDays} Gün</span>,
+      render: c => <span>{c.maturityDays == null ? '—' : `${c.maturityDays} Gün`}</span>,
     },
     {
       key: 'riskLimit',
       title: 'Risk Limiti',
       numeric: true,
       width: '130px',
-      render: c => <span>{c.riskLimit.toLocaleString('tr-TR')} ₺</span>,
+      render: c => <span>{c.riskLimit == null ? '—' : `${c.riskLimit.toLocaleString('tr-TR')} ₺`}</span>,
     },
     {
       key: 'balance',
@@ -186,6 +188,15 @@ export const CustomerListView: React.FC = () => {
       </div>
 
       {/* Main DataGrid */}
+      {loadError && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertCircle size={16} />
+          <span>{loadError}</span>
+          <button className="btn btn-secondary btn-sm" onClick={loadCustomers} disabled={loading}>
+            Tekrar dene
+          </button>
+        </div>
+      )}
       <DataGrid
         columns={columns}
         data={customers}
