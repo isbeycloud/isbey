@@ -1,3 +1,4 @@
+import { randomUUID, randomBytes } from 'node:crypto';
 import { ExternalCustomer, Tenant, User, TenantPlan, CompanyService, Warehouse, CashRegister, BankAccount } from '../../db/schema';
 import { storage } from '../../db/storage';
 
@@ -31,7 +32,7 @@ export class HizliBilisimMapper {
       ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
 
-    const companyId = `tnt-${Date.now()}`;
+    const companyId = `tnt-${randomUUID()}`;
     const generatedCode = storage.generateNextCompanyCode();
 
     const cleanSlug = ext.companyName
@@ -72,7 +73,7 @@ export class HizliBilisimMapper {
       taxNumber: ext.taxNumber.trim(),
       taxOffice: ext.taxOffice?.trim() || '',
       email: ext.email.trim(),
-      phone: ext.phone.trim(),
+      phone: ext.phone?.trim() || '',
       address: ext.address?.trim() || '',
       city: ext.city?.trim() || '',
       district: ext.district?.trim() || '',
@@ -215,7 +216,7 @@ export class HizliBilisimMapper {
       .slice(0, 20);
 
     const uniqueUsername = `${cleanUsername}_${companyCode.toLowerCase().replace('-', '')}`;
-    const token = `act_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    const token = `act_${randomBytes(32).toString("hex")}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     const user: User = {
