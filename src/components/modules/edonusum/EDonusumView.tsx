@@ -1,3 +1,4 @@
+import { allowsElectronicService } from '../../../data/serviceAccess';
 import React, { useState, useEffect } from 'react';
 import { EServiceApplications } from './EServiceApplications';
 import { InvoiceHistory } from './InvoiceHistory';
@@ -47,6 +48,7 @@ type ETab = 'GIDEN' | 'GELEN' | 'DEFTER' | 'SORGULAMA' | 'KONTOR' | 'KILAVUZ';
 
 export const EDonusumView: React.FC = () => {
   const { openPrintModal, setIsEInvoiceModalOpen, setSelectedEInvoiceInvoiceId, triggerRefresh, refreshKey, setActiveView } = useApp();
+  const { user } = useAuth();
   const { showToast: toast } = useToast();
   const { canAccessModule } = useAuth();
   // Kontör paketleri/cüzdan yalnızca platform adminlerine açık ('customer-billing').
@@ -608,7 +610,7 @@ export const EDonusumView: React.FC = () => {
           { id: 'SORGULAMA' as ETab, label: 'GİB Mükellef Sorgula', icon: <Search size={14} />, color: '#16a34a', count: null },
           { id: 'KONTOR' as ETab, label: 'Kontör & Kredi', icon: <CreditCard size={14} />, color: '#06b6d4', count: null },
           { id: 'KILAVUZ' as ETab, label: 'GİB Kodları & Kurlar', icon: <Sliders size={14} />, color: '#8b5cf6', count: null },
-        ].map(tab => (
+        ].filter(tab => tab.id !== 'DEFTER' || allowsElectronicService(user?.serviceModuleIds, 'EDEFTER')).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}

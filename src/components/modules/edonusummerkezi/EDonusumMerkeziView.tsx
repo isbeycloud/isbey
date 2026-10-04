@@ -1,3 +1,5 @@
+import { allowsElectronicService } from '../../../data/serviceAccess';
+import { useAuth } from '../../../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
@@ -60,6 +62,7 @@ export type BayiTabKey =
   | 'ONEK_AYARLAR';
 
 export const EDonusumMerkeziView: React.FC = () => {
+  const { user } = useAuth();
   const { showToast: toast } = useToast();
   const { openPrintModal, triggerRefresh, refreshKey } = useApp();
 
@@ -248,7 +251,7 @@ export const EDonusumMerkeziView: React.FC = () => {
           { id: 'HAKEDIS' as BayiTabKey, label: 'Bayi Hakedişi', icon: <DollarSign size={14} />, badge: '%20' },
           { id: 'MUKELLEF' as BayiTabKey, label: 'GİB Mükellef', icon: <Search size={14} />, badge: null },
           { id: 'ONEK_AYARLAR' as BayiTabKey, label: 'Belge Ön Ekleri', icon: <Sliders size={14} />, badge: null },
-        ].map((tab) => {
+        ].filter(tab => !['EFATURA', 'EARSIV', 'EIRSALIYE', 'ESMM', 'EMUSTAHSIL', 'EDEFTER'].includes(tab.id) || allowsElectronicService(user?.serviceModuleIds, tab.id)).map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button

@@ -128,6 +128,7 @@ const MainLayout: React.FC = () => {
   };
 
   const renderActiveView = () => {
+    if (!canAccessModule(activeView)) return <AccessDeniedView moduleId={activeView} />;
     switch (activeView) {
       case 'hizmetler': return <ServiceCatalogView />;
       case 'dashboard': return <DashboardView />;

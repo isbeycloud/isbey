@@ -2,6 +2,7 @@ import { tenantContext } from '../db/tenantConfiguration';
 import { subscriptionState } from '../security/erpSubscription';
 import { canEnterCompany, companyIdentity } from '../security/memberships';
 import { menuAllowsPath } from '../../src/data/erpMenus';
+import { serviceAllowsPath, allowsElectronicService } from '../../src/data/serviceAccess';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { storage } from '../db/storage';
@@ -119,7 +120,10 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   req.userPermissions = identity.permissionCodes;
   const subscription = subscriptionState(db.tenants.find(t => t.id === resolvedTenantId)!);
   const path = (req.originalUrl || req.url).split('?')[0];
-    if (!menuAllowsPath(identity.allowedMenuIds, path)) return res.status(403).json({ success: false, code: 'MENU_ACCESS_DENIED', message: 'Bu menü için erişim yetkiniz kapalı.' });
+  if (!serviceAllowsPath(identity.serviceMenuIds, path)) return res.status(403).json({ success: false, code: 'SERVICE_ACCESS_DENIED', message: 'Bu hizmet seçili paketlerinizde bulunmuyor.' });
+  const electronicService = /\/edefter(\/|$)/.test(path) ? 'EDEFTER' : /\/incoming-despatches(\/|$)/.test(path) ? 'EIRSALIYE' : null;
+  if (electronicService && !allowsElectronicService(identity.serviceModuleIds, electronicService)) return res.status(403).json({ success: false, code: 'SERVICE_ACCESS_DENIED', message: 'Bu e-hizmet seçili paketlerinizde bulunmuyor.' });
+  if (!menuAllowsPath(identity.allowedMenuIds, path)) return res.status(403).json({ success: false, code: 'MENU_ACCESS_DENIED', message: 'Bu menü için erişim yetkiniz kapalı.' });
   const sessionOperation = /\/auth\/(switch-company|logout)$/.test(path) || /\/companies\/[^/]+\/switch$/.test(path);
   if (!identity.roleSlugs.includes('platform_admin') && subscription !== 'ACTIVE'
       && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sessionOperation) {

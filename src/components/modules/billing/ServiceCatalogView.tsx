@@ -5,7 +5,9 @@ import type { SubscriptionPlan } from '../../../types';
 import { EServiceApplications } from '../edonusum/EServiceApplications';
 
 export function ServiceCatalogView() {
-  const { user, activeTenant } = useAuth();
+  const { user, activeTenant, refreshProfile } = useAuth();
+  const [selection, setSelection] = useState<string[]>(activeTenant?.selectedServicePlanIds || []);
+  const canSelect = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'].includes(r || ''));
   const canOrder = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'].includes(r || ''));
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ export function ServiceCatalogView() {
     <section className="e-service-panel">
       <h2>Hizmetler ve Paketler</h2>
       <p>{activeTenant?.name} için ERP paketlerini ve e-dönüşüm hizmetlerini inceleyin.</p>
-      <p>Mevcut ERP planı: <strong>{activeTenant?.plan || 'Tanımlanmadı'}</strong>. Paket talebi veya başvuru oluşturmak ödeme almaz; hizmetler onay sonrasında etkinleştirilir.</p>
+      <p>Paketlerinizi seçerek hizmetleri hemen açabilirsiniz. Birden fazla paketin hizmetleri birlikte kullanılabilir. Seçim, mevcut üyelik sürenizi değiştirmez.</p>
       {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
       <label>Faturalama dönemi <select className="form-select" value={period} onChange={e => setPeriod(e.target.value as typeof period)}><option value="MONTHLY">Aylık</option><option value="YEARLY">Yıllık</option></select></label>
       {loading && <p>Paketler yükleniyor…</p>}
@@ -38,6 +40,7 @@ export function ServiceCatalogView() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, margin: '20px 0 28px' }}>
         {plans.map(p => <article key={p.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, background: 'var(--bg-surface)' }}>
           <h3 style={{ marginTop: 0 }}>{p.name}</h3><p>{p.description}</p>
+          {canSelect && <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}><input type="checkbox" disabled={busy} checked={selection.includes(p.id)} onChange={e => setSelection(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} /> <span>{p.name} paketini seç</span></label>}
           <strong style={{ fontSize: 24 }}>{(period === 'MONTHLY' ? p.monthlyPrice : p.yearlyPrice).toLocaleString('tr-TR', { style: 'currency', currency: p.currency })}</strong><span> / {period === 'MONTHLY' ? 'ay' : 'yıl'}</span>
           <p>{p.maxUsers} kullanıcı · {p.maxCompanies} firma<br />Aylık {p.maxInvoicesPerMonth} fatura · {p.includedCredits} kontör</p>
           {!!p.features?.length && <ul>{p.features.map(f => <li key={f}>{f}</li>)}</ul>}
@@ -48,6 +51,11 @@ export function ServiceCatalogView() {
           }}>{requested.includes(p.id) ? 'Talep kaydedildi' : 'Paket talebi oluştur'}</button>
         </article>)}
       </div>
+      {canSelect && <button className="btn btn-primary" disabled={busy || !selection.length} onClick={async () => {
+        setBusy(true); setError(''); setMessage('');
+        try { const r = await api.selectServicePlans(selection); await refreshProfile(); setMessage(r.message); }
+        catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      }}>Seçtiğim paketleri etkinleştir</button>}
       {!!requests.length && <section><h3>Paket talepleri</h3><ul>{requests.map(r => <li key={r.id}>{r.companyName} — {r.planName} · {r.period === 'MONTHLY' ? 'Aylık' : 'Yıllık'} · İncelemede</li>)}</ul></section>}
       <h3>e-Dönüşüm hizmetleri</h3>
       <p>e-Fatura, e-Arşiv, e-İrsaliye, e-SMM ve e-Defter hizmetleri için başvuru yapabilirsiniz. Fiyat, başvurunuza hazırlanacak teklifte gösterilir.</p>

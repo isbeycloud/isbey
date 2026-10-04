@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShieldOff, ArrowLeft, Home } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import type { AppView } from '../../context/AppContext';
 
 interface AccessDeniedViewProps {
@@ -18,14 +19,15 @@ export const AccessDeniedView: React.FC<AccessDeniedViewProps> = ({
   returnView = 'dashboard',
 }) => {
   const { setActiveView, setActiveRibbonTab } = useApp();
+  const { canAccessModule } = useAuth();
 
   const handleGoBack = () => {
-    setActiveView(returnView);
+    setActiveView(canAccessModule(returnView) ? returnView : 'hizmetler');
     setActiveRibbonTab('ANASAYFA');
   };
 
   const handleGoHome = () => {
-    setActiveView('dashboard');
+    setActiveView(canAccessModule('dashboard') ? 'dashboard' : 'hizmetler');
     setActiveRibbonTab('ANASAYFA');
   };
 

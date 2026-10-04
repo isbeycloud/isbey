@@ -58,7 +58,7 @@ export const Header: React.FC = () => {
     isMobileSidebarOpen,
     setIsMobileSidebarOpen,
   } = useApp();
-  const { user, logout, userWorkspace } = useAuth();
+  const { user, logout, userWorkspace, canAccessModule } = useAuth();
 
   const [company, setCompany] = useState<Company | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -293,7 +293,7 @@ export const Header: React.FC = () => {
                 Yeni belge
               </div>
 
-              <button
+              {canAccessModule('satis') && (<button
                 onClick={() => {
                   setShowQuickActionMenu(false);
                   setActiveView('satis');
@@ -326,9 +326,9 @@ export const Header: React.FC = () => {
                   <div>Yeni Satış Faturası</div>
                   <div style={{ fontSize: 'var(--fs-xs, 11px)', color: 'var(--text-muted, #5f6779)', fontWeight: 400 }}>e-Fatura / e-Arşiv Satış Düzenle</div>
                 </div>
-              </button>
+              </button>)}
 
-              <button
+              {canAccessModule('alis') && (<button
                 onClick={() => {
                   setShowQuickActionMenu(false);
                   setActiveView('alis');
@@ -361,10 +361,10 @@ export const Header: React.FC = () => {
                   <div>Yeni Alış Faturası</div>
                   <div style={{ fontSize: 'var(--fs-xs, 11px)', color: 'var(--text-muted, #5f6779)', fontWeight: 400 }}>Tedarikçi Gelen Alış Kaydet</div>
                 </div>
-              </button>
+              </button>)}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', padding: '4px 6px' }}>
-                <button
+                {canAccessModule('kasa') && (<button
                   onClick={() => {
                     setShowQuickActionMenu(false);
                     setIsFastCollectionOpen(true);
@@ -389,9 +389,9 @@ export const Header: React.FC = () => {
                 >
                   <DollarSign size={15} />
                   <span>Tahsilat (F8)</span>
-                </button>
+                </button>)}
 
-                <button
+                {canAccessModule('kasa') && (<button
                   onClick={() => {
                     setShowQuickActionMenu(false);
                     setIsFastPaymentOpen(true);
@@ -416,7 +416,7 @@ export const Header: React.FC = () => {
                 >
                   <CreditCard size={15} />
                   <span>Ödeme (F9)</span>
-                </button>
+                </button>)}
               </div>
 
               <div style={{ height: '1px', background: 'var(--border-light, #edf1f7)', margin: '4px 0' }} />
@@ -424,20 +424,20 @@ export const Header: React.FC = () => {
               {[
                 {
                   icon: <Users size={15} color="var(--text-secondary, #444a5a)" />,
-                  label: 'Yeni Müşteri / Tedarikçi (Cari)',
+                  view: 'cari', label: 'Yeni Müşteri / Tedarikçi (Cari)',
                   action: () => { setShowQuickActionMenu(false); setActiveView('cari'); setActiveRibbonTab('CARI'); setIsNewCustomerModalOpen(true); },
                 },
                 {
                   icon: <Package size={15} color="var(--text-secondary, #444a5a)" />,
-                  label: 'Yeni Ürün / Stok Kartı',
+                  view: 'stok', label: 'Yeni Ürün / Stok Kartı',
                   action: () => { setShowQuickActionMenu(false); setActiveView('stok'); setActiveRibbonTab('STOK'); setIsNewProductModalOpen(true); },
                 },
                 {
                   icon: <Receipt size={15} color="var(--text-secondary, #444a5a)" />,
-                  label: 'Yeni Gider / Masraf Fişi',
+                  view: 'gider', label: 'Yeni Gider / Masraf Fişi',
                   action: () => { setShowQuickActionMenu(false); setActiveView('gider'); setActiveRibbonTab('GIDER'); setIsNewExpenseModalOpen(true); },
                 },
-              ].map((row, i) => (
+              ].filter(row => canAccessModule(row.view)).map((row, i) => (
                 <button
                   key={i}
                   onClick={row.action}

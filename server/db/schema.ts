@@ -1095,6 +1095,7 @@ export interface TenantStats {
 }
 
 export interface Tenant {
+  selectedServicePlanIds?: string[];
   erpSubscription?: { startDate: string; endDate: string; expiryPolicy: 'READ_ONLY'; updatedAt: string };
   id: string;
   companyCode?: string;

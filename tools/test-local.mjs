@@ -13,6 +13,8 @@ const suites = [
   'xsltSecurityTest.ts',
   'eInvoiceLivePreparationTest.ts',
   'eServicesTest.ts',
+  'serviceEntitlementsTest.ts',
+  'hizliDealerPortalTest.ts',
   'productionProvisioningTest.ts', 'productionTenantTest.ts', 'membershipIsolationTest.ts', 'credentialVaultRegressionTest.ts', 'credentialMaskRegressionTest.ts',
   'faz252bPermissionRegistryTest.mjs', 'faz252dFrontendMatrixAlignmentTest.mjs',
   'faz27EnvironmentConfigTest.ts', 'phase19GuidFindUnitTest.ts',

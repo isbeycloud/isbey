@@ -33,8 +33,10 @@ import {
 
 import { useApp } from '../../context/AppContext';
 import type { RibbonTab, AppView } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 
 export const RibbonBar: React.FC = () => {
+  const { canAccessModule } = useAuth();
   const {
     activeRibbonTab,
     setActiveRibbonTab,
@@ -84,7 +86,7 @@ export const RibbonBar: React.FC = () => {
     <div className="ribbon-container">
       {/* Ribbon Tabs Row */}
       <div className="ribbon-tabs-row">
-        {tabs.map(tab => (
+        {tabs.filter(tab => canAccessModule(tab.view)).map(tab => (
           <button
             key={tab.id}
             className={`ribbon-tab ${activeRibbonTab === tab.id ? 'active' : ''}`}
@@ -99,37 +101,37 @@ export const RibbonBar: React.FC = () => {
       </div>
 
       {/* Ribbon Content Row with Functional Groups */}
-      <div className="ribbon-content-row">
+      <div className="ribbon-content-row" style={{ display: tabs.some(t => t.id === activeRibbonTab && canAccessModule(t.view)) ? undefined : 'none' }}>
         {/* TAB: ANASAYFA */}
         {activeRibbonTab === 'ANASAYFA' && (
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button
+                {canAccessModule('pos') && (<button
                   className="ribbon-btn-large primary"
                   onClick={() => { setActiveView('pos'); setActiveRibbonTab('SATIS'); }}
                 >
                   <ShoppingCart size={20} />
                   <span>POS Satış (F6)</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
+                </button>)}
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
                   <DollarSign size={20} />
                   <span>Tahsilat (F8)</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
+                </button>)}
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
                   <CreditCard size={20} />
                   <span>Ödeme (F9)</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Hızlı Eylemler</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setIsGlobalSearchOpen(true)} title="Global Arama Penceresi (F10)">
+                {canAccessModule('dashboard') && (<button className="ribbon-btn-large" onClick={() => setIsGlobalSearchOpen(true)} title="Global Arama Penceresi (F10)">
                   <Search size={20} />
                   <span>Ara (F10)</span>
-                </button>
+                </button>)}
                 <button className="ribbon-btn-large" onClick={triggerRefresh}>
                   <RefreshCw size={20} />
                   <span>Yenile</span>
@@ -146,24 +148,24 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setIsNewCustomerModalOpen(true)}>
+                {canAccessModule('cari') && (<button className="ribbon-btn-large primary" onClick={() => setIsNewCustomerModalOpen(true)}>
                   <PlusCircle size={20} />
                   <span>Yeni Cari Kart</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Tanımlama</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
                   <DollarSign size={20} />
                   <span>Tahsilat Al</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
+                </button>)}
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
                   <CreditCard size={20} />
                   <span>Ödeme Yap</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Finansal Hareket</div>
             </div>
@@ -191,20 +193,20 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setIsNewQuoteModalOpen(true)}>
+                {canAccessModule('teklif') && (<button className="ribbon-btn-large primary" onClick={() => setIsNewQuoteModalOpen(true)}>
                   <PlusCircle size={20} />
                   <span>Yeni Teklif Hazırla</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Teklif İşlemleri</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setActiveView('teklif')}>
+                {canAccessModule('teklif') && (<button className="ribbon-btn-large" onClick={() => setActiveView('teklif')}>
                   <FileText size={20} />
                   <span>Teklif & Sipariş Listesi</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Sipariş & Sevkiyat</div>
             </div>
@@ -216,20 +218,20 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setIsNewWaybillModalOpen(true)}>
+                {canAccessModule('irsaliye') && (<button className="ribbon-btn-large primary" onClick={() => setIsNewWaybillModalOpen(true)}>
                   <Truck size={20} />
                   <span>Yeni İrsaliye Düzenle</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">İrsaliye & Sevk</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setActiveView('irsaliye')}>
+                {canAccessModule('irsaliye') && (<button className="ribbon-btn-large" onClick={() => setActiveView('irsaliye')}>
                   <FileText size={20} color="#10b981" />
                   <span>Tüm İrsaliyeler</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Faturalaştırma</div>
             </div>
@@ -241,20 +243,20 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setIsNewExpenseModalOpen(true)}>
+                {canAccessModule('gider') && (<button className="ribbon-btn-large primary" onClick={() => setIsNewExpenseModalOpen(true)}>
                   <PlusCircle size={20} />
                   <span>Yeni Masraf Fişi</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Masraf & Gider</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setActiveView('gider')}>
+                {canAccessModule('gider') && (<button className="ribbon-btn-large" onClick={() => setActiveView('gider')}>
                   <Receipt size={20} />
                   <span>Gider Raporu</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Masraf Merkezleri</div>
             </div>
@@ -267,7 +269,7 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button
+                {canAccessModule('satis') && (<button
                   className="ribbon-btn-large primary"
                   onClick={() => {
                     setNewInvoiceType('SALES');
@@ -276,24 +278,24 @@ export const RibbonBar: React.FC = () => {
                 >
                   <PlusCircle size={20} />
                   <span>Satış Faturası</span>
-                </button>
-                <button
+                </button>)}
+                {canAccessModule('pos') && (<button
                   className="ribbon-btn-large"
                   onClick={() => { setActiveView('pos'); setActiveRibbonTab('SATIS'); }}
                 >
                   <Barcode size={20} />
                   <span>Hızlı POS Satış</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Yeni Satış</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => { setActiveView('satis'); }}>
+                {canAccessModule('satis') && (<button className="ribbon-btn-large" onClick={() => { setActiveView('satis'); }}>
                   <FileText size={20} />
                   <span>Tüm Faturalar</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Fatura Listesi</div>
             </div>
@@ -305,7 +307,7 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button
+                {canAccessModule('satis') && (<button
                   className="ribbon-btn-large primary"
                   onClick={() => {
                     setNewInvoiceType('PURCHASE');
@@ -314,7 +316,7 @@ export const RibbonBar: React.FC = () => {
                 >
                   <PlusCircle size={20} />
                   <span>Yeni Alış Faturası</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Tedarik & Giriş</div>
             </div>
@@ -326,24 +328,24 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setIsNewProductModalOpen(true)}>
+                {canAccessModule('stok') && (<button className="ribbon-btn-large primary" onClick={() => setIsNewProductModalOpen(true)}>
                   <PlusCircle size={20} />
                   <span>Yeni Stok Kartı</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Tanımlamalar</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setActiveView('stok')}>
+                {canAccessModule('stok') && (<button className="ribbon-btn-large" onClick={() => setActiveView('stok')}>
                   <ArrowRightLeft size={20} />
                   <span>Depo Transferi</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('stok')}>
+                </button>)}
+                {canAccessModule('stok') && (<button className="ribbon-btn-large" onClick={() => setActiveView('stok')}>
                   <AlertTriangle size={20} />
                   <span>Kritik Stoklar</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Hareketler & Depo</div>
             </div>
@@ -355,28 +357,28 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setActiveView('kasa')}>
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large primary" onClick={() => setActiveView('kasa')}>
                   <DollarSign size={20} />
                   <span>Kasa Listesi</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('banka')}>
+                </button>)}
+                {canAccessModule('banka') && (<button className="ribbon-btn-large" onClick={() => setActiveView('banka')}>
                   <Landmark size={20} />
                   <span>Banka Hesapları</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Hesaplar</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastCollectionOpen(true)}>
                   <PlusCircle size={20} color="#10b981" />
                   <span>Kasa Giriş</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
+                </button>)}
+                {canAccessModule('kasa') && (<button className="ribbon-btn-large" onClick={() => setIsFastPaymentOpen(true)}>
                   <CreditCard size={20} />
                   <span>Kasa Çıkış</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Virman & Transfer</div>
             </div>
@@ -388,10 +390,10 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setActiveView('ceksenet')}>
+                {canAccessModule('ceksenet') && (<button className="ribbon-btn-large primary" onClick={() => setActiveView('ceksenet')}>
                   <PlusCircle size={20} />
                   <span>Yeni Çek / Senet</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Portföy</div>
             </div>
@@ -403,14 +405,14 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setActiveView('raporlar')}>
+                {canAccessModule('raporlar') && (<button className="ribbon-btn-large primary" onClick={() => setActiveView('raporlar')}>
                   <BarChart3 size={20} />
                   <span>Kâr / Zarar Raporu</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('raporlar')}>
+                </button>)}
+                {canAccessModule('raporlar') && (<button className="ribbon-btn-large" onClick={() => setActiveView('raporlar')}>
                   <TrendingUp size={20} />
                   <span>Stok Değerleme</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Mali Analizler</div>
             </div>
@@ -422,10 +424,10 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => setActiveView('ai')}>
+                {canAccessModule('ai') && (<button className="ribbon-btn-large primary" onClick={() => setActiveView('ai')}>
                   <Sparkles size={20} />
                   <span>Akıllı AI Analizi</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Yapay Zeka & Tahmin</div>
             </div>
@@ -437,32 +439,32 @@ export const RibbonBar: React.FC = () => {
           <>
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large primary" onClick={() => openFormDesigner()}>
+                {canAccessModule('form-designer') && (<button className="ribbon-btn-large primary" onClick={() => openFormDesigner()}>
                   <LayoutTemplate size={20} />
                   <span>Form Tasarımcısı</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
+                </button>)}
+                {canAccessModule('ayarlar') && (<button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
                   <Sliders size={20} />
                   <span>Firma & Numaratör</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Tasarım & Yapılandırma</div>
             </div>
 
             <div className="ribbon-group">
               <div className="ribbon-group-items">
-                <button className="ribbon-btn-large" onClick={() => setActiveView('tenants')}>
+                {canAccessModule('tenants') && (<button className="ribbon-btn-large" onClick={() => setActiveView('tenants')}>
                   <Building size={20} />
                   <span>Şirket & Tenant</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
+                </button>)}
+                {canAccessModule('ayarlar') && (<button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
                   <Database size={20} />
                   <span>Yedek Al & Dön</span>
-                </button>
-                <button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
+                </button>)}
+                {canAccessModule('ayarlar') && (<button className="ribbon-btn-large" onClick={() => setActiveView('ayarlar')}>
                   <ShieldCheck size={20} />
                   <span>Audit Loglar</span>
-                </button>
+                </button>)}
               </div>
               <div className="ribbon-group-title">Multi-Tenant & Güvenlik</div>
             </div>

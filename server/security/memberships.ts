@@ -1,4 +1,5 @@
 import type { DatabaseState, User, TenantUser, UserRole } from '../db/schema';
+import { serviceMenus, serviceModules } from '../services/serviceEntitlements';
 import { PLATFORM_ROLE_TO_SLUG, SLUG_TO_PLATFORM_ROLE, type RoleSlug } from './roles';
 
 export const isPlatformUser = (user: Pick<User, 'role'>) => ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
@@ -36,7 +37,9 @@ export function companyIdentity(db: DatabaseState, user: User, tenantId: string)
   const permissionCodes = platform ? ['*'] : [...new Set(roles.flatMap(r => r.permissions))];
   const { passwordHash: _secret, permissions: _legacy, ...safe } = user;
   return { ...safe, role, companyId: tenantId, companyName: db.tenants.find(t => t.id === tenantId)?.name, tenantId, allowedCompanyIds: [tenantId],
-    roleSlugs, effectiveRoles, permissionCodes, allowedMenuIds: platform ? null : membership?.allowedMenuIds ?? null };
+    roleSlugs, effectiveRoles, permissionCodes, serviceMenuIds: platform ? null : serviceMenus(db, db.tenants.find(t => t.id === tenantId)),
+    serviceModuleIds: platform ? null : serviceModules(db, db.tenants.find(t => t.id === tenantId)),
+    allowedMenuIds: platform ? null : membership?.allowedMenuIds ?? null };
 }
 
 // Idempotent upgrade: never reactivate a revoked membership or overwrite its roles.

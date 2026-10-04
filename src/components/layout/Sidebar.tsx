@@ -37,6 +37,7 @@ import { useAuth } from '../../context/AuthContext';
 import type { AppView, RibbonTab } from '../../context/AppContext';
 import { getMembershipSidebar } from '../../utils/modulePermissions';
 import { menuAllowsView } from '../../data/erpMenus';
+import { serviceAllowsView } from '../../data/serviceAccess';
 
 interface ModuleMeta {
   id: AppView;
@@ -117,7 +118,7 @@ export const Sidebar: React.FC = () => {
   const userRole = user?.role || 'employee';
 
   // FAZ 17: Role-based sidebar modüllerini al (SÖZLEŞME: aynen korunur)
-  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id)) }));
+  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id)) }));
   sidebarGroups.push({ groupLabel: 'HİZMETLER', moduleIds: ['hizmetler'] });
 
   const handleNav = (id: AppView, ribbonTab: RibbonTab) => {

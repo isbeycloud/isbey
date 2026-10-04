@@ -8,6 +8,9 @@ import { HizliBilisimClient } from '../services/hizliBilisim/hizliBilisimClient'
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
 import { HizliBilisimSyncService } from '../services/hizliBilisim/hizliBilisimSyncService';
 import { HizliBilisimMapper } from '../services/hizliBilisim/hizliBilisimMapper';
+import { selectedPlans, applyServicePlans } from '../services/serviceEntitlements';
+import { HizliDealerPortal } from '../services/hizliBilisim/hizliDealerPortal';
+import { rateLimit } from '../middleware/productionSecurity';
 import type { ExternalCustomer, TenantPlan } from '../db/schema';
 import { encryptSecret, decryptSecret } from '../security/credentialVault';
 // 2026-09-15: yanıtlardan secret temizliği + PUT'ta sentinel çözümü (iki taraflı).
@@ -19,6 +22,70 @@ import {
 } from '../security/credentialMask';
 
 export const hizliBilisimRouter = Router();
+let dealerPortal = new HizliDealerPortal();
+const portalLoginLimit = rateLimit({ name: 'dealer-portal-login', windowMs: 15 * 60_000, max: 10 });
+
+hizliBilisimRouter.post('/portal/connect', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), portalLoginLimit, async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (typeof username !== 'string' || typeof password !== 'string' || !username.trim() || !password || username.length > 100 || password.length > 200) return res.status(400).json({ success: false, message: 'Bayi kullanıcı adı ve şifre gerekli.' });
+    dealerPortal = new HizliDealerPortal(fetch, { username: username.trim(), password });
+    const result = await dealerPortal.authenticate();
+    return res.json({ success: true, ...result });
+  } catch { return res.status(502).json({ success: false, message: 'Bayi portalı oturumu açılamadı. Bilgileri ve sağlayıcı bağlantısını kontrol edin.' }); }
+});
+hizliBilisimRouter.post('/portal/verify', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), portalLoginLimit, async (req, res) => {
+  if (typeof req.body?.code !== 'string' || !/^[a-z0-9]{4,12}$/i.test(req.body.code)) return res.status(400).json({ success: false, message: 'Geçerli doğrulama kodunu girin.' });
+  try { const result = await dealerPortal.authenticate(String(req.body?.code || '')); return res.json({ success: true, ...result }); }
+  catch { return res.status(400).json({ success: false, message: 'Doğrulama kodu kabul edilmedi veya süresi doldu.' }); }
+});
+
+hizliBilisimRouter.get('/customers/dealer-portfolio', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await dealerPortal.list(Number(req.query.start || 0), Number(req.query.length || 50), String(req.query.search || ''));
+    const existing = storage.getState().externalCustomers || [];
+    return res.json({ success: true, ...result, customers: result.customers.map(c => ({ ...c, existing: existing.some(e => e.taxNumber === c.taxNumber) })) });
+  } catch (e) { return res.status(502).json({ success: false, code: (e as Error).message === 'PORTAL_VERIFICATION_REQUIRED' ? 'PORTAL_VERIFICATION_REQUIRED' : 'PORTAL_ERROR', message: (e as Error).message === 'PORTAL_VERIFICATION_REQUIRED' ? 'Bayi portalına bağlanıp doğrulama kodunu girin.' : (e as Error).message }); }
+});
+
+hizliBilisimRouter.post('/customers/dealer-import', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
+  const ids = req.body?.taxIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 25 || ids.some(id => typeof id !== 'string' || !/^\d{10,11}$/.test(id))) return res.status(400).json({ success: false, message: 'En fazla 25 müşteri seçin.' });
+  const results = [];
+  const connection = dealerPortal;
+  for (const taxId of new Set<string>(ids)) {
+    try {
+      const page = await connection.list(0, 2, '', taxId);
+      const remote = page.customers.find(c => c.taxNumber === taxId);
+      if (!remote) throw new Error('Müşteri bayi portföyünüzde bulunamadı.');
+      const outcome = await storage.runTransaction(db => {
+        db.externalCustomers ||= [];
+        const existing = db.externalCustomers.find(c => c.taxNumber === taxId || c.externalId === remote.externalId);
+        if (existing) {
+          if (existing.taxNumber !== taxId) throw new Error('Sağlayıcı müşteri kimliği farklı VKN/TCKN ile kayıtlı.');
+          return 'Müşteri zaten portföyde kayıtlı.';
+        }
+        db.externalCustomers.push({ id: `hbc-${taxId}`, provider: 'HIZLI_BILISIM', externalId: remote.externalId, companyName: remote.companyName, title: remote.companyName, taxNumber: taxId, taxOffice: '', contactName: remote.contactName, phone: remote.phone, email: remote.email, city: remote.city, status: 'NEW', registeredAt: new Date().toISOString(), syncedAt: new Date().toISOString() });
+        return 'Müşteri portföye eklendi.';
+      });
+      results.push({ taxId, success: true, message: outcome });
+    } catch (e) { results.push({ taxId, success: false, message: (e as Error).message === 'PORTAL_VERIFICATION_REQUIRED' ? 'Bayi oturumu doğrulanmalı.' : (e as Error).message }); }
+  }
+  return res.json({ success: true, results });
+});
+
+hizliBilisimRouter.post('/customers/portfolio-preview', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
+  const ids = req.body?.taxIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string' || !/^\d{10,11}$/.test(id))) {
+    return res.status(400).json({ success: false, message: '1–50 adet VKN/TCKN girin (10 veya 11 rakam).' });
+  }
+  const results = [];
+  for (const taxId of new Set<string>(ids)) {
+    try { results.push({ taxId, ...await HizliBilisimSyncService.sorgula(taxId) }); }
+    catch { results.push({ taxId, success: false, durum: 'HATA', message: 'Sorgu tamamlanamadı; tekrar deneyin.' }); }
+  }
+  return res.json({ success: true, results });
+});
 
 // GET /api/admin/hizli-bilisim/customers - List all external customers with KPIs & filters
 hizliBilisimRouter.get('/customers', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (req: Request, res: Response) => {
@@ -178,6 +245,7 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
   try {
     const {
       customerId,
+      planIds,
       plan = 'PRO',
       isTrial = false,
       trialDays = 14,
@@ -189,6 +257,8 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
     } = req.body;
 
     const db = storage.getState();
+    try { selectedPlans(db, planIds); }
+    catch (e) { return res.status(400).json({ success: false, message: (e as Error).message }); }
     const ext = (db.externalCustomers || []).find(c => c.id === customerId || c.externalId === customerId);
 
     if (!ext) {
@@ -234,6 +304,7 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
 
     // Execute in Atomic Transaction
     const result = await storage.runTransaction(async draft => {
+      if (draft.externalCustomers?.find(c => c.id === ext.id)?.isbeyCompanyId || draft.tenants.some(t => t.taxNumber === ext.taxNumber)) throw new Error('Müşteri zaten bir firmaya bağlı.');
       // Map to Tenant + Default Resources
       const mapped = HizliBilisimMapper.mapToTenant(ext, {
         plan: plan as TenantPlan,
@@ -242,6 +313,7 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
       });
 
       const { tenant, defaultWarehouse, defaultCashRegister, defaultBankAccount } = mapped;
+      applyServicePlans(tenant, selectedPlans(draft, planIds));
 
       // Push to collections
       draft.tenants.push(tenant);
@@ -267,6 +339,8 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
         if (customAdminUsername?.trim()) {
           createdUser.username = customAdminUsername.trim();
         }
+
+        if (draft.users.some(u => u.email?.toLowerCase() === adminEmail || u.username.toLowerCase() === createdUser!.username.toLowerCase())) throw new Error('E-posta veya kullanıcı adı zaten kayıtlı. Başka bir yetkili seçin.');
 
         draft.users.push(createdUser);
         migrateMemberships(draft);
@@ -323,7 +397,7 @@ hizliBilisimRouter.post('/create-company', requireAuth, requireRole('SUPER_ADMIN
     res.json({
       success: true,
       company: result.company,
-      user: result.user,
+      user: result.user ? (({ passwordHash: _hash, ...safe }) => safe)(result.user) : undefined,
       activationLink: result.activationLink,
       message: `"${result.company.name}" firması ve çalışma ortamı başarıyla oluşturuldu.${result.user ? ' Yönetici hesabı ve aktivasyon bağlantısı hazırlandı.' : ''}`,
     });
@@ -403,7 +477,7 @@ hizliBilisimRouter.post('/create-user', requireAuth, requireRole('SUPER_ADMIN', 
 
     res.json({
       success: true,
-      user: result.user,
+      user: (({ passwordHash: _hash, ...safe }) => safe)(result.user),
       activationLink: result.activationLink,
       message: `"${result.user.fullName}" kullanıcısı oluşturuldu ve aktivasyon bağlantısı hazırlandı.`,
     });
@@ -465,7 +539,9 @@ hizliBilisimRouter.post('/match-company', requireAuth, requireRole('SUPER_ADMIN'
 // POST /api/admin/hizli-bilisim/bulk-convert - Batch convert selected customers to companies
 hizliBilisimRouter.post('/bulk-convert', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
   try {
-    const { customerIds, plan = 'PRO', createAdminUser = true } = req.body;
+    const { customerIds, planIds, plan = 'PRO', createAdminUser = true } = req.body;
+    try { selectedPlans(storage.getState(), planIds); }
+    catch (e) { return res.status(400).json({ success: false, message: (e as Error).message }); }
 
     if (!customerIds || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ success: false, message: 'Dönüştürülecek müşteriler seçilmelidir.' });
@@ -485,7 +561,9 @@ hizliBilisimRouter.post('/bulk-convert', requireAuth, requireRole('SUPER_ADMIN',
 
       try {
         await storage.runTransaction(async draft => {
+          if (draft.externalCustomers?.find(c => c.id === ext.id)?.isbeyCompanyId || draft.tenants.some(t => t.taxNumber === ext.taxNumber)) throw new Error('Müşteri zaten bir firmaya bağlı.');
           const mapped = HizliBilisimMapper.mapToTenant(ext, { plan });
+          applyServicePlans(mapped.tenant, selectedPlans(draft, planIds));
           draft.tenants.push(mapped.tenant);
           validateProviderMatch(draft, ext.id, mapped.tenant.id);
           draft.warehouses.push(mapped.defaultWarehouse);
@@ -496,6 +574,7 @@ hizliBilisimRouter.post('/bulk-convert', requireAuth, requireRole('SUPER_ADMIN',
           if (createAdminUser) {
             const adminMap = HizliBilisimMapper.mapToCompanyAdmin(ext, mapped.tenant.id, mapped.tenant.companyCode || 'ISB-000000');
             createdUser = adminMap.user;
+            if (!ext.contactName?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ext.email || '') || draft.users.some(u => u.email?.toLowerCase() === ext.email.toLowerCase() || u.username === createdUser!.username)) throw new Error('Geçerli ve benzersiz yetkili e-postası gerekli. Tekil üyelik oluşturma ekranını kullanın.');
             draft.users.push(createdUser);
         migrateMemberships(draft);
 

@@ -1,0 +1,13 @@
+# Paket seçimi ve bayi portföyünden üyelik
+
+Yeni kayıtlar `selectedServicePlanIds: []` ile açılır ve Hizmetler ve Paketler ekranına yönlendirilir. Firma yöneticisi satışa açık bir veya birden fazla paket seçebilir. Seçim hemen uygulanır; mevcut abonelik süresi korunur, ödeme alınmaz. Hizmet yetkileri paketlerin `activeModules` birleşiminden türetilir. Firma üyeliğinin menü/rol kısıtları ayrıca uygulanır. Eski hesapların erişimleri paket seçene kadar korunur.
+
+Sunucu her istekte paket kapsamını yeniden kontrol eder. Menü, ribbon, hızlı işlemler ve klavye kısayolları aynı kapsamı kullanır. Genel arama ve toplu içe aktarma gibi birden fazla ERP alanını kapsayan işlemler tüm alanlar açılmadan kullanılmaz. Paket kimliği yönetici/tenant düzenleme isteklerinden değiştirilemez; seçim `/api/e-services/select-plans` üzerinden doğrulanır.
+
+Hızlı Bilişim bayi portalındaki **Yönetim Paneli → Müşteri İşlemleri** ekranı 3 Ekim 2026 tarihinde incelendi. Ekran, oturum kapsamındaki listeyi `POST /AdminPanel/CustomerList` ile DataTables sayfalama parametreleriyle okur. Bu servis eConnect Swagger dokümanındaki tekil `MusteriGetir` servisinden ayrıdır.
+
+İŞBEY’de **Müşteri İşlemleri → Portföyden müşteri seç** ile bayi oturumu açılır. Giriş gerekli olduğunda **Bayi portalına bağlan** düğmesi kullanılır. Sağlayıcının e-posta/SMS doğrulaması korunur. Kullanıcı adı, şifre, oturum cookie’si ve CSRF token’ları sunucu belleğinde kalır; tarayıcıya cookie/token dönmez, veritabanına yazılmaz. Sunucu yeniden başlatıldığında tekrar bağlantı gerekir. Alternatif olarak sunucu ortamında `HIZLI_BILISIM_PORTAL_USERNAME` ve `HIZLI_BILISIM_PORTAL_PASSWORD` tanımlanabilir; ek doğrulama yine yapılır.
+
+Listeleme firma/üye oluşturmaz. Seçilen en fazla 25 müşteri aktarılırken her VKN/TCKN yeniden bayi portföyünden sorgulanır; istemcinin firma bilgileri güvenilir veri sayılmaz. Portföy dışı veya mükerrer kayıt için yeni firma açılmaz. Başarılı ve başarısız aktarımlar ayrı gösterilir. Portföye eklenen müşteriler seçilip **İŞBEY’e Aktar** ile sırayla üyeliğe dönüştürülür: paket seçimi ve yetkili adı/geçerli e-posta gerekir. Her üyelikte tek kullanımlık 24 saatlik aktivasyon bağlantısı üretilir. Bağlantı otomatik e-posta göndermez.
+
+Doğrulamalar: `serviceEntitlementsTest.ts` gerçek HTTP üzerinden paket/rol/firma izolasyonu, kayıt sonrası boş yetki, paketlerin birleşimi, bayi aktarımında güvenilir kaynak ve idempotency koşullarını kontrol eder. `hizliDealerPortalTest.ts` cookie/CSRF/giriş doğrulaması, sayfalama ve bozuk sağlayıcı yanıtlarını test eder. Sağlayıcı testleri yerel taklit kullanır; gerçek müşterileri üyeliğe dönüştürmez.

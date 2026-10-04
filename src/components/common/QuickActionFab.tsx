@@ -10,16 +10,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Plus, X, Receipt, Users, DollarSign, CreditCard } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { canAccessModule } from '../../utils/modulePermissions';
 
 export const QuickActionFab: React.FC = () => {
   const { setIsNewInvoiceModalOpen, setNewInvoiceType, setIsNewCustomerModalOpen, setIsFastCollectionOpen, setIsFastPaymentOpen, activeView } = useApp();
-  const { user } = useAuth();
+  const { canAccessModule: can } = useAuth();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const role = user?.role || '';
-  const can = (moduleId: string) => canAccessModule(role, moduleId);
 
   const actions = [
     { id: 'FAB_INVOICE', label: 'Yeni Fatura', icon: Receipt, color: '#0284c7',

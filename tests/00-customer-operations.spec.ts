@@ -14,6 +14,15 @@ test('direct signup opens the service catalog and can request a plan', async ({ 
   await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toBeVisible();
   await page.getByRole('button', { name: 'Paket talebi oluştur', exact: true }).first().click();
   await expect(page.getByText('paket talebiniz kaydedildi. Henüz ödeme alınmadı.', { exact: false })).toBeVisible();
+  await expect(page.locator('aside').getByText('Cari', { exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: /paketini seç/ }).first().check();
+  await page.getByRole('button', { name: 'Seçtiğim paketleri etkinleştir', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'hizmetleri etkinleştirildi' })).toBeVisible();
+  await expect(page.locator('aside').getByText('Cari', { exact: true })).toBeVisible();
+  await expect(page.locator('aside').getByText('Banka', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('aside').getByText('Cari', { exact: true })).toBeVisible();
+  await expect(page.locator('aside').getByText('Banka', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: '.verify-tmp/service-catalog.png', fullPage: true });
 });
 
@@ -37,6 +46,45 @@ test('customer operations, company switcher and service application form', async
   await expect.poll(() => page.evaluate(() => localStorage.getItem('isbey_token'))).not.toBe(previous);
   await page.getByText('Müşteri İşlemleri', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hızlı Bilişim — Müşteri İşlemleri' })).toBeVisible();
+  await page.route('**/api/admin/hizli-bilisim/customers/dealer-portfolio?*', route => route.fulfill({ json: { success: true, total: 1273, filtered: 1273, customers: [{ externalId: 'test-provider', taxNumber: '1234567890', companyName: 'Bayi Portföy Firması', city: 'Adana', dealerName: 'Test bayi', isActive: true, existing: false }] } }));
+  await page.route('**/api/admin/hizli-bilisim/portal/connect', route => route.fulfill({ json: { success: true, verificationRequired: true } }));
+  await page.route('**/api/admin/hizli-bilisim/portal/verify', route => route.fulfill({ json: { success: true, verificationRequired: false } }));
+  const dealerImported: string[] = [];
+  await page.route('**/api/admin/hizli-bilisim/customers/dealer-import', route => {
+    dealerImported.push(...route.request().postDataJSON().taxIds);
+    return route.fulfill({ json: { success: true, results: [{ taxId: '1234567890', success: true, message: 'Bayi müşterisi portföye eklendi.' }] } });
+  });
+  await page.route('**/api/admin/hizli-bilisim/customers/portfolio-preview', route => route.fulfill({ json: { success: true, results: [
+    { taxId: '1234567890', success: true, durum: 'BULUNDU', message: 'Müşteri bulundu.', musteri: { companyName: 'Seçilecek Firma' } },
+    { taxId: '1234567891', success: false, durum: 'HATA', message: 'Sağlayıcıya ulaşılamadı.' },
+  ] } }));
+  const added: string[] = [];
+  await page.route('**/api/admin/hizli-bilisim/customers/ekle', route => {
+    added.push(route.request().postDataJSON().vknTckn);
+    return route.fulfill({ json: { success: true, durum: 'EKLENDI', message: 'Müşteri portföye eklendi.' } });
+  });
+  await page.getByRole('button', { name: 'Portföyden müşteri seç', exact: true }).click();
+  await expect(page.getByText('Bayi Portföy Firması', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Bayi portalına bağlan', exact: true }).click();
+  await page.getByLabel('Bayi kullanıcı adı', { exact: true }).fill('test-dealer');
+  await page.getByLabel('Bayi şifresi', { exact: true }).fill('test-password');
+  await page.getByRole('button', { name: 'Bağlan', exact: true }).click();
+  await page.getByLabel('Doğrulama kodu', { exact: true }).fill('123456');
+  await page.getByRole('button', { name: 'Kodu doğrula', exact: true }).click();
+  await expect(page.getByText('Bayi Portföy Firması', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: '1234567890 müşterisini seç' }).check();
+  await page.getByRole('button', { name: 'Seçilenleri portföye ekle (1)' }).click();
+  await expect(page.getByRole('status')).toContainText('Bayi müşterisi portföye eklendi.');
+  expect(dealerImported).toEqual(['1234567890']);
+  await page.getByRole('button', { name: 'VKN listesiyle sorgula', exact: true }).click();
+  await page.getByLabel('VKN/TCKN listesi (en fazla 50)').fill('1234567890\n1234567891');
+  await page.getByRole('button', { name: 'Hızlı Bilişim’den sorgula', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: '1234567891 müşterisini seç' })).toBeDisabled();
+  await page.getByRole('checkbox', { name: '1234567890 müşterisini seç' }).check();
+  await page.getByRole('button', { name: 'Seçilenleri portföye ekle (1)' }).click();
+  await expect(page.getByRole('status')).toContainText('Müşteri portföye eklendi.');
+  expect(added).toEqual(['1234567890']);
+  await page.locator('.modal-header button').click();
   await page.getByText('e-Hizmet Başvuruları ve Ödeme Teklifleri', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'e-Hizmet Başvuru ve Ödeme' })).toBeVisible();
   await expect(page.getByText('Online ödeme henüz etkin değil.', { exact: false })).toBeVisible();

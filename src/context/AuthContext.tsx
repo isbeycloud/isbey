@@ -5,6 +5,7 @@ import { canAccessMembershipModule, getUserWorkspace, getInitialViewForRole, has
 import type { UserWorkspace } from '../utils/modulePermissions';
 import type { AppView } from './AppContext';
 import { menuAllowsView } from '../data/erpMenus';
+import { serviceAllowsView } from '../data/serviceAccess';
 
 interface AuthContextType {
   user: User | null;
@@ -167,7 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canAccessModule = (moduleId: string): boolean => {
     if (!user) return false;
     // UserPermission[] → modül adı string'lerine çevir (module.canView kontrolü)
-    return menuAllowsView(user.allowedMenuIds, moduleId) && canAccessMembershipModule(user.effectiveRoles || [user.role], user.permissionCodes, moduleId);
+    return serviceAllowsView(user.serviceMenuIds, moduleId) && menuAllowsView(user.allowedMenuIds, moduleId) && canAccessMembershipModule(user.effectiveRoles || [user.role], user.permissionCodes, moduleId);
   };
 
   // FAZ 17: Aktif çalışma alanı
@@ -177,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const getInitialView = (): AppView => {
     if (!user) return 'dashboard';
     if (registrationLanding) return 'hizmetler';
+    if (user.serviceMenuIds != null) return 'hizmetler';
     if (!menuAllowsView(user.allowedMenuIds, getInitialViewForRole(user.role))) return 'dashboard';
     return getInitialViewForRole(user.role);
   };

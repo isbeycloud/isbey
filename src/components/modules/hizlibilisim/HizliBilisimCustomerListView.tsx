@@ -8,6 +8,7 @@ import type { ExternalCustomer } from '../../../types';
 import { ConvertToCompanyModal } from './ConvertToCompanyModal';
 import { MatchCompanyModal } from './MatchCompanyModal';
 import { HizliCustomerDetailModal } from './HizliCustomerDetailModal';
+import { PortfolioImportModal } from './PortfolioImportModal';
 import { HizliMukellefEkleModal } from './HizliMukellefEkleModal';
 import {
   Users,
@@ -71,12 +72,13 @@ export const HizliBilisimCustomerListView: React.FC = () => {
   const [showEnvelopeModal, setShowEnvelopeModal] = useState(false);
   const [envelopeForm, setEnvelopeForm] = useState({ hizmetTuru: '', envelopeNo: '', yil: '2026' });
   const [showEkleModal, setShowEkleModal] = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState<SearchForm>(emptyForm());
   const [kpis, setKpis] = useState({ total: 0, new: 0, imported: 0, userCreated: 0, matched: 0, error: 0 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkConverting, setBulkConverting] = useState(false);
+  const bulkConverting = false;
 
   const [detailCustomerId, setDetailCustomerId] = useState<string | null>(null);
   const [convertCustomer, setConvertCustomer] = useState<ExternalCustomer | null>(null);
@@ -147,22 +149,15 @@ export const HizliBilisimCustomerListView: React.FC = () => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const handleBulkConvert = async () => {
-    if (selectedIds.length === 0) return;
-    setBulkConverting(true);
-    try {
-      const res = await api.bulkConvertHizli({ customerIds: selectedIds, plan: 'PRO', createAdminUser: true });
-      if (res.success) {
-        showToast(res.message, 'success');
-        setSelectedIds([]);
-        loadData();
-        triggerRefresh();
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Toplu dönüştürme hatası.', 'error');
-    } finally {
-      setBulkConverting(false);
-    }
+  const [conversionQueue, setConversionQueue] = useState<ExternalCustomer[]>([]);
+  const handleBulkConvert = () => {
+    const queue = customers.filter(c => selectedIds.includes(c.id) && !c.isbeyCompanyId);
+    if (!queue.length) { showToast('Seçilen müşteriler zaten üye.', 'info'); return; }
+    setConversionQueue(queue); setConvertCustomer(queue[0]);
+  };
+  const closeConversion = () => {
+    const remaining = conversionQueue.filter(c => c.id !== convertCustomer?.id);
+    setConversionQueue(remaining); setConvertCustomer(remaining[0] || null);
   };
 
   const clearForm = () => { setForm(emptyForm()); loadData(); };
@@ -336,6 +331,7 @@ export const HizliBilisimCustomerListView: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={() => setShowPortfolio(true)}>Portföyden müşteri seç</button>
           {selectedIds.length > 0 && (
             <button type="button" className="btn btn-success"
               onClick={handleBulkConvert} disabled={bulkConverting}
@@ -641,11 +637,12 @@ export const HizliBilisimCustomerListView: React.FC = () => {
           işlev bırakılmadı. */}
 
       {/* ── Bağımlı Modals ── */}
+      {showPortfolio && <PortfolioImportModal onClose={() => setShowPortfolio(false)} onSuccess={loadData} />}
       {showEkleModal && (
         <HizliMukellefEkleModal isOpen onClose={() => setShowEkleModal(false)} onSuccess={loadData} />
       )}
       {convertCustomer && (
-        <ConvertToCompanyModal isOpen={Boolean(convertCustomer)} onClose={() => setConvertCustomer(null)} customer={convertCustomer} onSuccess={loadData} />
+        <ConvertToCompanyModal isOpen={Boolean(convertCustomer)} onClose={closeConversion} customer={convertCustomer} onSuccess={loadData} />
       )}
       {matchCustomer && (
         <MatchCompanyModal isOpen={Boolean(matchCustomer)} onClose={() => setMatchCustomer(null)} customer={matchCustomer} onSuccess={loadData} />

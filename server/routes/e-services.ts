@@ -6,6 +6,8 @@ import { isPlatformUser } from '../security/memberships';
 import { submitApplication, quoteApplication, completeServicePayment, type EServicePaymentProvider } from '../services/eServiceApplications';
 import { ensureTenantToken } from '../services/hizliTenantCredentialRegistry';
 import { HizliConnectService } from '../services/hizliConnectService';
+import { selectedPlans, applyServicePlans } from '../services/serviceEntitlements';
+import { subscriptionState } from '../security/erpSubscription';
 
 export function createEServicesRouter(provider?: EServicePaymentProvider) {
   const router = Router();
@@ -20,6 +22,20 @@ export function createEServicesRouter(provider?: EServicePaymentProvider) {
     catch { return res.status(400).json({ success: false, message: 'Ödeme siparişle eşleşmedi.' }); }
   });
   router.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'));
+  router.post('/select-plans', requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'), async (req, res) => {
+    try {
+      await storage.runTransaction(db => {
+        const tenant = db.tenants.find(t => t.id === req.tenantId);
+        if (!tenant) throw new Error('Firma bulunamadı.');
+        if (!isPlatformUser(req.user) && subscriptionState(tenant) !== 'ACTIVE') {
+          throw new Error('Paket seçimi için üyelik sürenizi yenileyin.');
+        }
+        const plans = selectedPlans(db, req.body?.planIds);
+        applyServicePlans(tenant, plans);
+      });
+      return res.json({ success: true, message: 'Seçtiğiniz paketlerin hizmetleri etkinleştirildi. Ödeme alınmadı.' });
+    } catch (e) { return res.status(400).json({ success: false, message: (e as Error).message }); }
+  });
   router.get('/plan-requests', (req, res) => res.json({ success: true, requests: (storage.getState().servicePlanRequests || []).filter(r => isPlatformUser(req.user) || r.tenantId === req.tenantId).map(r => ({ ...r, companyName: storage.getState().tenants.find(t => t.id === r.tenantId)?.name || '' })) }));
   router.post('/plan-requests', async (req, res) => {
     const { planId, period } = req.body || {};

@@ -210,7 +210,7 @@ tenantsRouter.post('/', async (req, res) => {
 // PUT /api/tenants/:id - Update tenant
 tenantsRouter.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const protectedFields = ['id', 'externalProvider', 'externalCustomerId', 'erpSubscription', 'license', 'expiresAt'];
+  const protectedFields = ['selectedServicePlanIds', 'id', 'externalProvider', 'externalCustomerId', 'erpSubscription', 'license', 'expiresAt'];
   if (protectedFields.some(field => field in req.body)) return res.status(400).json({ success: false, message: 'Kimlik, sağlayıcı ve ERP aboneliğini ilgili yönetim ekranından düzenleyin.' });
   const updateData = req.body;
 

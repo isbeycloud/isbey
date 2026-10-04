@@ -11,8 +11,11 @@ import { BankAccountView } from '../banka/BankAccountView';
 import { FieldCollectionListView } from '../saha/FieldCollectionListView';
 import { ExpenseListView } from '../gider/ExpenseListView';
 import { CheckNotesView } from '../ceksenet/CheckNotesView';
+import { useAuth } from '../../../context/AuthContext';
 
 export const FinansHubView: React.FC = () => {
+  const { canAccessModule } = useAuth();
+  const moduleForTab: Record<string, string> = { kasa: 'kasa', banka: 'banka', tahsilat: 'kasa', odeme: 'gider', ceksenet: 'ceksenet' };
   const [activeTab, setActiveTab] = useState<'kasa' | 'banka' | 'tahsilat' | 'odeme' | 'ceksenet'>('kasa');
 
   const tabs = [
@@ -27,7 +30,7 @@ export const FinansHubView: React.FC = () => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-surface-secondary)' }}>
       {/* Üst Hub Tab Bar */}
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)', padding: '8px 16px 0', display: 'flex', gap: '8px', overflowX: 'auto' }}>
-        {tabs.map(t => (
+        {tabs.filter(t => canAccessModule(moduleForTab[t.id])).map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id as any)}
@@ -60,10 +63,10 @@ export const FinansHubView: React.FC = () => {
       {/* Aktif Tab İçeriği */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {activeTab === 'kasa' && <CashRegisterView />}
-        {activeTab === 'banka' && <BankAccountView />}
+        {activeTab === 'banka' && canAccessModule('banka') && <BankAccountView />}
         {activeTab === 'tahsilat' && <FieldCollectionListView />}
-        {activeTab === 'odeme' && <ExpenseListView />}
-        {activeTab === 'ceksenet' && <CheckNotesView />}
+        {activeTab === 'odeme' && canAccessModule('gider') && <ExpenseListView />}
+        {activeTab === 'ceksenet' && canAccessModule('ceksenet') && <CheckNotesView />}
       </div>
     </div>
   );

@@ -13,11 +13,13 @@ import {
   Command,
   X,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import type { AppView, RibbonTab } from '../../context/AppContext';
 
 export const CommandPaletteModal: React.FC = () => {
   const { setActiveView, setActiveRibbonTab, setIsFastCollectionOpen, setIsFastPaymentOpen } = useApp();
+  const { canAccessModule } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -39,19 +41,19 @@ export const CommandPaletteModal: React.FC = () => {
   if (!isOpen) return null;
 
   const actions = [
-    { id: 'new_invoice', label: '+ Yeni Satış Faturası Oluştur', icon: Plus, run: () => { setActiveView('satis'); setActiveRibbonTab('SATIS'); } },
-    { id: 'new_collection', label: '+ Yeni Tahsilat Yap (F8)', icon: DollarSign, run: () => { setIsFastCollectionOpen(true); } },
-    { id: 'new_expense', label: '+ Yeni Gider Girişi (F9)', icon: DollarSign, run: () => { setIsFastPaymentOpen(true); } },
-    { id: 'upload_doc', label: '+ Yeni Belge Yükle / Dijital Arşiv', icon: UploadCloud, run: () => { setActiveView('documents'); } },
-    { id: 'new_customer', label: '+ Yeni Cari Hesap Kartı', icon: UserPlus, run: () => { setActiveView('cari'); setActiveRibbonTab('CARI'); } },
-    { id: 'ai_assistant', label: 'AI Muhasebe Asistanına Sor', icon: Sparkles, run: () => { setActiveView('ai-merkezi'); setActiveRibbonTab('AI_ASISTAN'); } },
-    { id: 'approvals', label: 'Onay Bekleyen Finansal İşlemler', icon: Shield, run: () => { setActiveView('approvals'); } },
-    { id: 'tasks', label: 'Görev Yönetimi & Ortak Workspace', icon: Layers, run: () => { setActiveView('tasks'); } },
-    { id: 'cash_forecast', label: 'Nakit Akış Tahmini (30 Gün)', icon: FileText, run: () => { setActiveView('nakit-tahmin'); } },
-    { id: 'client_portal', label: 'Firma Sahibi / Müşteri Portalı', icon: Layers, run: () => { setActiveView('client-portal'); } },
+    { id: 'new_invoice', view: 'satis', label: '+ Yeni Satış Faturası Oluştur', icon: Plus, run: () => { setActiveView('satis'); setActiveRibbonTab('SATIS'); } },
+    { id: 'new_collection', view: 'kasa', label: '+ Yeni Tahsilat Yap (F8)', icon: DollarSign, run: () => { setIsFastCollectionOpen(true); } },
+    { id: 'new_expense', view: 'kasa', label: '+ Yeni Gider Girişi (F9)', icon: DollarSign, run: () => { setIsFastPaymentOpen(true); } },
+    { id: 'upload_doc', view: 'documents', label: '+ Yeni Belge Yükle / Dijital Arşiv', icon: UploadCloud, run: () => { setActiveView('documents'); } },
+    { id: 'new_customer', view: 'cari', label: '+ Yeni Cari Hesap Kartı', icon: UserPlus, run: () => { setActiveView('cari'); setActiveRibbonTab('CARI'); } },
+    { id: 'ai_assistant', view: 'ai-merkezi', label: 'AI Muhasebe Asistanına Sor', icon: Sparkles, run: () => { setActiveView('ai-merkezi'); setActiveRibbonTab('AI_ASISTAN'); } },
+    { id: 'approvals', view: 'approvals', label: 'Onay Bekleyen Finansal İşlemler', icon: Shield, run: () => { setActiveView('approvals'); } },
+    { id: 'tasks', view: 'tasks', label: 'Görev Yönetimi & Ortak Workspace', icon: Layers, run: () => { setActiveView('tasks'); } },
+    { id: 'cash_forecast', view: 'nakit-tahmin', label: 'Nakit Akış Tahmini (30 Gün)', icon: FileText, run: () => { setActiveView('nakit-tahmin'); } },
+    { id: 'client_portal', view: 'client-portal', label: 'Firma Sahibi / Müşteri Portalı', icon: Layers, run: () => { setActiveView('client-portal'); } },
   ];
 
-  const filtered = actions.filter(a => a.label.toLowerCase().includes(search.toLowerCase()));
+  const filtered = actions.filter(a => canAccessModule(a.view)).filter(a => a.label.toLowerCase().includes(search.toLowerCase()));
 
   const handleSelect = (action: typeof actions[0]) => {
     action.run();

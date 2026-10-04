@@ -6,6 +6,8 @@ import type {
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
+import { useAuth } from '../../../context/AuthContext';
+import { allowsElectronicService } from '../../../data/serviceAccess';
 import { IncomingMatchModal } from './IncomingMatchModal';
 import { IncomingDocumentDetail } from './IncomingDocumentDetail';
 import { DataGrid } from '../../common/DataGrid';
@@ -124,6 +126,8 @@ function senkronRozeti(outcome: SyncDocumentOutcome) {
 }
 
 export const IncomingDocumentsView: React.FC = () => {
+  const { user } = useAuth();
+  const despatchAllowed = allowsElectronicService(user?.serviceModuleIds, 'EIRSALIYE');
   const { showToast } = useToast();
   const { incomingPreset } = useApp();
 
@@ -266,7 +270,7 @@ export const IncomingDocumentsView: React.FC = () => {
    */
   useEffect(() => {
     if (!incomingPreset) return;
-    setSekme(incomingPreset.tur);
+    setSekme(incomingPreset.tur === 'DESPATCH' && !despatchAllowed ? 'INVOICE' : incomingPreset.tur);
     setDurumSuzgeci(incomingPreset.durum);
     setSayfa(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -274,6 +278,7 @@ export const IncomingDocumentsView: React.FC = () => {
 
   /** Sekme değişimi: sayfa 1'e dönülür ki devralınan sayfa numarası boşa düşmesin. */
   const sekmeDegistir = (yeni: Sekme) => {
+    if (yeni === 'DESPATCH' && !despatchAllowed) return;
     if (yeni === sekme) return;
     setSekme(yeni);
     setSayfa(1);
@@ -761,13 +766,13 @@ export const IncomingDocumentsView: React.FC = () => {
             <FileText size={14} />
             <span>Gelen e-Faturalar ({sekme === 'INVOICE' ? sayaclar.NEW + sayaclar.PENDING_MATCH + sayaclar.READY + sayaclar.INGESTED + sayaclar.ERROR : faturalar.length})</span>
           </button>
-          <button
+          {despatchAllowed && <button
             className={`btn ${sekme === 'DESPATCH' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
             onClick={() => sekmeDegistir('DESPATCH')}
           >
             <Truck size={14} />
             <span>Gelen e-İrsaliyeler ({sekme === 'DESPATCH' ? sayaclar.NEW + sayaclar.PENDING_MATCH + sayaclar.READY + sayaclar.INGESTED + sayaclar.ERROR : irsaliyeler.length})</span>
-          </button>
+          </button>}
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>

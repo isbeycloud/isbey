@@ -214,11 +214,8 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       eInvoiceCredits: 100,
       storageLimitMb: 2048,
       storageUsedMb: 5,
-      activeModules: [
-        'POS', 'STOK', 'CARI', 'FATURA', 'TEKLIF_SIPARIS',
-        'IRSALIYE', 'BANKA', 'KASA', 'CEK_SENET', 'E_FATURA',
-        'PERSONEL', 'RAPORLAR', 'AI_ASISTAN', 'FORM_DESIGNER'
-      ],
+      activeModules: [],
+      selectedServicePlanIds: [],
       ownerName: fullName.trim(),
       ownerEmail: cleanEmail,
       ownerPhone: phone || '',

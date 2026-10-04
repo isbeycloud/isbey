@@ -14,6 +14,8 @@ export interface UserPermission {
 }
 
 export interface User {
+  serviceMenuIds?: string[] | null;
+  serviceModuleIds?: string[] | null;
   roleSlugs?: string[];
   effectiveRoles?: UserRole[];
   permissionCodes?: string[];
@@ -166,6 +168,7 @@ export interface TenantStats {
 }
 
 export interface Tenant {
+  selectedServicePlanIds?: string[];
   id: string;
   companyCode?: string;
   name: string;

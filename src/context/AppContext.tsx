@@ -178,7 +178,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   });
 
   // Multi-Tenant State
-  const { allowedTenants: tenants, activeTenant, switchCompany: switchAuthenticatedCompany, refreshProfile } = useAuth();
+  const { allowedTenants: tenants, activeTenant, switchCompany: switchAuthenticatedCompany, refreshProfile, canAccessModule } = useAuth();
   const activeTenantId = activeTenant?.id || '';
   
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
@@ -300,30 +300,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Global Search: F10 or Ctrl+K or Cmd+K
-      if (e.key === 'F10' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+      if ((e.key === 'F10' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) && canAccessModule('dashboard')) {
         e.preventDefault();
         setIsGlobalSearchOpen(prev => !prev);
       }
 
       // F4: Cari Modülüne veya Hızlı Tahsilata git
-      if (e.key === 'F4') {
+      if (e.key === 'F4' && canAccessModule('cari')) {
         e.preventDefault();
         setActiveView('cari');
         setActiveRibbonTab('CARI');
       }
       // F6: Stok Modülüne veya POS Arama
-      if (e.key === 'F6') {
+      if (e.key === 'F6' && canAccessModule('pos')) {
         e.preventDefault();
         setActiveView('pos');
         setActiveRibbonTab('SATIS');
       }
       // F8: Hızlı Tahsilat
-      if (e.key === 'F8') {
+      if (e.key === 'F8' && canAccessModule('kasa')) {
         e.preventDefault();
         setIsFastCollectionOpen(true);
       }
       // F9: Hızlı Ödeme
-      if (e.key === 'F9') {
+      if (e.key === 'F9' && canAccessModule('kasa')) {
         e.preventDefault();
         setIsFastPaymentOpen(true);
       }
@@ -346,7 +346,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [canAccessModule]);
 
   return (
     <AppContext.Provider

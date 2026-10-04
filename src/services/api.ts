@@ -249,6 +249,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  selectServicePlans: (planIds: string[]) => request<{ success: boolean; message: string }>('/e-services/select-plans', { method: 'POST', body: JSON.stringify({ planIds }) }),
   requestServicePlan: (planId: string, period: 'MONTHLY' | 'YEARLY') => request<{ success: boolean }>('/e-services/plan-requests', { method: 'POST', body: JSON.stringify({ planId, period }) }),
   getServicePlanRequests: () => request<{ success: boolean; requests: { id: string; tenantId: string; companyName: string; planId: string; planName: string; period: string; status: string }[] }>('/e-services/plan-requests'),
   updateErpSubscription: (id: string, data: { startDate: string; endDate: string }) => request<{ success: boolean; message: string }>(`/companies/${id}/erp-subscription`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -1063,8 +1064,14 @@ export const api = {
       customer?: ExternalCustomer;
       message: string;
     }>('/admin/hizli-bilisim/customers/ekle', { method: 'POST', body: JSON.stringify({ vknTckn }) }),
+  previewHizliPortfolio: (taxIds: string[]) => request<{ success: boolean; results: { taxId: string; success: boolean; durum: string; message: string; musteri?: ExternalCustomer; mevcutKayit?: boolean }[] }>('/admin/hizli-bilisim/customers/portfolio-preview', { method: 'POST', body: JSON.stringify({ taxIds }) }),
+  getHizliDealerPortfolio: (start = 0, search = '') => request<{ success: boolean; total: number; filtered: number; customers: { externalId: string; taxNumber: string; companyName: string; city: string; dealerName: string; isActive: boolean; existing: boolean }[] }>(`/admin/hizli-bilisim/customers/dealer-portfolio${buildQuery({ start, length: 50, search })}`),
+  connectHizliPortal: (username: string, password: string) => request<{ success: boolean; verificationRequired: boolean }>('/admin/hizli-bilisim/portal/connect', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  verifyHizliPortal: (code: string) => request<{ success: boolean; verificationRequired: boolean }>('/admin/hizli-bilisim/portal/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+  importHizliDealerCustomers: (taxIds: string[]) => request<{ success: boolean; results: { taxId: string; success: boolean; message: string }[] }>('/admin/hizli-bilisim/customers/dealer-import', { method: 'POST', body: JSON.stringify({ taxIds }) }),
   convertHizliToCompany: (data: {
     customerId: string;
+    planIds: string[];
     plan?: string;
     isTrial?: boolean;
     trialDays?: number;
@@ -1090,7 +1097,7 @@ export const api = {
     }>('/admin/hizli-bilisim/create-user', { method: 'POST', body: JSON.stringify(data) }),
   matchHizliCompany: (data: { customerId: string; companyId: string }) =>
     request<{ success: boolean; message: string }>('/admin/hizli-bilisim/match-company', { method: 'POST', body: JSON.stringify(data) }),
-  bulkConvertHizli: (data: { customerIds: string[]; plan?: string; createAdminUser?: boolean }) =>
+  bulkConvertHizli: (data: { customerIds: string[]; planIds: string[]; plan?: string; createAdminUser?: boolean }) =>
     request<{
       success: boolean;
       processed: number;

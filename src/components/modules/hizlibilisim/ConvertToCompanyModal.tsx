@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../../common/Modal';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
-import type { ExternalCustomer, TenantPlan } from '../../../types';
+import type { ExternalCustomer, SubscriptionPlan } from '../../../types';
 import {
   Building,
   UserCheck,
@@ -45,14 +45,27 @@ export const ConvertToCompanyModal: React.FC<ConvertToCompanyModalProps> = ({
   const [copied, setCopied] = useState(false);
 
   // Form State
-  const [plan, setPlan] = useState<TenantPlan>('PRO');
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [planIds, setPlanIds] = useState<string[]>([]);
+  const [planError, setPlanError] = useState('');
   const [isTrial, setIsTrial] = useState(false);
-  const [trialDays, setTrialDays] = useState(14);
+  const trialDays = 14;
   const [createAdminUser, setCreateAdminUser] = useState(true);
   const [customAdminFullName, setCustomAdminFullName] = useState(customer?.contactName || '');
   const [customAdminEmail, setCustomAdminEmail] = useState(customer?.email || '');
   const [customAdminPhone, setCustomAdminPhone] = useState(customer?.phone || '');
   const [customUsername, setCustomUsername] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !customer) return;
+    let current = true;
+    setCreatedResult(null); setPlanIds([]); setPlanError('');
+    setCustomAdminFullName(customer.contactName || ''); setCustomAdminEmail(customer.email || '');
+    setCustomAdminPhone(customer.phone || ''); setCustomUsername('');
+    api.getSubscriptionPlans().then(r => { if (current) setPlans(r.plans.filter(p => p.status === 'ACTIVE')); })
+      .catch(e => { if (current) setPlanError(e.message); });
+    return () => { current = false; };
+  }, [isOpen, customer?.id]);
 
   if (!customer) return null;
 
@@ -63,7 +76,7 @@ export const ConvertToCompanyModal: React.FC<ConvertToCompanyModalProps> = ({
     try {
       const res = await api.convertHizliToCompany({
         customerId: customer.id,
-        plan,
+        planIds,
         isTrial,
         trialDays,
         createAdminUser,
@@ -260,37 +273,18 @@ export const ConvertToCompanyModal: React.FC<ConvertToCompanyModalProps> = ({
               İŞBEY Abonelik Paketi & Lisans
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-              {[
-                { id: 'STARTER' as TenantPlan, title: 'Starter', desc: '3 Kullanıcı · 1.000 Fatura/Ay', price: '950 ₺/ay' },
-                { id: 'PRO' as TenantPlan, title: 'Pro (Tavsiye Edilen)', desc: '10 Kullanıcı · 3.000 Fatura/Ay', price: '2.450 ₺/ay' },
-                { id: 'ENTERPRISE' as TenantPlan, title: 'Enterprise', desc: '25 Kullanıcı · 10.000 Fatura/Ay', price: '6.900 ₺/ay' },
-              ].map(p => {
-                const isSelected = plan === p.id;
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => setPlan(p.id)}
-                    style={{
-                      border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color)',
-                      background: isSelected ? 'rgba(26,86,219,0.06)' : 'var(--bg-surface-secondary)',
-                      borderRadius: '8px',
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '13px', color: isSelected ? 'var(--primary)' : 'var(--text-main)' }}>{p.title}</strong>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#16a34a' }}>{p.price}</span>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{p.desc}</div>
-                  </div>
-                );
-              })}
+              {plans.map(p => <label key={p.id} style={{ border: '1px solid var(--border-color)', padding: 12, borderRadius: 8 }}>
+                <input type="checkbox" checked={planIds.includes(p.id)} onChange={e => setPlanIds(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} /> {p.name}
+                <p>{p.monthlyPrice.toLocaleString('tr-TR', { style: 'currency', currency: p.currency })} / ay</p>
+                <small>{p.description}</small>
+              </label>)}
+              {planError && <p role="alert">{planError}</p>}
+              {!plans.length && !planError && <p>Satışa açık paket yükleniyor…</p>}
             </div>
           </div>
 
           {/* Kullanıcı Oluşturma ve Aktivasyon Seçenekleri */}
+          <label><input type="checkbox" checked={isTrial} onChange={e => setIsTrial(e.target.checked)} /> 14 günlük deneme üyeliği oluştur</label>
           <div style={{
             background: 'var(--bg-surface-secondary)',
             border: '1px solid var(--border-color)',
@@ -349,7 +343,7 @@ export const ConvertToCompanyModal: React.FC<ConvertToCompanyModalProps> = ({
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={submitting}
+              disabled={submitting || !planIds.length}
               style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 18px', fontWeight: 700 }}
             >
               <Sparkles size={16} />
