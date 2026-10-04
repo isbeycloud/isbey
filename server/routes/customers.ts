@@ -29,7 +29,7 @@ customersRouter.get('/', (req, res) => {
       c.title.toLowerCase().includes(q) ||
       c.code.toLowerCase().includes(q) ||
       c.taxNumber?.includes(q) ||
-      c.phone.includes(q)
+      c.phone?.includes(q)
     );
   }
 
