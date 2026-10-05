@@ -160,6 +160,7 @@ export interface PreviewResponse {
 }
 
 export interface DocumentVisualResponse extends PreviewResponse {
+  documentNumber?: string;
   documentProfile?: string;
   xml: string;
   xslt: string;

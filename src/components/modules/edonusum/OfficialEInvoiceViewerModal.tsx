@@ -24,6 +24,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
   const [xml, setXml] = useState('');
   const [previewNote, setPreviewNote] = useState('');
   const [documentProfile, setDocumentProfile] = useState('');
+  const [documentNumber, setDocumentNumber] = useState('');
   const [previewError, setPreviewError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -35,6 +36,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
     setXml('');
     setPreviewNote('');
     setDocumentProfile('');
+    setDocumentNumber('');
     setPreviewError('');
     if (!isOpen || !invoiceId) return;
     let cancelled = false;
@@ -44,6 +46,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
       const rendered = renderDocumentVisual(response);
       setXml(response.xml);
       setDocumentProfile(response.documentProfile || '');
+      setDocumentNumber(response.documentNumber || '');
       setPreviewNote(response.xmlSource === 'erp' ? 'ERP kaydından önizleme' : '');
       setHtml(rendered);
     }).catch(err => {
@@ -187,7 +190,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontWeight: 700, fontSize: '15px' }}>
-                  {invoice.invoiceNo}
+                  {documentNumber || invoice.invoiceNo}
                 </span>
                 <span
                   style={{
@@ -267,7 +270,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
             )}
 
             <button
-              onClick={() => downloadDocumentXml(xml, invoice.invoiceNo)}
+              onClick={() => downloadDocumentXml(xml, documentNumber || invoice.invoiceNo)}
               disabled={!xml || loading}
               style={{
                 padding: '7px 14px',

@@ -47,7 +47,7 @@ storage.update(db => {
   db.invoices.push({ ...db.invoices[0], id: 'mixed-tax', subTotal: 600, totalDiscount: 0, totalVat: 81, grandTotal: 681,
     items: [1, 10, 20].map((vatRate, i) => ({ ...db.invoices[0].items[0], vatRate, lineTotal: (i + 1) * 100, vatAmount: [1, 20, 60][i] })) });
   db.invoices.push({ ...db.invoices[0], id: 'foreign-customer-link', customerId: 'foreign-customer', customerTitle: 'Kayıtlı Alıcı' });
-  db.invoices.push({ ...db.invoices[0], id: 'sent-original', eInvoiceStatus: 'SENT', eInvoiceUUID: 'original-uuid' });
+  db.invoices.push({ ...db.invoices[0], id: 'sent-original', eInvoiceStatus: 'SENT', eInvoiceUUID: 'original-uuid', date: '2026-09-25', grandTotal: 120 });
   db.customers.push({ ...db.customers[0], id: 'foreign-customer', tenantId: 'tnt-other', title: 'FOREIGN SECRET', taxNumber: '4444444444' });
   db.incomingInvoices = [{ id: 'incoming', tenantId: T, uuid: 'incoming-uuid', xmlStoragePath: invPath },
     { id: 'foreign-incoming', tenantId: 'tnt-other', xmlStoragePath: invPath }] as any;
@@ -69,6 +69,7 @@ for (const bad of ['<xsl:stylesheet>', xslt.replace('<xsl:template', '<xsl:inclu
 assert.throws(() => prepareDocumentVisual(invoiceXml.replace(Buffer.from(xslt).toString('base64'), '%%%'), 'EFATURA', T, true));
 
 const app = express();
+app.use(express.json({ limit: '5mb' }));
 app.use('/api/v1/e-documents', v1EDocumentsRouter);
 const server = app.listen(0, '127.0.0.1');
 await new Promise<void>(resolve => server.once('listening', resolve));
@@ -157,6 +158,21 @@ try {
     'Yalnız Fatura paketi ve faturalar menüsü olan görüntüleyici önizlemeyi açabilmeli.');
   assert.equal((await fetch(base + '/erp-waybills/waybill/visual', { headers: { Authorization: `Bearer ${viewer}` } })).status, 403,
     'Fatura paketi irsaliye erişimi vermemeli.');
+  const uploadXml = invoiceXml.replace('TEST-42', 'BTF2026000000144').replace('</Invoice>', '<cbc:UUID>original-uuid</cbc:UUID><cbc:IssueDate>2026-09-25</cbc:IssueDate><cbc:DocumentCurrencyCode>USD</cbc:DocumentCurrencyCode><cac:AccountingSupplierParty><cac:Party><cac:PartyIdentification><cbc:ID>1111111111</cbc:ID></cac:PartyIdentification></cac:Party></cac:AccountingSupplierParty><cac:LegalMonetaryTotal><cbc:PayableAmount>120</cbc:PayableAmount></cac:LegalMonetaryTotal></Invoice>');
+  const upload = (id: string, xml: string, auth = token) => fetch(`${base}/erp-invoices/${id}/original-xml`, { method: 'POST', headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ xml }) });
+  assert.equal((await upload('foreign', uploadXml)).status, 404);
+  assert.equal((await upload('sent-original', uploadXml, viewer)).status, 403);
+  for (const xml of [uploadXml.replace('original-uuid', 'wrong'), uploadXml.replace('1111111111', '9999999999'), uploadXml.replace('>120<', '>121<'), uploadXml.replace('2026-09-25', '2026-09-24'), uploadXml.replace('>USD<', '>EUR<')]) {
+    assert.equal((await upload('sent-original', xml)).status, 422);
+  }
+  assert.equal((await upload('sales', uploadXml)).status, 409);
+  assert.equal((await upload('sent-original', uploadXml)).status, 200);
+  assert.equal((await upload('sent-original', uploadXml)).status, 200, 'Aynı dosya tekrar eklenebilir.');
+  assert.equal((await upload('sent-original', uploadXml.replace('BTF2026000000144', 'BTF2026000000145'))).status, 409, 'Özgün arşiv üzerine farklı dosya yazılamaz.');
+  const archivedResponse = await fetch(base + '/erp-invoices/sent-original/visual', { headers: { Authorization: `Bearer ${token}` } });
+  const archivedResult = await archivedResponse.json();
+  assert.equal(archivedResponse.status, 200); assert.equal(archivedResult.xmlSource, 'archive');
+  assert.equal(archivedResult.xml, uploadXml); assert.equal(archivedResult.templateSource, 'embedded');
   assert.equal(JSON.stringify(storage.getState()), before, 'Görüntüleme DB/muhasebe verisini değiştirmemeli.');
   console.warn('documentVisualTest: kayıtlı taraf/üst bilgi, KDV kırılımı, 14 HTTP kontrolü ve DB değişmezliği PASS.');
 } finally {

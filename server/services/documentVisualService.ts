@@ -58,7 +58,7 @@ export function prepareDocumentVisual(xml: string, type: DocumentType, tenantId:
   if (external || resourceXPath(xsltTree.root)) throw new DocumentVisualError('XSLT dış kaynak çağrısı içeriyor; belge görüntülenemedi.');
   const normalized = normalizeXsltForBrowser(xslt);
   return { success: true, renderedBy: 'client' as const, xml, xslt: normalized.content, templateSource,
-    documentProfile: textOf(tree.root, 'ProfileID'), adjustments: normalized.adjustments };
+    documentProfile: textOf(tree.root, 'ProfileID'), documentNumber: textOf(tree.root, 'ID'), adjustments: normalized.adjustments };
 }
 
 const escapeXml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c =>
@@ -162,6 +162,11 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
   let xml = archived?.xmlStoragePath ? DocumentStorageService.readXml(tenantId, archived.xmlStoragePath) : null;
   let xmlSource: 'archive' | 'erp' = archived ? 'archive' : 'erp';
   if (archived && !xml) throw new DocumentVisualError('Arşivlenmiş XML dosyası okunamadı.', 404);
+  const invoiceUuid = kind === 'INVOICE' ? (record as Invoice).eInvoiceUUID : undefined;
+  if (!xml && invoiceUuid && record.tenantId === tenantId) {
+    xml = DocumentStorageService.readOriginalInvoice(tenantId, invoiceUuid);
+    if (xml) xmlSource = 'archive';
+  }
   if (!xml && kind === 'INVOICE' && incoming) {
     const uuid = (record as Invoice).eInvoiceUUID;
     const source = (db.incomingInvoices || []).find(i => i.tenantId === tenantId && (i.convertedPurchaseInvoiceId === id || (!!uuid && i.uuid === uuid)));
@@ -177,6 +182,34 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
     xml = erpPreviewXml(record, tenant, party, kind);
   }
   return { ...prepareDocumentVisual(xml, type, tenantId, incoming), xmlSource };
+}
+
+/** Kullanıcının sağladığı özgün UBL'yi mevcut gönderilmiş faturayla eşleştirir. */
+export function archiveOriginalInvoice(id: string, tenantId: string, xml: unknown) {
+  const db = storage.getState();
+  const invoice = db.invoices.find(r => r.id === id && r.tenantId === tenantId && !r.isDeleted);
+  if (!invoice) throw new DocumentVisualError('Fatura bulunamadı.', 404);
+  if (invoice.type !== 'SALES' || !invoice.eInvoiceUUID || !['SENT', 'DELIVERED', 'ACCEPTED'].includes(invoice.eInvoiceStatus || '')) {
+    throw new DocumentVisualError('Özgün XML yalnız gönderilmiş satış faturasına bağlanabilir.', 409);
+  }
+  if (typeof xml !== 'string' || Buffer.byteLength(xml, 'utf8') > 5 * 1024 * 1024) throw new DocumentVisualError('XML içeriği geçersiz veya çok büyük.');
+  const tree = parseUblTree(xml);
+  const supplier = findFirst(tree.root, 'AccountingSupplierParty');
+  const supplierId = textOf(findFirst(supplier, 'PartyIdentification'), 'ID');
+  const tenant = db.tenants.find(t => t.id === tenantId);
+  const payable = textOf(findFirst(tree.root, 'LegalMonetaryTotal'), 'PayableAmount');
+  if (!tree.ok || tree.root?.name !== 'Invoice' || !tenant?.taxNumber || supplierId !== tenant.taxNumber ||
+    textOf(tree.root, 'UUID')?.toLowerCase() !== invoice.eInvoiceUUID.toLowerCase() || !textOf(tree.root, 'ID') ||
+    textOf(tree.root, 'IssueDate') !== invoice.date.slice(0, 10) || payable === undefined ||
+    !Number.isFinite(Number(payable)) || Math.round(Number(payable) * 100) !== Math.round(invoice.grandTotal * 100) ||
+    textOf(tree.root, 'DocumentCurrencyCode') !== (invoice.currency || 'TRY')) {
+    throw new DocumentVisualError('XML belgesinin ETTN, satıcı, tarih, para birimi veya toplamı faturayla eşleşmiyor.');
+  }
+  const profile = textOf(tree.root, 'ProfileID');
+  const visual = prepareDocumentVisual(xml, profile === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA', tenantId, false);
+  try { DocumentStorageService.saveOriginalInvoice(tenantId, invoice.eInvoiceUUID, xml); }
+  catch (err: any) { throw new DocumentVisualError(err.message, 409); }
+  return { success: true, documentNumber: textOf(tree.root, 'ID'), templateSource: visual.templateSource, xmlSource: 'archive' as const };
 }
 
 /** Gönderilmiş belgenin ERP taslağı yerine tenant'a ait özgün UBL içeriğini okur. */

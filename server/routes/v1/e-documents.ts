@@ -16,7 +16,7 @@ import {
   type OperationalStatus,
   type RawStatus,
 } from '../../services/incomingDocumentStatus';
-import { DocumentVisualError, resolveErpDocumentVisual, prepareDocumentVisual } from '../../services/documentVisualService';
+import { DocumentVisualError, resolveErpDocumentVisual, prepareDocumentVisual, archiveOriginalInvoice } from '../../services/documentVisualService';
 import { formatXmlForDisplay } from '../../services/ubl/xmlPrettyPrint';
 import type { SyncSummary } from '../../services/incomingSyncContract';
 
@@ -36,6 +36,10 @@ function erpVisual(kind: 'INVOICE' | 'DESPATCH') {
 }
 v1EDocumentsRouter.get('/erp-invoices/:id/visual', requirePermission(PERMISSIONS.INVOICES_VIEW), erpVisual('INVOICE'));
 v1EDocumentsRouter.get('/erp-waybills/:id/visual', requirePermission(PERMISSIONS.WAYBILLS_VIEW), erpVisual('DESPATCH'));
+v1EDocumentsRouter.post('/erp-invoices/:id/original-xml', requirePermission(PERMISSIONS.INVOICES_UPDATE), (req: Request, res: Response) => {
+  try { res.json(archiveOriginalInvoice(String(req.params.id), req.tenantId!, req.body?.xml)); }
+  catch (err: any) { belgeHatasi(res, err); }
+});
 
 /**
  * 2026-09-12: Entegratör hatalarını SINIFINA göre ayırır:

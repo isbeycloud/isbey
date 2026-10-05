@@ -3,6 +3,28 @@ import path from 'path';
 import { getDataDirectory } from '../config/environment';
 
 export class DocumentStorageService {
+  private static originalInvoicePath(tenantId: string, uuid: string): string {
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(tenantId) || !/^[a-zA-Z0-9_-]{1,80}$/.test(uuid)) {
+      throw new Error('Belge arşiv kimliği geçersiz.');
+    }
+    return path.join(this.getBaseStorageDir(), tenantId, 'original-invoices', `${uuid.toLowerCase()}.xml`);
+  }
+
+  public static readOriginalInvoice(tenantId: string, uuid: string): string | null {
+    const filePath = this.originalInvoicePath(tenantId, uuid);
+    return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
+  }
+
+  /** Özgün dosya değiştirilemez; aynı içerikle tekrar ekleme yan etkisizdir. */
+  public static saveOriginalInvoice(tenantId: string, uuid: string, xml: string): void {
+    const filePath = this.originalInvoicePath(tenantId, uuid);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    try { fs.writeFileSync(filePath, xml, { encoding: 'utf8', flag: 'wx' }); }
+    catch (err: any) {
+      if (err.code !== 'EEXIST') throw err;
+      if (fs.readFileSync(filePath, 'utf8') !== xml) throw new Error('Bu ETTN için farklı bir özgün XML zaten arşivlenmiş.');
+    }
+  }
   private static getBaseStorageDir(): string {
     return path.join(getDataDirectory(), 'storage', 'tenants');
   }
