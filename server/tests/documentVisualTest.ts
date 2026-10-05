@@ -48,11 +48,14 @@ storage.update(db => {
     items: [1, 10, 20].map((vatRate, i) => ({ ...db.invoices[0].items[0], vatRate, lineTotal: (i + 1) * 100, vatAmount: [1, 20, 60][i] })) });
   db.invoices.push({ ...db.invoices[0], id: 'foreign-customer-link', customerId: 'foreign-customer', customerTitle: 'Kayıtlı Alıcı' });
   db.invoices.push({ ...db.invoices[0], id: 'sent-original', eInvoiceStatus: 'SENT', eInvoiceUUID: 'original-uuid', date: '2026-09-25', grandTotal: 120 });
+  db.invoices.push({ ...db.invoices[0], id: 'sent-archive-invoice', invoiceProfile: 'EARSIVFATURA', eInvoiceStatus: 'SENT', eInvoiceUUID: 'archive-uuid' });
+  db.waybills.push({ ...db.waybills[0], id: 'sent-waybill' });
   db.customers.push({ ...db.customers[0], id: 'foreign-customer', tenantId: 'tnt-other', title: 'FOREIGN SECRET', taxNumber: '4444444444' });
   db.incomingInvoices = [{ id: 'incoming', tenantId: T, uuid: 'incoming-uuid', xmlStoragePath: invPath },
     { id: 'foreign-incoming', tenantId: 'tnt-other', xmlStoragePath: invPath }] as any;
   db.incomingDespatches = [{ id: 'incoming-despatch', tenantId: T, xmlStoragePath: dspPath }] as any;
   db.electronicDocuments = [{ id: 'archived', tenantId: T, documentType: 'INVOICE', internalDocumentId: 'archive', xmlStoragePath: invPath }] as any;
+  db.electronicDocuments.push({ id: 'sent-despatch', tenantId: T, internalDocumentId: 'sent-waybill', documentType: 'DESPATCH', documentDirection: 'OUTGOING', uuid: 'despatch-uuid', profile: 'TEMELIRSALIYE', status: 'SENT' } as any);
   db.documentTemplates = [{ id: 'company-template', companyId: T, documentType: 'EFATURA', isActive: true, isDefault: true, xsltContent: xslt.replace('Özgün Tasarım', 'Firma Tasarımı') },
     { id: 'other-template', companyId: 'tnt-other', documentType: 'EIRSALIYE', isActive: true, isDefault: true, xsltContent: 'FOREIGN SECRET' }] as any;
 });
@@ -85,7 +88,12 @@ try {
   ProviderFactory.getProviderForTenant = ((tenantId: string) => {
     assert.equal(tenantId, T);
     return { settings: { tenantId }, provider: { providerId: 'TEST_ORIGINAL', getIncomingDocumentContent: async (uuid: string, appType: number, settings: { tenantId: string }) => {
-      assert.equal(uuid, 'original-uuid'); assert.equal(appType, 1); assert.equal(settings.tenantId, T);
+      if (uuid === 'despatch-uuid') {
+        assert.equal(appType, 4);
+        return { success: true, content: originalXml.replace(/Invoice/g, 'DespatchAdvice').replace(/AccountingSupplierParty/g, 'DespatchSupplierParty').replace('original-uuid', uuid) };
+      }
+      if (uuid === 'archive-uuid') { assert.equal(appType, 3); return { success: true, content: originalXml.replace('original-uuid', uuid) }; }
+      assert.equal(uuid, 'original-uuid'); assert.equal(appType, 2); assert.equal(settings.tenantId, T);
       providerCalls++; return providerResult;
     } } };
   }) as unknown as typeof originalFactory;
@@ -100,6 +108,12 @@ try {
     }
     assert.equal((await fetch(base + '/erp-invoices/foreign/visual', { headers: { Authorization: `Bearer ${token}` } })).status, 404);
     assert.equal(providerCalls, 4, 'Başka tenant belgesi için entegratör çağrılmamalı.');
+    for (const url of ['/erp-invoices/sent-archive-invoice/visual', '/erp-waybills/sent-waybill/visual']) {
+      const response = await fetch(base + url, { headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json(); assert.equal(response.status, 200, JSON.stringify(result));
+      assert.equal(result.xmlSource, 'provider'); assert.equal(result.templateSource, 'embedded');
+    }
+    assert.equal((await fetch(base + '/erp-invoices/sales/visual?source=provider', { headers: { Authorization: `Bearer ${token}` } })).status, 409);
   } finally { ProviderFactory.getProviderForTenant = originalFactory; }
   for (const [url, source] of [
     ['/incoming/incoming/visual', 'embedded'], ['/incoming-despatches/incoming-despatch/visual', 'embedded'],

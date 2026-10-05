@@ -213,25 +213,34 @@ export function archiveOriginalInvoice(id: string, tenantId: string, xml: unknow
 }
 
 /** Gönderilmiş belgenin ERP taslağı yerine tenant'a ait özgün UBL içeriğini okur. */
-export async function resolveErpDocumentVisual(id: string, tenantId: string, kind: 'INVOICE' | 'DESPATCH') {
+export async function resolveErpDocumentVisual(id: string, tenantId: string, kind: 'INVOICE' | 'DESPATCH', options: { refreshFromProvider?: boolean } = {}) {
   const visual = getErpDocumentVisual(id, tenantId, kind);
-  if (visual.xmlSource === 'archive' || kind !== 'INVOICE') return visual;
-  const record = storage.getState().invoices.find(r => r.id === id && r.tenantId === tenantId && !r.isDeleted);
-  if (!record || record.type !== 'SALES' || !record.eInvoiceUUID ||
-    !['SENT', 'DELIVERED', 'ACCEPTED'].includes(record.eInvoiceStatus || '')) return visual;
+  if (visual.xmlSource === 'archive' && !options.refreshFromProvider) return visual;
+  const db = storage.getState();
+  const invoice = kind === 'INVOICE' ? db.invoices.find(r => r.id === id && r.tenantId === tenantId && !r.isDeleted && r.type === 'SALES') : undefined;
+  const despatch = kind === 'DESPATCH' && db.waybills.some(r => r.id === id && r.tenantId === tenantId && r.type === 'SALES_DESPATCH')
+    ? db.electronicDocuments?.find(d => d.tenantId === tenantId && d.internalDocumentId === id && d.documentType === 'DESPATCH' && d.documentDirection === 'OUTGOING') : undefined;
+  const uuid = invoice?.eInvoiceUUID || despatch?.uuid;
+  const status = invoice?.eInvoiceStatus || despatch?.status;
+  if (!uuid || !['SENT', 'DELIVERED', 'ACCEPTED'].includes(status || '')) {
+    if (options.refreshFromProvider) throw new DocumentVisualError('Entegratörden okunacak gönderilmiş belge kimliği bulunamadı.', 409);
+    return visual;
+  }
   const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
   if (provider.providerId === 'MOCK') throw new DocumentVisualError('Gönderilmiş belgenin özgün içeriği test sağlayıcısından alınamaz.', 503);
-  const profile = record.invoiceProfile || textValue(savedModel(record)?.invoiceheader?.ProfileID);
-  // GetDocumentFile hem gelen hem giden belgeleri ETTN ile okur; tenant token'ını adapter seçer.
-  const result = await provider.getIncomingDocumentContent(record.eInvoiceUUID, profile === 'EARSIVFATURA' ? 2 : 1, settings);
-  if (!result.success || !result.content) throw new DocumentVisualError(result.message || 'Gönderilmiş faturanın özgün XML içeriği alınamadı.', 502);
+  const profile = invoice?.invoiceProfile || (invoice ? textValue(savedModel(invoice)?.invoiceheader?.ProfileID) : despatch?.profile);
+  // GetDocumentFile: gelen e-Fatura=1, giden e-Fatura=2, e-Arşiv=3, giden irsaliye=4.
+  // 2 kodu gerçek giden XML ile, 1 kodu gerçek gelen XML ile salt okunur doğrulandı.
+  const appType = kind === 'DESPATCH' ? 4 : profile === 'EARSIVFATURA' ? 3 : 2;
+  const result = await provider.getIncomingDocumentContent(uuid, appType, settings);
+  if (!result.success || !result.content) throw new DocumentVisualError(result.message || 'Gönderilmiş belgenin özgün XML içeriği alınamadı.', 502);
   const tree = parseUblTree(result.content);
-  const supplier = findFirst(tree.root, 'AccountingSupplierParty');
+  const supplier = findFirst(tree.root, kind === 'DESPATCH' ? 'DespatchSupplierParty' : 'AccountingSupplierParty');
   const supplierId = textOf(findFirst(supplier, 'PartyIdentification'), 'ID');
   const tenant = storage.getState().tenants.find(t => t.id === tenantId);
-  if (!tree.ok || !tree.root || textOf(tree.root, 'UUID')?.toLowerCase() !== record.eInvoiceUUID.toLowerCase() ||
+  if (!tree.ok || tree.root?.name !== (kind === 'DESPATCH' ? 'DespatchAdvice' : 'Invoice') || textOf(tree.root, 'UUID')?.toLowerCase() !== uuid.toLowerCase() ||
     !tenant?.taxNumber || supplierId !== tenant.taxNumber) {
-    throw new DocumentVisualError('Entegratör XML içeriği istenen faturanın ETTN veya satıcı bilgisiyle eşleşmiyor.', 502);
+    throw new DocumentVisualError('Entegratör XML içeriği istenen belgenin tür, ETTN veya satıcı bilgisiyle eşleşmiyor.', 502);
   }
-  return { ...prepareDocumentVisual(result.content, profile === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA', tenantId, false), xmlSource: 'provider' as const };
+  return { ...prepareDocumentVisual(result.content, kind === 'DESPATCH' ? 'EIRSALIYE' : profile === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA', tenantId, false), xmlSource: 'provider' as const };
 }

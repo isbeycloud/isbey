@@ -930,7 +930,7 @@ export class HizliConnectService {
       if (isSeviyesiSonucuOku(res.data) === 'basarisiz') {
         const msg = isSeviyesiMesaji(res.data) || 'Entegratör belge içeriğini iş hatasıyla reddetti.';
         console.warn('[HIZLI_CONNECT] GetDocumentFile iş hatası:', msg);
-        return { success: false, content: '', format, message: `Belge içeriği indirilemedi: ${msg}` };
+        return { success: false, content: '', format, error: /geçersiz token/i.test(msg) ? 401 : undefined, message: `Belge içeriği indirilemedi: ${msg}` };
       }
 
       return { success: true, content: belgeGovdesiCoz(res.data), format };
@@ -941,6 +941,7 @@ export class HizliConnectService {
         success: false,
         content: '',
         format,
+        error: err?.response?.status,
         message: `Belge içeriği indirilemedi: ${err?.response?.data?.Message || err.message}`,
       };
     }

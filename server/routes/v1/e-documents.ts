@@ -28,7 +28,7 @@ v1EDocumentsRouter.use(requireAuth, resolveTenant);
 function erpVisual(kind: 'INVOICE' | 'DESPATCH') {
   return async (req: Request, res: Response) => {
     try {
-      res.json(await resolveErpDocumentVisual(String(req.params.id), req.tenantId!, kind));
+      res.json(await resolveErpDocumentVisual(String(req.params.id), req.tenantId!, kind, { refreshFromProvider: req.query.source === 'provider' }));
     } catch (err: any) {
       belgeHatasi(res, err);
     }

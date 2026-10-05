@@ -6,6 +6,7 @@ fs.mkdirSync('.verify-tmp', { recursive: true });
 const directory = fs.mkdtempSync(path.resolve('.verify-tmp/local-'));
 const suites = [
   'documentVisualTest.ts',
+  'hizliDocumentFileContractTest.ts',
   'customerSearchTest.ts',
   'hizliSendContractTest.ts',
   'hizliReconcileContractTest.ts',
