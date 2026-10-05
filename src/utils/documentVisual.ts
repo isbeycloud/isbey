@@ -5,7 +5,7 @@ import qrcode from 'qrcode-generator';
 qrcode.stringToBytes = value => Array.from(new TextEncoder().encode(value));
 
 /** Belge çıktısı aktif içerik çalıştırmadan gösterilir ve yazdırılır. */
-export function renderDocumentVisual(response: DocumentVisualResponse): string {
+export function renderDocumentVisual(response: DocumentVisualResponse, options: { draftInvoice?: boolean } = {}): string {
   const result = transformXmlWithXsltInBrowser(response.xml, response.xslt);
   if (!result.ok) throw new Error(result.error || 'Belge XSLT ile görüntülenemedi.');
   const document = new DOMParser().parseFromString(result.html, 'text/html');
@@ -29,6 +29,18 @@ export function renderDocumentVisual(response: DocumentVisualResponse): string {
       if (/^on/i.test(attr.name) || attr.name === 'srcdoc') node.removeAttribute(attr.name);
     }
   });
+  if (options.draftInvoice) {
+    const customer = document.querySelector<HTMLElement>('[data-document-party="customer"]') ||
+      document.querySelector<HTMLElement>('#customerPartyTable > tbody > tr > td');
+    if (customer) {
+      customer.style.position = 'relative';
+      const stamp = document.createElement('div');
+      stamp.dataset.invoiceDraftStamp = 'true';
+      stamp.textContent = 'TASLAKTIR';
+      stamp.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-12deg);color:#dc2626;font:800 32px Arial,sans-serif;letter-spacing:2px;opacity:0.8;white-space:nowrap;pointer-events:none;z-index:2;print-color-adjust:exact;-webkit-print-color-adjust:exact';
+      customer.appendChild(stamp);
+    }
+  }
   const policy = document.createElement('meta');
   policy.httpEquiv = 'Content-Security-Policy';
   policy.content = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";

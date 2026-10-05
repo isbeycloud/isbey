@@ -30,6 +30,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
   const [retry, setRetry] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const invoiceId = invoice?.id;
+  const isDraftInvoice = invoice?.type === 'SALES' && (!invoice.eInvoiceStatus || invoice.eInvoiceStatus === 'DRAFT');
 
   useEffect(() => {
     setHtml('');
@@ -43,7 +44,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
     setLoading(true);
     api.getErpInvoiceVisual(invoiceId).then(response => {
       if (cancelled) return;
-      const rendered = renderDocumentVisual(response);
+      const rendered = renderDocumentVisual(response, { draftInvoice: isDraftInvoice });
       setXml(response.xml);
       setDocumentProfile(response.documentProfile || '');
       setDocumentNumber(response.documentNumber || '');
@@ -53,7 +54,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
       if (!cancelled) setPreviewError(err.message || 'Fatura görünümü yüklenemedi.');
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [isOpen, invoiceId, retry]);
+  }, [isOpen, invoiceId, retry, isDraftInvoice]);
 
   if (!isOpen || !invoice) return null;
 

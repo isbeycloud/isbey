@@ -52,6 +52,7 @@ test('alış faturası ve irsaliye A4 düğmeleri XSLT görünümünü açar', a
   await page.getByTitle('A4 Yazdır').first().click();
   await expect(page.frameLocator('#einvoice-preview-iframe').locator('body')).toContainText(/Fatura|FATURA/);
   await expect(page.getByRole('button', { name: "GİB'e Gönder", exact: true })).toHaveCount(0);
+  await expect(page.frameLocator('#einvoice-preview-iframe').locator('[data-invoice-draft-stamp]')).toHaveCount(0);
   await page.goto('/');
   await page.locator('aside').getByText('İrsaliyeler', { exact: true }).click();
   await page.getByTitle('XSLT Görüntüle / Yazdır').first().click();
@@ -129,7 +130,34 @@ test('cari kart bağlantısı boş fatura kendi kayıtlı alıcısıyla görünt
   const frame = page.frameLocator('#einvoice-preview-iframe');
   await expect(frame.locator('body')).toContainText('Kayıtlı Belge Alıcısı');
   await expect(frame.locator('body')).toContainText('SAT-XSLT-SNAPSHOT');
+  await expect(frame.locator('[data-document-party="customer"] [data-invoice-draft-stamp]')).toHaveText('TASLAKTIR');
   await expect(page.getByText('ERP kaydından önizleme', { exact: true })).toBeVisible();
   await expect(page.getByText('TEMELFATURA', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Yazdır', exact: true })).toBeEnabled();
 });
+
+for (const status of ['DRAFT', 'SENT', 'QUEUED']) {
+  test(`${status}: taslak damgası yalnız alıcı cari alanında gösterilir`, async ({ page }) => {
+    await page.route('**/api/invoices?*', async route => {
+      const upstream = await route.fetch(); const data = await upstream.json();
+      data.invoices = data.invoices.map((invoice: { id: string }) => invoice.id === 'inv-xslt-recorded-customer' ? { ...invoice, eInvoiceStatus: status } : invoice);
+      await route.fulfill({ json: data });
+    });
+    await page.route('**/erp-invoices/inv-xslt-recorded-customer/visual', route => route.fulfill({ json: {
+      success: true, renderedBy: 'client', templateSource: 'company', xml: '<Invoice/>',
+      xslt: `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"><html><body><div id="supplier">Satıcı Firma</div><table id="customerPartyTable"><tbody><tr><td style="width:350px;height:180px">Müşteri Cari Bilgileri</td></tr></tbody></table><div id="totals">120 TL</div></body></html></xsl:template></xsl:stylesheet>`,
+    } }));
+    await openApp(page, 'Satış Faturaları');
+    await page.getByRole('row').filter({ hasText: 'SAT-XSLT-SNAPSHOT' }).getByTitle('Resmi GİB Görselini İncele (HTML / XSLT)').click();
+    const frame = page.frameLocator('#einvoice-preview-iframe');
+    await expect(frame.locator('body')).toContainText('Müşteri Cari Bilgileri');
+    await expect(frame.locator('[data-invoice-draft-stamp]')).toHaveCount(status === 'DRAFT' ? 1 : 0);
+    if (status === 'DRAFT') {
+      const stamp = frame.locator('#customerPartyTable td [data-invoice-draft-stamp]');
+      await expect(stamp).toHaveText('TASLAKTIR'); await expect(stamp).toHaveCSS('color', 'rgb(220, 38, 38)');
+      const contained = await stamp.evaluate(node => { const a = node.getBoundingClientRect(), b = node.parentElement!.getBoundingClientRect(); return a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom; });
+      expect(contained).toBe(true);
+    }
+    await expect(frame.locator('#supplier, #totals').filter({ hasText: 'TASLAKTIR' })).toHaveCount(0);
+  });
+}
