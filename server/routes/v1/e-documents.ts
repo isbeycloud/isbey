@@ -16,7 +16,7 @@ import {
   type OperationalStatus,
   type RawStatus,
 } from '../../services/incomingDocumentStatus';
-import { DocumentVisualError, getErpDocumentVisual, prepareDocumentVisual } from '../../services/documentVisualService';
+import { DocumentVisualError, resolveErpDocumentVisual, prepareDocumentVisual } from '../../services/documentVisualService';
 import { formatXmlForDisplay } from '../../services/ubl/xmlPrettyPrint';
 import type { SyncSummary } from '../../services/incomingSyncContract';
 
@@ -26,11 +26,11 @@ v1EDocumentsRouter.use(requireAuth, resolveTenant);
 
 // ERP listelerindeki faturalar/irsaliyeler: aynı oturum ve tenant sınırıyla XSLT önizleme.
 function erpVisual(kind: 'INVOICE' | 'DESPATCH') {
-  return (req: Request, res: Response) => {
+  return async (req: Request, res: Response) => {
     try {
-      res.json(getErpDocumentVisual(String(req.params.id), req.tenantId!, kind));
+      res.json(await resolveErpDocumentVisual(String(req.params.id), req.tenantId!, kind));
     } catch (err: any) {
-      res.status(err instanceof DocumentVisualError ? err.status : 422).json({ success: false, message: err.message });
+      belgeHatasi(res, err);
     }
   };
 }

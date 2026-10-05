@@ -1,6 +1,20 @@
 import { test, expect, type Page } from '@playwright/test';
 
 let token = '';
+
+test('özgün belgenin karekod verisi şablon betikleri çalışmadan görünür', async ({ page }) => {
+  await page.route('**/erp-invoices/*/visual', route => route.fulfill({ json: {
+    success: true, renderedBy: 'client', templateSource: 'embedded', xmlSource: 'provider',
+    xml: '<Invoice><ID>BTF2026000000144</ID></Invoice>',
+    xslt: `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template match="/"><html><body><h1><xsl:value-of select="/*/ID"/></h1><div id="qrcode"><img id="qrkod" src=""/></div><div id="qrvalue" style="display:none">{"no":"BTF2026000000144","ettn":"test-uuid"}</div><script>window.parent.__unsafe=true</script></body></html></xsl:template></xsl:stylesheet>`,
+  } }));
+  await openApp(page, 'Satış Faturaları');
+  await page.getByTitle('Resmi GİB Görselini İncele (HTML / XSLT)').first().click();
+  const frame = page.frameLocator('#einvoice-preview-iframe');
+  await expect(frame.locator('body')).toContainText('BTF2026000000144');
+  await expect(frame.getByAltText('Fatura karekodu')).toHaveAttribute('src', /^data:image\/gif;base64,/);
+  await expect(frame.locator('script')).toHaveCount(0);
+});
 test.beforeAll(async ({ request }) => {
   const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
   expect(login.status()).toBe(200);

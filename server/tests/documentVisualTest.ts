@@ -13,6 +13,7 @@ process.env.ISBEY_DATA_DIR = path.join(path.dirname(process.env.DATABASE_PATH!),
 const { storage } = await import('../db/storage');
 const { DocumentStorageService } = await import('../services/documentStorageService');
 const { prepareDocumentVisual } = await import('../services/documentVisualService');
+const { ProviderFactory } = await import('../services/providers/providerFactory');
 const { v1EDocumentsRouter } = await import('../routes/v1/e-documents');
 const { parseUblTree, findFirst, decodeXmlText } = await import('../services/ubl/ublTree');
 const T = 'tnt-visual';
@@ -46,6 +47,7 @@ storage.update(db => {
   db.invoices.push({ ...db.invoices[0], id: 'mixed-tax', subTotal: 600, totalDiscount: 0, totalVat: 81, grandTotal: 681,
     items: [1, 10, 20].map((vatRate, i) => ({ ...db.invoices[0].items[0], vatRate, lineTotal: (i + 1) * 100, vatAmount: [1, 20, 60][i] })) });
   db.invoices.push({ ...db.invoices[0], id: 'foreign-customer-link', customerId: 'foreign-customer', customerTitle: 'Kayıtlı Alıcı' });
+  db.invoices.push({ ...db.invoices[0], id: 'sent-original', eInvoiceStatus: 'SENT', eInvoiceUUID: 'original-uuid' });
   db.customers.push({ ...db.customers[0], id: 'foreign-customer', tenantId: 'tnt-other', title: 'FOREIGN SECRET', taxNumber: '4444444444' });
   db.incomingInvoices = [{ id: 'incoming', tenantId: T, uuid: 'incoming-uuid', xmlStoragePath: invPath },
     { id: 'foreign-incoming', tenantId: 'tnt-other', xmlStoragePath: invPath }] as any;
@@ -75,6 +77,29 @@ const token = jwt.sign({ userId: 'visual-admin', tenantId: T }, process.env.JWT_
 storage.getState(T); // Mevcut tenant yapılandırmasının tembel başlangıcını test dışında tamamla.
 const before = JSON.stringify(storage.getState());
 try {
+  const originalFactory = ProviderFactory.getProviderForTenant;
+  const originalXml = invoiceXml.replace('TEST-42', 'BTF2026000000144').replace('<cbc:ID>', '<cbc:UUID>original-uuid</cbc:UUID><cac:AccountingSupplierParty><cac:Party><cac:PartyIdentification><cbc:ID>1111111111</cbc:ID></cac:PartyIdentification></cac:Party></cac:AccountingSupplierParty><cbc:ID>');
+  let providerResult = { success: true, content: originalXml };
+  let providerCalls = 0;
+  ProviderFactory.getProviderForTenant = ((tenantId: string) => {
+    assert.equal(tenantId, T);
+    return { settings: { tenantId }, provider: { providerId: 'TEST_ORIGINAL', getIncomingDocumentContent: async (uuid: string, appType: number, settings: { tenantId: string }) => {
+      assert.equal(uuid, 'original-uuid'); assert.equal(appType, 1); assert.equal(settings.tenantId, T);
+      providerCalls++; return providerResult;
+    } } };
+  }) as unknown as typeof originalFactory;
+  try {
+    const read = () => fetch(base + '/erp-invoices/sent-original/visual', { headers: { Authorization: `Bearer ${token}` } });
+    const response = await read(); const result = await response.json();
+    assert.equal(response.status, 200); assert.equal(result.xmlSource, 'provider'); assert.equal(result.xml, originalXml);
+    assert.equal(result.templateSource, 'embedded'); assert.ok(!result.xml.includes('ERP-42'));
+    for (const content of [originalXml.replace('original-uuid', 'wrong-uuid'), originalXml.replace('1111111111', '9999999999'), '']) {
+      providerResult = { success: !!content, content };
+      assert.equal((await read()).status, 502, 'Yanlış/boş özgün belge yerine ERP taslağı gösterilmemeli.');
+    }
+    assert.equal((await fetch(base + '/erp-invoices/foreign/visual', { headers: { Authorization: `Bearer ${token}` } })).status, 404);
+    assert.equal(providerCalls, 4, 'Başka tenant belgesi için entegratör çağrılmamalı.');
+  } finally { ProviderFactory.getProviderForTenant = originalFactory; }
   for (const [url, source] of [
     ['/incoming/incoming/visual', 'embedded'], ['/incoming-despatches/incoming-despatch/visual', 'embedded'],
     ['/erp-invoices/sales/visual', 'company'], ['/erp-invoices/purchase/visual', 'standard'],

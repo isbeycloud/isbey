@@ -6,6 +6,7 @@ import { normalizeXsltForBrowser } from './xsltCompatibility';
 import { attrOf, decodeXmlText, findAll, findFirst, parseUblTree, textOf } from './ubl/ublTree';
 import { standardDocumentXslt } from './ubl/standardDocumentXslt';
 import { UblInvoiceBuilder } from './ubl/ublInvoiceBuilder';
+import { ProviderFactory } from './providers/providerFactory';
 
 export class DocumentVisualError extends Error {
   constructor(message: string, public status = 422) { super(message); }
@@ -176,4 +177,28 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
     xml = erpPreviewXml(record, tenant, party, kind);
   }
   return { ...prepareDocumentVisual(xml, type, tenantId, incoming), xmlSource };
+}
+
+/** Gönderilmiş belgenin ERP taslağı yerine tenant'a ait özgün UBL içeriğini okur. */
+export async function resolveErpDocumentVisual(id: string, tenantId: string, kind: 'INVOICE' | 'DESPATCH') {
+  const visual = getErpDocumentVisual(id, tenantId, kind);
+  if (visual.xmlSource === 'archive' || kind !== 'INVOICE') return visual;
+  const record = storage.getState().invoices.find(r => r.id === id && r.tenantId === tenantId && !r.isDeleted);
+  if (!record || record.type !== 'SALES' || !record.eInvoiceUUID ||
+    !['SENT', 'DELIVERED', 'ACCEPTED'].includes(record.eInvoiceStatus || '')) return visual;
+  const { provider, settings } = ProviderFactory.getProviderForTenant(tenantId);
+  if (provider.providerId === 'MOCK') throw new DocumentVisualError('Gönderilmiş belgenin özgün içeriği test sağlayıcısından alınamaz.', 503);
+  const profile = record.invoiceProfile || textValue(savedModel(record)?.invoiceheader?.ProfileID);
+  // GetDocumentFile hem gelen hem giden belgeleri ETTN ile okur; tenant token'ını adapter seçer.
+  const result = await provider.getIncomingDocumentContent(record.eInvoiceUUID, profile === 'EARSIVFATURA' ? 2 : 1, settings);
+  if (!result.success || !result.content) throw new DocumentVisualError(result.message || 'Gönderilmiş faturanın özgün XML içeriği alınamadı.', 502);
+  const tree = parseUblTree(result.content);
+  const supplier = findFirst(tree.root, 'AccountingSupplierParty');
+  const supplierId = textOf(findFirst(supplier, 'PartyIdentification'), 'ID');
+  const tenant = storage.getState().tenants.find(t => t.id === tenantId);
+  if (!tree.ok || !tree.root || textOf(tree.root, 'UUID')?.toLowerCase() !== record.eInvoiceUUID.toLowerCase() ||
+    !tenant?.taxNumber || supplierId !== tenant.taxNumber) {
+    throw new DocumentVisualError('Entegratör XML içeriği istenen faturanın ETTN veya satıcı bilgisiyle eşleşmiyor.', 502);
+  }
+  return { ...prepareDocumentVisual(result.content, profile === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA', tenantId, false), xmlSource: 'provider' as const };
 }

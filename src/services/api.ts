@@ -164,7 +164,7 @@ export interface DocumentVisualResponse extends PreviewResponse {
   xml: string;
   xslt: string;
   templateSource: 'embedded' | 'company' | 'standard';
-  xmlSource?: 'archive' | 'erp';
+  xmlSource?: 'archive' | 'erp' | 'provider';
 }
 
 /**
