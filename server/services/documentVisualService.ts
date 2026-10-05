@@ -67,15 +67,27 @@ const tag = (name: string, value: unknown, attrs = '') => value === undefined ||
 const amount = (name: string, value: unknown, currency: string) =>
   tag(name, value, ` currencyID="${escapeXml(currency)}"`);
 
+type DocumentParty = Pick<Customer, 'title' | 'taxNumber' | 'address' | 'city' | 'district' | 'taxOffice'>;
+
+/** Cari kart bağlantısı olmayan eski belgelerde yalnız belgenin kendi alıcı kaydı okunur. */
+function recordedCustomer(record: Invoice | Waybill): DocumentParty | null {
+  const model = (record as Invoice & { hizliModel?: { customer?: Record<string, unknown> } }).hizliModel?.customer;
+  const text = (value: unknown) => typeof value === 'string' ? value : undefined;
+  const title = text(model?.PartyName) || record.customerTitle;
+  if (!title) return null;
+  return { title, taxNumber: text(model?.IdentificationID) || ('recipientTaxNumber' in record ? record.recipientTaxNumber : undefined),
+    address: text(model?.StreetName), city: text(model?.CityName), district: text(model?.CitySubdivisionName), taxOffice: text(model?.TaxSchemeName) };
+}
+
 /** Yalnız kayıtlı alanları seri hale getirir; muhasebe hesaplaması/kimlik üretimi yapmaz. */
-function erpPreviewXml(record: Invoice | Waybill, tenant: Tenant, customer: Customer, kind: 'INVOICE' | 'DESPATCH') {
+function erpPreviewXml(record: Invoice | Waybill, tenant: Tenant, customer: DocumentParty, kind: 'INVOICE' | 'DESPATCH') {
   const invoice = kind === 'INVOICE' ? record as Invoice : null;
   const waybill = kind === 'DESPATCH' ? record as Waybill : null;
   const incoming = invoice?.type === 'PURCHASE' || waybill?.type === 'PURCHASE_DESPATCH';
   const currency = invoice?.currency || 'TRY';
   const verifiedUuid = invoice && (incoming || ['SENT', 'DELIVERED', 'ACCEPTED'].includes(invoice.eInvoiceStatus || ''))
     ? invoice.eInvoiceUUID : undefined;
-  const party = (p: Tenant | Customer, name: string) => `<cac:${name}><cac:Party>
+  const party = (p: Tenant | DocumentParty, name: string) => `<cac:${name}><cac:Party>
     <cac:PartyIdentification>${tag('cbc:ID', p.taxNumber, ` schemeID="${p.taxNumber?.length === 11 ? 'TCKN' : 'VKN'}"`)}</cac:PartyIdentification>
     <cac:PartyName>${tag('cbc:Name', p.title || ('name' in p ? p.name : ''))}</cac:PartyName>
     <cac:PostalAddress>${tag('cbc:StreetName', p.address)}${tag('cbc:CitySubdivisionName', p.district)}${tag('cbc:CityName', p.city)}</cac:PostalAddress>
@@ -127,8 +139,9 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
     }
   }
   if (!xml) {
-    if (!tenant || !customer) throw new DocumentVisualError('Belgenin firma veya cari bilgisi bulunamadı.');
-    xml = erpPreviewXml(record, tenant, customer, kind);
+    const party = customer || recordedCustomer(record);
+    if (!tenant || !party) throw new DocumentVisualError('Belgenin firma veya kayıtlı alıcı bilgisi bulunamadı.');
+    xml = erpPreviewXml(record, tenant, party, kind);
   }
   return { ...prepareDocumentVisual(xml, type, tenantId, incoming), xmlSource };
 }

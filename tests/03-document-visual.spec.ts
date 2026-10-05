@@ -83,3 +83,34 @@ test('önizleme hatası görünür ve yeniden denenebilir', async ({ page }) => 
   await page.getByRole('button', { name: 'Yeniden dene', exact: true }).click();
   await expect(page.frameLocator('#einvoice-preview-iframe').locator('body')).toContainText(/SAT-|Mal.*Hizmet/);
 });
+
+test('BOM taşıyan arşiv XML ve XSLT görüntülenir; indirilen XML korunur', async ({ page }) => {
+  let archivedXml = '';
+  await page.route('**/api/v1/e-documents/erp-invoices/*/visual', async route => {
+    const upstream = await route.fetch();
+    const visual = await upstream.json();
+    archivedXml = '\uFEFF' + visual.xml;
+    await route.fulfill({ json: { ...visual, xml: archivedXml, xslt: '\uFEFF' + visual.xslt } });
+  });
+  await openApp(page, 'Satış Faturaları');
+  await page.getByTitle('Resmi GİB Görselini İncele (HTML / XSLT)').first().click();
+  await expect(page.frameLocator('#einvoice-preview-iframe').locator('body')).toContainText(/SAT-(?:2026|XSLT)/);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'UBL XML' }).click();
+  const stream = await (await downloaded).createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(chunk);
+  expect(Buffer.concat(chunks).toString('utf8')).toBe(archivedXml);
+});
+
+test('cari kart bağlantısı boş fatura kendi kayıtlı alıcısıyla görüntülenir', async ({ page }) => {
+  await openApp(page, 'Satış Faturaları');
+  const row = page.getByRole('row').filter({ hasText: 'SAT-XSLT-SNAPSHOT' });
+  await row.locator('button[title="Resmi GİB Görselini İncele (HTML / XSLT)"]').click();
+  const frame = page.frameLocator('#einvoice-preview-iframe');
+  await expect(frame.locator('body')).toContainText('Kayıtlı Belge Alıcısı');
+  await expect(frame.locator('body')).toContainText('SAT-XSLT-SNAPSHOT');
+  await expect(page.getByText('ERP kaydından önizleme', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Yazdır', exact: true })).toBeEnabled();
+});

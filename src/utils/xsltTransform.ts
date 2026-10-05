@@ -102,7 +102,9 @@ export function transformXmlWithXsltInBrowser(xmlContent: string, xsltContent: s
   let xmlDoc: Document;
   let xsltDoc: Document;
   try {
-    xmlDoc = new DOMParser().parseFromString(xmlContent, 'application/xml');
+    // Arşiv UBL'leri UTF-8 BOM taşıyabiliyor. DOMParser'a byte değil string
+    // verildiğinde bu işaret kök dışı metin sayılır; yalnız ayrıştırmada kaldır.
+    xmlDoc = new DOMParser().parseFromString(xmlContent.replace(/^\uFEFF/, ''), 'application/xml');
     if (xmlDoc.querySelector('parsererror')) {
       return { html: '', ok: false, error: `UBL XML ayrıştırılamadı: ${readParserError(xmlDoc)}`, warnings };
     }
@@ -111,7 +113,7 @@ export function transformXmlWithXsltInBrowser(xmlContent: string, xsltContent: s
   }
 
   try {
-    xsltDoc = new DOMParser().parseFromString(xsltContent, 'application/xml');
+    xsltDoc = new DOMParser().parseFromString(xsltContent.replace(/^\uFEFF/, ''), 'application/xml');
     if (xsltDoc.querySelector('parsererror')) {
       return { html: '', ok: false, error: `XSLT ayrıştırılamadı: ${readParserError(xsltDoc)}`, warnings };
     }

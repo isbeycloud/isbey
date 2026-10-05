@@ -37,6 +37,10 @@ storage.update(db => {
     type: id === 'purchase' ? 'PURCHASE' : 'SALES', customerId: 'visual-customer', invoiceNo: 'ERP-42', isDeleted: false,
     currency: 'USD', invoiceProfile: 'TEMELFATURA', items: [{ ...db.invoices[0]?.items[0], productName: 'Ürün <A> & B', quantity: 0, unit: 'kg', unitPrice: 100, lineTotal: 0, vatAmount: 0, vatRate: 10 }] })) as any;
   db.waybills = [{ ...db.waybills[0], id: 'waybill', tenantId: T, type: 'SALES_DESPATCH', customerId: 'visual-customer', waybillNo: 'IRS-42', items: [{ productName: 'Sevk', quantity: 7, unit: 'kg' }] }] as any;
+  db.invoices.push({ ...db.invoices[0], id: 'no-customer-card', customerId: null, customerTitle: 'Kayıtlı Alıcı',
+    hizliModel: { customer: { PartyName: 'Belge Alıcısı & Ortak', IdentificationID: '3333333333', StreetName: 'Kayıtlı Adres' } } } as any);
+  db.invoices.push({ ...db.invoices[0], id: 'foreign-customer-link', customerId: 'foreign-customer', customerTitle: 'Kayıtlı Alıcı' });
+  db.customers.push({ ...db.customers[0], id: 'foreign-customer', tenantId: 'tnt-other', title: 'FOREIGN SECRET', taxNumber: '4444444444' });
   db.incomingInvoices = [{ id: 'incoming', tenantId: T, uuid: 'incoming-uuid', xmlStoragePath: invPath },
     { id: 'foreign-incoming', tenantId: 'tnt-other', xmlStoragePath: invPath }] as any;
   db.incomingDespatches = [{ id: 'incoming-despatch', tenantId: T, xmlStoragePath: dspPath }] as any;
@@ -69,6 +73,7 @@ try {
     ['/incoming/incoming/visual', 'embedded'], ['/incoming-despatches/incoming-despatch/visual', 'embedded'],
     ['/erp-invoices/sales/visual', 'company'], ['/erp-invoices/purchase/visual', 'standard'],
     ['/erp-invoices/archive/visual', 'embedded'], ['/erp-waybills/waybill/visual', 'standard'],
+    ['/erp-invoices/no-customer-card/visual', 'company'], ['/erp-invoices/foreign-customer-link/visual', 'company'],
   ]) {
     const response = await fetch(base + url, { headers: { Authorization: `Bearer ${token}` } });
     const result = await response.json();
@@ -87,6 +92,16 @@ try {
       assert.equal(decodeXmlText(findFirst(findFirst(parsed.root, 'AccountingSupplierParty'), 'Name')?.text || ''), 'Cari & Ortak');
       assert.equal(findFirst(findFirst(parsed.root, 'AccountingCustomerParty'), 'Name')?.text, 'Firma A');
     }
+    if (url.includes('/no-customer-card/')) {
+      assert.ok(result.xml.includes('Belge Alıcısı &amp; Ortak'));
+      assert.ok(result.xml.includes('3333333333'));
+      assert.ok(result.xml.includes('Kayıtlı Adres'));
+      assert.equal(result.xmlSource, 'erp');
+    }
+    if (url.includes('/foreign-customer-link/')) {
+      assert.ok(result.xml.includes('Kayıtlı Alıcı'));
+      assert.ok(!result.xml.includes('FOREIGN SECRET') && !result.xml.includes('4444444444'));
+    }
   }
   for (const url of ['/erp-invoices/foreign/visual', '/incoming/foreign-incoming/visual']) {
     assert.equal((await fetch(base + url, { headers: { Authorization: `Bearer ${token}` } })).status, 404);
@@ -98,7 +113,7 @@ try {
   assert.equal((await fetch(base + '/erp-waybills/waybill/visual', { headers: { Authorization: `Bearer ${viewer}` } })).status, 403,
     'Fatura paketi irsaliye erişimi vermemeli.');
   assert.equal(JSON.stringify(storage.getState()), before, 'Görüntüleme DB/muhasebe verisini değiştirmemeli.');
-  console.warn('documentVisualTest: XSLT seçimi, 11 HTTP kontrolü, paket/menü/rol izolasyonu, dış kaynak reddi ve salt okunur davranış PASS.');
+  console.warn('documentVisualTest: XSLT seçimi, 13 HTTP kontrolü, kayıtlı alıcı, paket/menü/rol izolasyonu, dış kaynak reddi ve salt okunur davranış PASS.');
 } finally {
   await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
 }

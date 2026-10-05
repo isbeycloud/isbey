@@ -23,6 +23,9 @@ const fixture = structuredClone(initialDatabaseState);
 fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-purchase',
   invoiceNo: 'ALS-XSLT-000001', type: 'PURCHASE', tenantId: 'tnt-isbey',
   eInvoiceStatus: 'DRAFT', eInvoiceUUID: undefined });
+fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-recorded-customer',
+  invoiceNo: 'SAT-XSLT-SNAPSHOT', customerId: null, customerTitle: 'Kayıtlı Belge Alıcısı',
+  hizliModel: { customer: { PartyName: 'Kayıtlı Belge Alıcısı', IdentificationID: '0000000000' } } });
 fixture.users.find(user => user.username === 'admin').passwordHash = adminStoredHash;
 fs.writeFileSync(process.env.DATABASE_PATH, JSON.stringify(fixture));
 await import('../server/index.ts');
