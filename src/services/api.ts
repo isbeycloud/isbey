@@ -159,6 +159,13 @@ export interface PreviewResponse {
   unsupportedFeatures?: string[];
 }
 
+export interface DocumentVisualResponse extends PreviewResponse {
+  xml: string;
+  xslt: string;
+  templateSource: 'embedded' | 'company' | 'standard';
+  xmlSource?: 'archive' | 'erp';
+}
+
 /**
  * XSLT doğrulama yanıtı.
  *
@@ -452,7 +459,9 @@ export const api = {
   deleteUser: (id: string) => request<{ success: boolean; message: string }>(`/users/${id}`, { method: 'DELETE' }),
 
   // E-Invoice & E-Arşiv
-  getEInvoiceXml: (invoiceId: string) => fetch(`${API_BASE}/efatura/${invoiceId}/xml`).then(r => r.text()),
+  getEInvoiceXml: (invoiceId: string) => fetchXmlText(`/efatura/${invoiceId}/xml`, 'Fatura XML'),
+  getErpInvoiceVisual: (id: string) => request<DocumentVisualResponse>(`/v1/e-documents/erp-invoices/${encodeURIComponent(id)}/visual`),
+  getErpWaybillVisual: (id: string) => request<DocumentVisualResponse>(`/v1/e-documents/erp-waybills/${encodeURIComponent(id)}/visual`),
   getEInvoiceStatus: (invoiceId: string) => request<{ success: boolean; eInvoice: any }>(`/efatura/${invoiceId}/status`),
 
   // Batch Import
@@ -819,9 +828,9 @@ export const api = {
       `/v1/e-documents/incoming/${id}/xml${pretty ? '?pretty=1' : ''}`
     ),
 
-  /** Belgenin A4 görünümü — veriye sadık, şablon DEĞİL. */
+  /** Belgenin XML'i ve gömülü XSLT'si (yoksa nötr standart XSLT). */
   getIncomingDocumentVisual: (id: string) =>
-    request<{ success: boolean; renderedBy: 'client'; html: string }>(
+    request<DocumentVisualResponse>(
       `/v1/e-documents/incoming/${id}/visual`
     ),
 
@@ -839,7 +848,7 @@ export const api = {
 
   /** İrsaliye A4 görünümü. */
   getIncomingDespatchVisual: (id: string) =>
-    request<{ success: boolean; renderedBy: 'client'; html: string }>(
+    request<DocumentVisualResponse>(
       `/v1/e-documents/incoming-despatches/${id}/visual`
     ),
 

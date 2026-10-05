@@ -27,7 +27,6 @@ export const PurchaseInvoiceView: React.FC = () => {
     setIsNewInvoiceModalOpen,
     newInvoiceType,
     setNewInvoiceType,
-    openPrintModal,
     refreshKey,
     triggerRefresh,
   } = useApp();
@@ -64,7 +63,8 @@ export const PurchaseInvoiceView: React.FC = () => {
   };
 
   const handlePrint = (inv: Invoice) => {
-    openPrintModal('A4_INVOICE', `Alış Faturası - ${inv.invoiceNo}`, inv);
+    setViewingInvoice(inv);
+    setIsViewerModalOpen(true);
   };
 
   const handleDelete = async (inv: Invoice) => {

@@ -3,6 +3,7 @@ import type {
   IncomingInvoice, IncomingDespatch, ParsedUblDocument, ParsedUblLine, ParsedUblParty,
 } from '../../../types';
 import { api } from '../../../services/api';
+import { renderDocumentVisual } from '../../../utils/documentVisual';
 import { Modal } from '../../common/Modal';
 import { AlertTriangle, Ban, CheckCircle2, Copy, FileText, Loader2, Package } from 'lucide-react';
 
@@ -21,10 +22,8 @@ import { AlertTriangle, Ban, CheckCircle2, Copy, FileText, Loader2, Package } fr
  * bir okumadır: yalnız "belgede ne yazıyor" sorusunu yanıtlar. Ayrıca plan ucu
  * irsaliye/fatura kararlarını karıştırır; detay iki akışta aynıdır.
  *
- * ⚠️ `[Görsel]` SEKMEŞİ ŞABLON DEĞİL: Belge TEDARİKÇİNİN belgesidir. Onu bizim
- * giden-fatura şablonumuzla basmak, karşı firmanın faturasına BİZİM logomuzu
- * ve IBAN'ımızı koymak olurdu. Sunucu görünümü doğrudan belgenin alanlarından
- * üretir (bkz. `incomingDocumentRenderer.ts`).
+ * `[Görsel]`: belgenin gömülü XSLT'si; yoksa nötr standart XSLT kullanılır.
+ * Alıcı firmanın giden-belge tasarımı tedarikçinin belgesine uygulanmaz.
  *
  * ⚠️ `[XML]` SALT OKUNUR: Hiçbir düzenleme yapılamaz. Girintileme yalnız
  * gösterim içindir; içerik değişmez.
@@ -177,21 +176,23 @@ export const IncomingDocumentDetail: React.FC<Props> = ({ isOpen, onClose, tur, 
   // Görsel sekmesi — yalnız istendiğinde.
   useEffect(() => {
     if (!isOpen || !kayit || sekme !== 'GORSEL' || gorsel) return;
+    let cancelled = false;
     setGorselYukleniyor(true);
     (async () => {
       try {
         const res = irsaliyeMi
           ? await api.getIncomingDespatchVisual(kayit.id)
           : await api.getIncomingDocumentVisual(kayit.id);
-        if (res.success) setGorsel(res.html);
+        if (!cancelled && res.success) setGorsel(renderDocumentVisual(res));
       } catch (err: any) {
-        setHata(err.message || 'Belge görseli oluşturulamadı.');
+        if (!cancelled) setHata(err.message || 'Belge görseli oluşturulamadı.');
       } finally {
-        setGorselYukleniyor(false);
+        if (!cancelled) setGorselYukleniyor(false);
       }
     })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, kayit?.id, sekme]);
+  }, [isOpen, kayit?.id, sekme, tur]);
 
   const currency = doc?.currency || 'TRY';
 
@@ -474,8 +475,7 @@ export const IncomingDocumentDetail: React.FC<Props> = ({ isOpen, onClose, tur, 
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <FileText size={13} />
                   <span>
-                    Görünüm doğrudan belgenin UBL içeriğinden üretilir. Belgede olmayan alanlar
-                    &quot;—&quot; olarak gösterilir; hiçbir değer hesaplanmaz.
+                    Belgenin gömülü XSLT tasarımı kullanılır. Tasarım bulunmadığında UBL içeriği standart görünümde gösterilir.
                   </span>
                 </div>
                 {gorselYukleniyor ? (

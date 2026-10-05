@@ -19,6 +19,10 @@ Object.assign(process.env, {
 const { initialDatabaseState } = await import('../server/db/seed.ts');
 const { adminStoredHash } = await import('../server/tests/fixtures/e2eCredentials.ts');
 const fixture = structuredClone(initialDatabaseState);
+// XSLT alış faturası görüntüleyicisi için yalnız izole E2E verisi.
+fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-purchase',
+  invoiceNo: 'ALS-XSLT-000001', type: 'PURCHASE', tenantId: 'tnt-isbey',
+  eInvoiceStatus: 'DRAFT', eInvoiceUUID: undefined });
 fixture.users.find(user => user.username === 'admin').passwordHash = adminStoredHash;
 fs.writeFileSync(process.env.DATABASE_PATH, JSON.stringify(fixture));
 await import('../server/index.ts');

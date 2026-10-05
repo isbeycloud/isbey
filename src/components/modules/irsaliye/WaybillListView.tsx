@@ -6,10 +6,11 @@ import { api } from '../../../services/api';
 import { useApp } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
 import { WaybillModal } from './WaybillModal';
+import { WaybillViewerModal } from './WaybillViewerModal';
 import { Plus, Truck, ArrowRight, CheckCircle2, FileText, Printer } from 'lucide-react';
 
 export const WaybillListView: React.FC = () => {
-  const { isNewWaybillModalOpen, setIsNewWaybillModalOpen, refreshKey, triggerRefresh, openPrintModal } = useApp();
+  const { isNewWaybillModalOpen, setIsNewWaybillModalOpen, refreshKey, triggerRefresh } = useApp();
   const { showToast } = useToast();
 
   const [waybills, setWaybills] = useState<Waybill[]>([]);
@@ -17,6 +18,7 @@ export const WaybillListView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [previewWaybill, setPreviewWaybill] = useState<Waybill | null>(null);
 
   useEffect(() => {
     loadWaybills();
@@ -152,7 +154,7 @@ export const WaybillListView: React.FC = () => {
       width: '170px',
       render: w => (
         <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
-          <button className="btn btn-secondary btn-sm" title="Yazdır / PDF" onClick={() => openPrintModal('WAYBILL', `İrsaliye - ${w.waybillNo}`, w)}>
+          <button className="btn btn-secondary btn-sm" title="XSLT Görüntüle / Yazdır" onClick={() => setPreviewWaybill(w)}>
             <Printer size={13} />
           </button>
           {w.status === 'PENDING' ? (
@@ -222,6 +224,7 @@ export const WaybillListView: React.FC = () => {
         isOpen={isNewWaybillModalOpen}
         onClose={() => setIsNewWaybillModalOpen(false)}
       />
+      <WaybillViewerModal waybill={previewWaybill} onClose={() => setPreviewWaybill(null)} />
     </div>
   );
 };

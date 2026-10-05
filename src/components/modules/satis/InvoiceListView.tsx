@@ -75,7 +75,8 @@ export const InvoiceListView: React.FC = () => {
     if (type === 'POS') {
       openPrintModal('THERMAL_80MM', `POS Satış Fişi - ${inv.invoiceNo}`, inv);
     } else {
-      openPrintModal('A4_INVOICE', `Satış Faturası - ${inv.invoiceNo}`, inv);
+      setViewingInvoice(inv);
+      setIsViewerModalOpen(true);
     }
   };
 

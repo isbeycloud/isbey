@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { X, Printer, Download, Send, CheckCircle2, Copy, FileText, AlertCircle, RefreshCw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Printer, Download, Send, Copy, FileText, AlertCircle, RefreshCw } from 'lucide-react';
 import type { Invoice } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import { api } from '../../../services/api';
+import { downloadDocumentXml, renderDocumentVisual } from '../../../utils/documentVisual';
 
 interface Props {
   isOpen: boolean;
@@ -19,7 +20,34 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
 }) => {
   const { showToast } = useToast();
   const [sending, setSending] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [html, setHtml] = useState('');
+  const [xml, setXml] = useState('');
+  const [previewNote, setPreviewNote] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const invoiceId = invoice?.id;
+
+  useEffect(() => {
+    setHtml('');
+    setXml('');
+    setPreviewNote('');
+    setPreviewError('');
+    if (!isOpen || !invoiceId) return;
+    let cancelled = false;
+    setLoading(true);
+    api.getErpInvoiceVisual(invoiceId).then(response => {
+      if (cancelled) return;
+      const rendered = renderDocumentVisual(response);
+      setXml(response.xml);
+      setPreviewNote(response.xmlSource === 'erp' ? 'ERP kaydından önizleme' : '');
+      setHtml(rendered);
+    }).catch(err => {
+      if (!cancelled) setPreviewError(err.message || 'Fatura görünümü yüklenemedi.');
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, invoiceId, retry]);
 
   if (!isOpen || !invoice) return null;
 
@@ -66,9 +94,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
   const handleCopyEttn = () => {
     if (!ettn) return; // 2026-09-16 (`docs/45`/`docs/47`): doğrulanmamış kimlik kopyalanmaz.
     navigator.clipboard.writeText(ettn);
-    setCopied(true);
     showToast('ETTN panoya kopyalandı.', 'info');
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleSendToGib = async () => {
@@ -194,6 +220,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
                 <span style={!ettn ? { fontStyle: 'italic' } : undefined}>
                   ETTN: {ettn || ettnYoklukMetni}
                 </span>
+                {previewNote && <span>{previewNote}</span>}
                 <button
                   onClick={handleCopyEttn}
                   disabled={!ettn}
@@ -213,7 +240,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {!isSent && (
+            {!isSent && invoice.type !== 'PURCHASE' && (
               <button
                 onClick={handleSendToGib}
                 disabled={sending}
@@ -236,10 +263,9 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
               </button>
             )}
 
-            <a
-              href={`/api/efatura/${invoice.id}/xml`}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              onClick={() => downloadDocumentXml(xml, invoice.invoiceNo)}
+              disabled={!xml || loading}
               style={{
                 padding: '7px 14px',
                 borderRadius: 'var(--radius-sm, 6px)',
@@ -255,15 +281,13 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
               }}
             >
               <Download size={14} /> UBL XML
-            </a>
+            </button>
 
             <button
               onClick={() => {
-                const iframe = document.getElementById('einvoice-preview-iframe') as HTMLIFrameElement;
-                if (iframe && iframe.contentWindow) {
-                  iframe.contentWindow.print();
-                }
+                frame.current?.contentWindow?.print();
               }}
+              disabled={!html || loading}
               style={{
                 padding: '7px 14px',
                 borderRadius: 'var(--radius-sm, 6px)',
@@ -304,9 +328,15 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
 
         {/* Content iframe */}
         <div style={{ flex: 1, backgroundColor: 'var(--bg-surface-secondary)', position: 'relative' }}>
-          <iframe
+          {loading ? <div role="status" style={{ padding: '40px', textAlign: 'center' }}>Fatura XSLT ile hazırlanıyor...</div>
+            : previewError ? <div role="alert" style={{ padding: '40px', textAlign: 'center' }}>
+              <AlertCircle size={24} /><p>{previewError}</p>
+              <button className="btn btn-secondary" onClick={() => setRetry(value => value + 1)}>Yeniden dene</button>
+            </div> : html ? <iframe
+            ref={frame}
             id="einvoice-preview-iframe"
-            src={`/api/efatura/${invoice.id}/html`}
+            srcDoc={html}
+            sandbox="allow-same-origin allow-modals"
             style={{
               width: '100%',
               height: '100%',
@@ -314,7 +344,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
               backgroundColor: 'var(--bg-surface)',
             }}
             title="Resmi GİB e-Fatura Önizleme"
-          />
+          /> : null}
         </div>
       </div>
     </div>

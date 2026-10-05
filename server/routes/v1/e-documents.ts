@@ -16,13 +16,26 @@ import {
   type OperationalStatus,
   type RawStatus,
 } from '../../services/incomingDocumentStatus';
-import { renderIncomingDocumentHtml } from '../../services/ubl/incomingDocumentRenderer';
+import { DocumentVisualError, getErpDocumentVisual, prepareDocumentVisual } from '../../services/documentVisualService';
 import { formatXmlForDisplay } from '../../services/ubl/xmlPrettyPrint';
 import type { SyncSummary } from '../../services/incomingSyncContract';
 
 export const v1EDocumentsRouter = Router();
 
 v1EDocumentsRouter.use(requireAuth, resolveTenant);
+
+// ERP listelerindeki faturalar/irsaliyeler: aynı oturum ve tenant sınırıyla XSLT önizleme.
+function erpVisual(kind: 'INVOICE' | 'DESPATCH') {
+  return (req: Request, res: Response) => {
+    try {
+      res.json(getErpDocumentVisual(String(req.params.id), req.tenantId!, kind));
+    } catch (err: any) {
+      res.status(err instanceof DocumentVisualError ? err.status : 422).json({ success: false, message: err.message });
+    }
+  };
+}
+v1EDocumentsRouter.get('/erp-invoices/:id/visual', requirePermission(PERMISSIONS.INVOICES_VIEW), erpVisual('INVOICE'));
+v1EDocumentsRouter.get('/erp-waybills/:id/visual', requirePermission(PERMISSIONS.WAYBILLS_VIEW), erpVisual('DESPATCH'));
 
 /**
  * 2026-09-12: Entegratör hatalarını SINIFINA göre ayırır:
@@ -33,6 +46,7 @@ v1EDocumentsRouter.use(requireAuth, resolveTenant);
  * gibi görünüp kullanıcıyı yanıltıyordu.
  */
 function belgeHatasi(res: Response, err: any) {
+  if (err instanceof DocumentVisualError) return res.status(err.status).json({ success: false, message: err.message });
   // 2026-09-29 — GELEN BELGE ALAN HATASI KENDİ DURUM KODUNU TAŞIR.
   //
   // ⚠️ NEDEN: Bu akışta "bu belge zaten içeri alınmış" (409) ile "isteğin
@@ -483,13 +497,8 @@ v1EDocumentsRouter.get(
  *
  * `[Görsel]` sekmesi: belgenin A4 görünümü.
  *
- * ⚠️ ŞABLON SEÇİMİ BİLİNÇLİDİR: Gelen belge TEDARİKÇİNİN belgesidir. Onu bizim
- * giden-fatura şablonumuzla (logo, IBAN, alt not) basmak, karşı firmanın
- * faturasına BİZİM banka hesabımızı koymak olurdu. Entegratör sözleşmesi
- * (`electronicDocumentProvider.ts`) bir XSLT DÖNDÜRMÜYOR — yani "sağlayıcı
- * XSLT'si varsa onu kullan" kolu bugün için BOŞTUR ve uydurma şablonla
- * doldurulmaz. Bu yüzden görünüm doğrudan belgenin kendi alanlarından üretilir;
- * hiçbir değer hesaplanmaz.
+ * Belgenin kendi XML'inde gömülü XSLT varsa kullanılır. Yoksa nötr standart
+ * XSLT seçilir; alıcı firmanın logosu/IBAN'ı/tasarımı eklenmez.
  */
 v1EDocumentsRouter.get(
   '/incoming/:id/visual',
@@ -497,13 +506,8 @@ v1EDocumentsRouter.get(
   (req: Request, res: Response) => {
     const tenantId = req.tenantId!;
     try {
-      const { document } = IncomingInvoiceService.getDocumentDetail(String(req.params.id), tenantId);
-      res.json({
-        success: true,
-        // `renderedBy: 'client'` → istemci bu HTML'i sandbox'lı iframe'de gösterir.
-        renderedBy: 'client',
-        html: renderIncomingDocumentHtml(document),
-      });
+      const { xml } = IncomingInvoiceService.getDocumentXml(String(req.params.id), tenantId);
+      res.json(prepareDocumentVisual(xml, 'EFATURA', tenantId, true));
     } catch (err: any) {
       return belgeHatasi(res, err);
     }
@@ -861,12 +865,8 @@ v1EDocumentsRouter.get(
   (req: Request, res: Response) => {
     const tenantId = req.tenantId!;
     try {
-      const { document } = IncomingDespatchService.getDocumentDetail(String(req.params.id), tenantId);
-      res.json({
-        success: true,
-        renderedBy: 'client',
-        html: renderIncomingDocumentHtml(document),
-      });
+      const { xml } = IncomingDespatchService.getDocumentXml(String(req.params.id), tenantId);
+      res.json(prepareDocumentVisual(xml, 'EIRSALIYE', tenantId, true));
     } catch (err: any) {
       return belgeHatasi(res, err);
     }

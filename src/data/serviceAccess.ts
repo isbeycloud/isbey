@@ -40,6 +40,8 @@ export function serviceAllowsView(menus: string[] | null | undefined, view: stri
 export function serviceAllowsPath(menus: string[] | null | undefined, path: string): boolean {
   if (menus == null) return true;
   const normalized = path.split('?')[0].replace(/^\/api\/(v1\/)?/, '');
+  if (/^e-documents\/erp-invoices\/[^/]+\/visual$/.test(normalized)) return menus.includes('faturalar');
+  if (/^e-documents\/erp-waybills\/[^/]+\/visual$/.test(normalized)) return menus.includes('irsaliye');
   if (/^(auth|e-services|users|roles|permissions|invitations|members|companies|tenants|settings|notifications|support|support-faz8|devices|activity-logs|audit|subscriptions|credits|payments|usage|checkout|billing|onboarding)(\/|$)/.test(normalized)) {
     if (normalized === 'e-services/invoice-history') return menus.includes('edonusum');
     return true;

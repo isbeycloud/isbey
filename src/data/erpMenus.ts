@@ -27,6 +27,8 @@ export function menuAllowsView(ids: string[] | null | undefined, view: string): 
 export function menuAllowsPath(ids: string[] | null | undefined, path: string): boolean {
   if (ids == null) return true;
   const normalized = path.split('?')[0].replace(/^\/api\/(v1\/)?/, '');
+  if (/^e-documents\/erp-invoices\/[^/]+\/visual$/.test(normalized)) return ids.includes('faturalar');
+  if (/^e-documents\/erp-waybills\/[^/]+\/visual$/.test(normalized)) return ids.includes('irsaliye');
   if (normalized === 'e-services/invoice-history') return ids.includes('edonusum');
   // Search/import/sync aggregate multiple ERP resources and must not bypass a restriction.
   if (/^(search|import|sync)(\/|$)/.test(normalized)) return ERP_MENUS.every(m => ids.includes(m.id));
