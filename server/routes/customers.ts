@@ -1,23 +1,24 @@
 import { Router } from 'express';
 import { storage } from '../db/storage';
 import { Customer } from '../db/schema';
-import { requireAuth, resolveTenant } from '../middleware/authGuards';
+import { requireAuth, resolveTenant, requirePermission, PERMISSIONS } from '../middleware/authGuards';
 
 export const customersRouter = Router();
 
 customersRouter.use(requireAuth);
 customersRouter.use(resolveTenant);
+customersRouter.use((req, res, next) => {
+  if (!req.tenantId) return res.status(403).json({ success: false, code: 'TENANT_REQUIRED', message: 'İşlem için firma seçimi zorunludur.' });
+  next();
+});
 
 // List all customers (Tenant Isolated)
-customersRouter.get('/', (req, res) => {
+customersRouter.get('/', requirePermission(PERMISSIONS.CUSTOMERS_VIEW), (req, res) => {
   const { type, search } = req.query;
   const db = storage.getState();
-  const tenantId = req.tenantId || 'tnt-isbey';
+  const tenantId = req.tenantId!;
   
-  // Sadece bu tenant'a ait veya varsayılan demo tenant müşterileri
-  let list = db.customers.filter(c => 
-    c.tenantId === tenantId || (!c.tenantId && tenantId === 'tnt-isbey')
-  );
+  let list = db.customers.filter(c => c.tenantId === tenantId);
 
   if (type && type !== 'ALL') {
     list = list.filter(c => c.type === type || c.type === 'BOTH');
@@ -37,11 +38,11 @@ customersRouter.get('/', (req, res) => {
 });
 
 // Get single customer (Tenant Isolated & IDOR Protected)
-customersRouter.get('/:id', (req, res) => {
+customersRouter.get('/:id', requirePermission(PERMISSIONS.CUSTOMERS_VIEW), (req, res) => {
   const db = storage.getState();
-  const tenantId = req.tenantId || 'tnt-isbey';
+  const tenantId = req.tenantId!;
   const customer = db.customers.find(c => 
-    c.id === req.params.id && (c.tenantId === tenantId || (!c.tenantId && tenantId === 'tnt-isbey'))
+    c.id === req.params.id && c.tenantId === tenantId
   );
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Cari kart bulunamadı.' });
@@ -50,15 +51,15 @@ customersRouter.get('/:id', (req, res) => {
 });
 
 // Get customer statement (Cari Ekstre)
-customersRouter.get('/:id/statement', (req, res) => {
+customersRouter.get('/:id/statement', requirePermission(PERMISSIONS.CUSTOMERS_VIEW), (req, res) => {
   const db = storage.getState();
-  const customer = db.customers.find(c => c.id === req.params.id);
+  const customer = db.customers.find(c => c.id === req.params.id && c.tenantId === req.tenantId);
   if (!customer) {
     return res.status(404).json({ success: false, message: 'Cari kart bulunamadı.' });
   }
 
   const transactions = db.currentTransactions
-    .filter(t => t.customerId === customer.id)
+    .filter(t => t.customerId === customer.id && (t.tenantId || t.companyId) === req.tenantId)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   let runningBalance = 0;
@@ -85,7 +86,7 @@ customersRouter.get('/:id/statement', (req, res) => {
 });
 
 // Create Customer
-customersRouter.post('/', async (req, res) => {
+customersRouter.post('/', requirePermission(PERMISSIONS.CUSTOMERS_CREATE), async (req, res) => {
   const { title, contactName, taxNumber, taxOffice, phone, email, address, city, district, iban, type, riskLimit, maturityDays, notes } = req.body;
 
   if (!title || !phone) {
@@ -99,7 +100,7 @@ customersRouter.post('/', async (req, res) => {
 
       const customer: Customer = {
         id: `cust-${Date.now()}`,
-        tenantId: req.tenantId || 'tnt-isbey',
+        tenantId: req.tenantId!,
         code,
         title,
         contactName: contactName || '',
@@ -144,13 +145,17 @@ customersRouter.post('/', async (req, res) => {
 });
 
 // Update Customer
-customersRouter.put('/:id', async (req, res) => {
+customersRouter.put('/:id', requirePermission(PERMISSIONS.CUSTOMERS_UPDATE), async (req, res) => {
   const { id } = req.params;
-  const updateData = req.body;
+  const fields = ['title', 'contactName', 'taxNumber', 'taxOffice', 'phone', 'email', 'address', 'city', 'district', 'iban', 'type', 'riskLimit', 'maturityDays', 'notes', 'active'];
+  const updateData = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(req.body, key)).map(key => [key, req.body[key]]));
+  if (!storage.getState().customers.some(c => c.id === id && c.tenantId === req.tenantId)) {
+    return res.status(404).json({ success: false, message: 'Cari kart bulunamadı.' });
+  }
 
   try {
     const updated = await storage.runTransaction(draft => {
-      const customer = draft.customers.find(c => c.id === id);
+      const customer = draft.customers.find(c => c.id === id && c.tenantId === req.tenantId);
       if (!customer) {
         throw new Error('Cari kart bulunamadı.');
       }

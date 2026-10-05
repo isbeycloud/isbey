@@ -205,7 +205,10 @@ export const requirePermission = (permissionCode: string) => {
  */
 export const resolveTenant = (req: Request, res: Response, next: NextFunction) => {
   const db = storage.getState();
-  const tenantId = req.tenantId || db.activeTenantId || 'tnt-isbey';
+  const tenantId = req.tenantId;
+  if (!tenantId) {
+    return res.status(403).json({ success: false, code: 'TENANT_REQUIRED', message: 'İşlem için doğrulanmış firma seçimi zorunludur.' });
+  }
   const tenant = (db.tenants || []).find(t => t.id === tenantId);
 
   if (!tenant) {
