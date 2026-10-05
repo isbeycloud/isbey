@@ -30,15 +30,23 @@ export function renderDocumentVisual(response: DocumentVisualResponse, options: 
     }
   });
   if (options.draftInvoice) {
-    const customer = document.querySelector<HTMLElement>('[data-document-party="customer"]') ||
-      document.querySelector<HTMLElement>('#customerPartyTable > tbody > tr > td');
-    if (customer) {
-      customer.style.position = 'relative';
+    let supplier = document.querySelector<HTMLElement>('[data-document-party="supplier"], #supplierPartyTable') ||
+      document.getElementById('company_logo')?.closest('td')?.querySelector<HTMLElement>('table');
+    if (supplier) {
+      if (supplier.tagName === 'TABLE') {
+        const wrapper = document.createElement('div');
+        wrapper.style.width = supplier.style.width || '100%';
+        supplier.before(wrapper);
+        wrapper.appendChild(supplier);
+        supplier = wrapper;
+      }
+      supplier.dataset.documentParty = 'supplier';
+      supplier.style.position = 'relative';
       const stamp = document.createElement('div');
       stamp.dataset.invoiceDraftStamp = 'true';
       stamp.textContent = 'TASLAKTIR';
       stamp.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-12deg);color:#dc2626;font:800 32px Arial,sans-serif;letter-spacing:2px;opacity:0.8;white-space:nowrap;pointer-events:none;z-index:2;print-color-adjust:exact;-webkit-print-color-adjust:exact';
-      customer.appendChild(stamp);
+      supplier.appendChild(stamp);
     }
   }
   const policy = document.createElement('meta');

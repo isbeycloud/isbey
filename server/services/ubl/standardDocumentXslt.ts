@@ -18,7 +18,7 @@ th{background:#f2f4f7}.totals{margin-left:auto;width:320px}.totals td:last-child
 <xsl:if test="/*/*[local-name()='ProfileID']"><p><xsl:value-of select="/*/*[local-name()='ProfileID']"/></p></xsl:if>
 </header><div class="parties">
 <xsl:for-each select="/*/*[local-name()='AccountingSupplierParty' or local-name()='DespatchSupplierParty' or local-name()='AccountingCustomerParty' or local-name()='DeliveryCustomerParty']">
-<section class="party"><xsl:if test="local-name()='AccountingCustomerParty'"><xsl:attribute name="data-document-party">customer</xsl:attribute></xsl:if><h2><xsl:choose><xsl:when test="local-name()='AccountingSupplierParty' or local-name()='DespatchSupplierParty'">Gönderici / Satıcı</xsl:when><xsl:otherwise>Alıcı</xsl:otherwise></xsl:choose></h2>
+<section class="party"><xsl:if test="local-name()='AccountingSupplierParty'"><xsl:attribute name="data-document-party">supplier</xsl:attribute></xsl:if><xsl:if test="local-name()='AccountingCustomerParty'"><xsl:attribute name="data-document-party">customer</xsl:attribute></xsl:if><h2><xsl:choose><xsl:when test="local-name()='AccountingSupplierParty' or local-name()='DespatchSupplierParty'">Gönderici / Satıcı</xsl:when><xsl:otherwise>Alıcı</xsl:otherwise></xsl:choose></h2>
 <strong><xsl:value-of select=".//*[local-name()='PartyName']/*[local-name()='Name'] | .//*[local-name()='PartyLegalEntity']/*[local-name()='RegistrationName']"/></strong>
 <p><xsl:value-of select=".//*[local-name()='PartyIdentification']/*[local-name()='ID']"/></p>
 <p><xsl:value-of select=".//*[local-name()='PostalAddress']/*[local-name()='StreetName']"/><xsl:text> </xsl:text><xsl:value-of select=".//*[local-name()='PostalAddress']/*[local-name()='CityName']"/></p>
