@@ -112,5 +112,6 @@ test('cari kart bağlantısı boş fatura kendi kayıtlı alıcısıyla görünt
   await expect(frame.locator('body')).toContainText('Kayıtlı Belge Alıcısı');
   await expect(frame.locator('body')).toContainText('SAT-XSLT-SNAPSHOT');
   await expect(page.getByText('ERP kaydından önizleme', { exact: true })).toBeVisible();
+  await expect(page.getByText('TEMELFATURA', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Yazdır', exact: true })).toBeEnabled();
 });

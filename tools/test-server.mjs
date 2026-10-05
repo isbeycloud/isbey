@@ -25,7 +25,9 @@ fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-p
   eInvoiceStatus: 'DRAFT', eInvoiceUUID: undefined });
 fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-recorded-customer',
   invoiceNo: 'SAT-XSLT-SNAPSHOT', customerId: null, customerTitle: 'Kayıtlı Belge Alıcısı',
-  hizliModel: { customer: { PartyName: 'Kayıtlı Belge Alıcısı', IdentificationID: '0000000000' } } });
+  invoiceProfile: undefined, invoiceCategory: undefined,
+  hizliModel: { invoiceheader: { ProfileID: 'TEMELFATURA', InvoiceTypeCode: 'SATIS', IssueTime: '13:33' },
+    customer: { PartyName: 'Kayıtlı Belge Alıcısı', IdentificationID: '0000000000' } } });
 fixture.users.find(user => user.username === 'admin').passwordHash = adminStoredHash;
 fs.writeFileSync(process.env.DATABASE_PATH, JSON.stringify(fixture));
 await import('../server/index.ts');

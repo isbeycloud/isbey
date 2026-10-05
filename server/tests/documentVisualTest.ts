@@ -38,7 +38,13 @@ storage.update(db => {
     currency: 'USD', invoiceProfile: 'TEMELFATURA', items: [{ ...db.invoices[0]?.items[0], productName: 'Ürün <A> & B', quantity: 0, unit: 'kg', unitPrice: 100, lineTotal: 0, vatAmount: 0, vatRate: 10 }] })) as any;
   db.waybills = [{ ...db.waybills[0], id: 'waybill', tenantId: T, type: 'SALES_DESPATCH', customerId: 'visual-customer', waybillNo: 'IRS-42', items: [{ productName: 'Sevk', quantity: 7, unit: 'kg' }] }] as any;
   db.invoices.push({ ...db.invoices[0], id: 'no-customer-card', customerId: null, customerTitle: 'Kayıtlı Alıcı',
-    hizliModel: { customer: { PartyName: 'Belge Alıcısı & Ortak', IdentificationID: '3333333333', StreetName: 'Kayıtlı Adres' } } } as any);
+    invoiceProfile: undefined, invoiceCategory: undefined, subTotal: 100, totalDiscount: 0, totalVat: 20, grandTotal: 120,
+    items: [{ ...db.invoices[0].items[0], lineTotal: 100, vatAmount: 20, vatRate: 20 }],
+    hizliModel: { invoiceheader: { ProfileID: 'TEMELFATURA', InvoiceTypeCode: 'SATIS', IssueTime: '13:33', PayableAmount: 120 },
+      supplier: { supplierParty: { PartyName: 'Kayıtlı Satıcı', IdentificationID: '1111111111', StreetName: 'Satıcı Adresi', Telephone: '03220000000', ElectronicMail: 'seller@example.invalid', WebsiteURI: 'https://example.invalid' } },
+      customer: { PartyName: 'Belge Alıcısı & Ortak', IdentificationID: '3333333333', StreetName: 'Kayıtlı Adres', Person_FirstName: 'Ad', Person_FamilyName: 'Soyad', CountryName: 'TÜRKİYE' } } } as any);
+  db.invoices.push({ ...db.invoices[0], id: 'mixed-tax', subTotal: 600, totalDiscount: 0, totalVat: 81, grandTotal: 681,
+    items: [1, 10, 20].map((vatRate, i) => ({ ...db.invoices[0].items[0], vatRate, lineTotal: (i + 1) * 100, vatAmount: [1, 20, 60][i] })) });
   db.invoices.push({ ...db.invoices[0], id: 'foreign-customer-link', customerId: 'foreign-customer', customerTitle: 'Kayıtlı Alıcı' });
   db.customers.push({ ...db.customers[0], id: 'foreign-customer', tenantId: 'tnt-other', title: 'FOREIGN SECRET', taxNumber: '4444444444' });
   db.incomingInvoices = [{ id: 'incoming', tenantId: T, uuid: 'incoming-uuid', xmlStoragePath: invPath },
@@ -74,6 +80,7 @@ try {
     ['/erp-invoices/sales/visual', 'company'], ['/erp-invoices/purchase/visual', 'standard'],
     ['/erp-invoices/archive/visual', 'embedded'], ['/erp-waybills/waybill/visual', 'standard'],
     ['/erp-invoices/no-customer-card/visual', 'company'], ['/erp-invoices/foreign-customer-link/visual', 'company'],
+    ['/erp-invoices/mixed-tax/visual', 'company'],
   ]) {
     const response = await fetch(base + url, { headers: { Authorization: `Bearer ${token}` } });
     const result = await response.json();
@@ -97,6 +104,19 @@ try {
       assert.ok(result.xml.includes('3333333333'));
       assert.ok(result.xml.includes('Kayıtlı Adres'));
       assert.equal(result.xmlSource, 'erp');
+      assert.equal(result.documentProfile, 'TEMELFATURA');
+      for (const value of ['<cbc:InvoiceTypeCode>SATIS</cbc:InvoiceTypeCode>', '<cbc:IssueTime>13:33</cbc:IssueTime>',
+        '<cbc:FirstName>Ad</cbc:FirstName>', '<cbc:FamilyName>Soyad</cbc:FamilyName>', 'Satıcı Adresi', '03220000000', 'seller@example.invalid', 'TÜRKİYE',
+        '<cbc:PayableAmount currencyID="USD">120</cbc:PayableAmount>', '<cbc:TaxTypeCode>0015</cbc:TaxTypeCode>']) assert.ok(result.xml.includes(value), value);
+      const total = findFirst(parseUblTree(result.xml).root, 'TaxTotal')!;
+      const subtotal = total.children.find(n => n.name === 'TaxSubtotal')!;
+      assert.equal(findFirst(subtotal, 'TaxableAmount')?.text, '100');
+      assert.equal(findFirst(subtotal, 'TaxAmount')?.text, '20');
+    }
+    if (url.includes('/mixed-tax/')) {
+      const total = findFirst(parseUblTree(result.xml).root, 'TaxTotal')!;
+      assert.deepEqual(total.children.filter(n => n.name === 'TaxSubtotal').map(n => [findFirst(n, 'Percent')?.text, findFirst(n, 'TaxableAmount')?.text, findFirst(n, 'TaxAmount')?.text]),
+        [['1', '100', '1'], ['10', '200', '20'], ['20', '300', '60']]);
     }
     if (url.includes('/foreign-customer-link/')) {
       assert.ok(result.xml.includes('Kayıtlı Alıcı'));
@@ -113,7 +133,7 @@ try {
   assert.equal((await fetch(base + '/erp-waybills/waybill/visual', { headers: { Authorization: `Bearer ${viewer}` } })).status, 403,
     'Fatura paketi irsaliye erişimi vermemeli.');
   assert.equal(JSON.stringify(storage.getState()), before, 'Görüntüleme DB/muhasebe verisini değiştirmemeli.');
-  console.warn('documentVisualTest: XSLT seçimi, 13 HTTP kontrolü, kayıtlı alıcı, paket/menü/rol izolasyonu, dış kaynak reddi ve salt okunur davranış PASS.');
+  console.warn('documentVisualTest: kayıtlı taraf/üst bilgi, KDV kırılımı, 14 HTTP kontrolü ve DB değişmezliği PASS.');
 } finally {
   await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
 }

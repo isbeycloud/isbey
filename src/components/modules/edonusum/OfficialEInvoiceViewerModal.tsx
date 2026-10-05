@@ -23,6 +23,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
   const [html, setHtml] = useState('');
   const [xml, setXml] = useState('');
   const [previewNote, setPreviewNote] = useState('');
+  const [documentProfile, setDocumentProfile] = useState('');
   const [previewError, setPreviewError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -33,6 +34,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
     setHtml('');
     setXml('');
     setPreviewNote('');
+    setDocumentProfile('');
     setPreviewError('');
     if (!isOpen || !invoiceId) return;
     let cancelled = false;
@@ -41,6 +43,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
       if (cancelled) return;
       const rendered = renderDocumentVisual(response);
       setXml(response.xml);
+      setDocumentProfile(response.documentProfile || '');
       setPreviewNote(response.xmlSource === 'erp' ? 'ERP kaydından önizleme' : '');
       setHtml(rendered);
     }).catch(err => {
@@ -208,7 +211,7 @@ export const OfficialEInvoiceViewerModal: React.FC<Props> = ({
                     border: '1px solid var(--border-color)',
                   }}
                 >
-                  {invoice.invoiceProfile || 'TICARIFATURA'}
+                  {documentProfile || invoice.invoiceProfile || 'Profil belirtilmemiş'}
                 </span>
               </div>
               <div style={{ fontSize: 'var(--fs-xs, 11px)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>

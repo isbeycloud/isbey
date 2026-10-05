@@ -57,7 +57,7 @@ export function prepareDocumentVisual(xml: string, type: DocumentType, tenantId:
   if (external || resourceXPath(xsltTree.root)) throw new DocumentVisualError('XSLT dış kaynak çağrısı içeriyor; belge görüntülenemedi.');
   const normalized = normalizeXsltForBrowser(xslt);
   return { success: true, renderedBy: 'client' as const, xml, xslt: normalized.content, templateSource,
-    adjustments: normalized.adjustments };
+    documentProfile: textOf(tree.root, 'ProfileID'), adjustments: normalized.adjustments };
 }
 
 const escapeXml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c =>
@@ -67,31 +67,62 @@ const tag = (name: string, value: unknown, attrs = '') => value === undefined ||
 const amount = (name: string, value: unknown, currency: string) =>
   tag(name, value, ` currencyID="${escapeXml(currency)}"`);
 
-type DocumentParty = Pick<Customer, 'title' | 'taxNumber' | 'address' | 'city' | 'district' | 'taxOffice'>;
+type DocumentParty = Pick<Customer, 'title' | 'taxNumber' | 'address' | 'city' | 'district' | 'taxOffice' | 'firstName' | 'lastName' | 'phone' | 'email' | 'website' | 'country' | 'postalCode'>;
+type SavedInvoiceModel = { invoiceheader?: Record<string, unknown>; customer?: Record<string, unknown>; supplier?: { supplierParty?: Record<string, unknown> } };
+const savedModel = (record: Invoice | Waybill) => (record as Invoice & { hizliModel?: SavedInvoiceModel }).hizliModel;
+const textValue = (value: unknown) => typeof value === 'string' ? value : undefined;
+const numericValue = (value: unknown) => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value)) ? Number(value) : undefined;
+function savedParty(p: Record<string, unknown> | undefined): Partial<DocumentParty> {
+  return Object.fromEntries(Object.entries({ title: textValue(p?.PartyName), taxNumber: textValue(p?.IdentificationID),
+    address: textValue(p?.StreetName), city: textValue(p?.CityName), district: textValue(p?.CitySubdivisionName), taxOffice: textValue(p?.TaxSchemeName),
+    firstName: textValue(p?.Person_FirstName), lastName: textValue(p?.Person_FamilyName), phone: textValue(p?.Telephone), email: textValue(p?.ElectronicMail),
+    website: textValue(p?.WebsiteURI), country: textValue(p?.CountryName), postalCode: textValue(p?.PostalZone) }).filter(([, v]) => v !== undefined));
+}
 
 /** Cari kart bağlantısı olmayan eski belgelerde yalnız belgenin kendi alıcı kaydı okunur. */
 function recordedCustomer(record: Invoice | Waybill): DocumentParty | null {
-  const model = (record as Invoice & { hizliModel?: { customer?: Record<string, unknown> } }).hizliModel?.customer;
-  const text = (value: unknown) => typeof value === 'string' ? value : undefined;
-  const title = text(model?.PartyName) || record.customerTitle;
+  const model = savedParty(savedModel(record)?.customer);
+  const title = model.title || record.customerTitle;
   if (!title) return null;
-  return { title, taxNumber: text(model?.IdentificationID) || ('recipientTaxNumber' in record ? record.recipientTaxNumber : undefined),
-    address: text(model?.StreetName), city: text(model?.CityName), district: text(model?.CitySubdivisionName), taxOffice: text(model?.TaxSchemeName) };
+  return { ...model, title, taxNumber: model.taxNumber || ('recipientTaxNumber' in record ? record.recipientTaxNumber : undefined) };
 }
 
-/** Yalnız kayıtlı alanları seri hale getirir; muhasebe hesaplaması/kimlik üretimi yapmaz. */
+/** Kayıtlı satır tutarlarını oranlarına göre toplar; KDV oranından vergi hesaplamaz. */
+function recordedTaxGroups(invoice: Invoice) {
+  const groups = new Map<number, { rate: number; base: number; tax: number }>();
+  let totalTax = 0;
+  for (const item of invoice.items) {
+    const rate = numericValue(item.vatRate), base = numericValue(item.lineTotal), tax = numericValue(item.vatAmount);
+    if (rate === undefined || base === undefined || tax === undefined) return [];
+    const group = groups.get(rate) || { rate, base: 0, tax: 0 };
+    group.base += Math.round(base * 100); group.tax += Math.round(tax * 100);
+    totalTax += Math.round(tax * 100); groups.set(rate, group);
+  }
+  // Eksik/tutarsız satır verisinden belge toplamı yerine yeni bir vergi tutarı türetilmez.
+  if (numericValue(invoice.totalVat) === undefined || totalTax !== Math.round(invoice.totalVat * 100)) return [];
+  return [...groups.values()].map(g => ({ ...g, base: g.base / 100, tax: g.tax / 100 }));
+}
+
+/** Kayıtlı belge alanlarını seri hale getirir; muhasebe verisi/kimlik üretimi yapmaz. */
 function erpPreviewXml(record: Invoice | Waybill, tenant: Tenant, customer: DocumentParty, kind: 'INVOICE' | 'DESPATCH') {
   const invoice = kind === 'INVOICE' ? record as Invoice : null;
   const waybill = kind === 'DESPATCH' ? record as Waybill : null;
   const incoming = invoice?.type === 'PURCHASE' || waybill?.type === 'PURCHASE_DESPATCH';
-  const currency = invoice?.currency || 'TRY';
+  const header = savedModel(record)?.invoiceheader;
+  const currency = invoice?.currency || textValue(header?.DocumentCurrencyCode) || 'TRY';
+  const savedSupplier = savedParty(savedModel(record)?.supplier?.supplierParty);
+  const companyParty = savedSupplier.taxNumber && savedSupplier.taxNumber === tenant.taxNumber ? { ...tenant, ...savedSupplier } : tenant;
+  const groups = invoice ? recordedTaxGroups(invoice) : [];
   const verifiedUuid = invoice && (incoming || ['SENT', 'DELIVERED', 'ACCEPTED'].includes(invoice.eInvoiceStatus || ''))
     ? invoice.eInvoiceUUID : undefined;
-  const party = (p: Tenant | DocumentParty, name: string) => `<cac:${name}><cac:Party>
+  const party = (p: DocumentParty & { name?: string }, name: string) => `<cac:${name}><cac:Party>
+    ${tag('cbc:WebsiteURI', p.website)}
     <cac:PartyIdentification>${tag('cbc:ID', p.taxNumber, ` schemeID="${p.taxNumber?.length === 11 ? 'TCKN' : 'VKN'}"`)}</cac:PartyIdentification>
     <cac:PartyName>${tag('cbc:Name', p.title || ('name' in p ? p.name : ''))}</cac:PartyName>
-    <cac:PostalAddress>${tag('cbc:StreetName', p.address)}${tag('cbc:CitySubdivisionName', p.district)}${tag('cbc:CityName', p.city)}</cac:PostalAddress>
+    <cac:PostalAddress>${tag('cbc:StreetName', p.address)}${tag('cbc:CitySubdivisionName', p.district)}${tag('cbc:CityName', p.city)}${tag('cbc:PostalZone', p.postalCode)}${p.country ? `<cac:Country>${tag('cbc:Name', p.country)}</cac:Country>` : ''}</cac:PostalAddress>
     <cac:PartyTaxScheme><cac:TaxScheme>${tag('cbc:Name', p.taxOffice)}</cac:TaxScheme></cac:PartyTaxScheme>
+    <cac:Contact>${tag('cbc:Telephone', p.phone)}${tag('cbc:ElectronicMail', p.email)}</cac:Contact>
+    ${p.firstName || p.lastName ? `<cac:Person>${tag('cbc:FirstName', p.firstName)}${tag('cbc:FamilyName', p.lastName)}</cac:Person>` : ''}
     </cac:Party></cac:${name}>`;
   const root = invoice ? 'Invoice' : 'DespatchAdvice';
   const supplier = invoice ? 'AccountingSupplierParty' : 'DespatchSupplierParty';
@@ -101,17 +132,18 @@ function erpPreviewXml(record: Invoice | Waybill, tenant: Tenant, customer: Docu
     ${invoice ? amount('cbc:LineExtensionAmount', item.lineTotal, currency) : ''}
     <cac:Item>${tag('cbc:Name', item.productName)}<cac:SellersItemIdentification>${tag('cbc:ID', item.productCode)}</cac:SellersItemIdentification></cac:Item>
     ${invoice ? `<cac:Price>${amount('cbc:PriceAmount', item.unitPrice, currency)}</cac:Price>
-    <cac:TaxTotal>${amount('cbc:TaxAmount', 'vatAmount' in item ? item.vatAmount : undefined, currency)}<cac:TaxSubtotal>${tag('cbc:Percent', item.vatRate)}</cac:TaxSubtotal></cac:TaxTotal>` : ''}
+    <cac:TaxTotal>${amount('cbc:TaxAmount', 'vatAmount' in item ? item.vatAmount : undefined, currency)}<cac:TaxSubtotal>${amount('cbc:TaxableAmount', item.lineTotal, currency)}${amount('cbc:TaxAmount', 'vatAmount' in item ? item.vatAmount : undefined, currency)}${tag('cbc:Percent', item.vatRate)}<cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal>` : ''}
     </cac:${invoice ? 'InvoiceLine' : 'DespatchLine'}>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
     <${root} xmlns="urn:oasis:names:specification:ubl:schema:xsd:${root}-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+    ${tag('cbc:UBLVersionID', '2.1')}${tag('cbc:CustomizationID', 'TR1.2')}
     ${tag('cbc:ID', invoice?.invoiceNo || waybill?.waybillNo)}${tag('cbc:UUID', verifiedUuid)}
-    ${tag('cbc:IssueDate', record.date)}${tag('cbc:ProfileID', invoice?.invoiceProfile || (waybill ? 'TEMELIRSALIYE' : undefined))}
-    ${tag('cbc:InvoiceTypeCode', invoice?.invoiceCategory)}${tag('cbc:DocumentCurrencyCode', invoice ? currency : undefined)}
+    ${tag('cbc:IssueDate', record.date)}${tag('cbc:IssueTime', textValue(header?.IssueTime))}${tag('cbc:ProfileID', invoice?.invoiceProfile || textValue(header?.ProfileID) || (waybill ? 'TEMELIRSALIYE' : undefined))}
+    ${tag('cbc:InvoiceTypeCode', invoice?.invoiceCategory || textValue(header?.InvoiceTypeCode))}${tag('cbc:DocumentCurrencyCode', invoice ? currency : undefined)}
     ${tag('cbc:Note', 'ERP kaydından oluşturulan önizleme; arşivlenmiş UBL belgesi değildir.')}${tag('cbc:Note', record.notes)}
-    ${party(incoming ? customer : tenant, supplier)}${party(incoming ? tenant : customer, buyer)}
-    ${invoice ? `<cac:TaxTotal>${amount('cbc:TaxAmount', invoice.totalVat, currency)}</cac:TaxTotal>
-    <cac:LegalMonetaryTotal>${amount('cbc:LineExtensionAmount', invoice.subTotal, currency)}${amount('cbc:AllowanceTotalAmount', invoice.totalDiscount, currency)}${amount('cbc:TaxInclusiveAmount', invoice.grandTotal, currency)}${amount('cbc:PayableAmount', invoice.grandTotal, currency)}</cac:LegalMonetaryTotal>` : ''}
+    ${party(incoming ? customer : companyParty, supplier)}${party(incoming ? companyParty : customer, buyer)}
+    ${invoice ? `<cac:TaxTotal>${amount('cbc:TaxAmount', invoice.totalVat, currency)}${groups.map(g => `<cac:TaxSubtotal>${amount('cbc:TaxableAmount', g.base, currency)}${amount('cbc:TaxAmount', g.tax, currency)}${tag('cbc:Percent', g.rate)}<cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal>`).join('')}</cac:TaxTotal>
+    <cac:LegalMonetaryTotal>${amount('cbc:LineExtensionAmount', invoice.subTotal, currency)}${amount('cbc:AllowanceTotalAmount', invoice.totalDiscount, currency)}${amount('cbc:TaxExclusiveAmount', numericValue(header?.TaxExclusiveAmount) ?? (groups.length ? groups.reduce((sum, g) => sum + Math.round(g.base * 100), 0) / 100 : undefined), currency)}${amount('cbc:TaxInclusiveAmount', invoice.grandTotal, currency)}${amount('cbc:ChargeTotalAmount', numericValue(header?.ChargeTotalAmount), currency)}${amount('cbc:PayableAmount', numericValue(header?.PayableAmount) ?? invoice.grandTotal, currency)}</cac:LegalMonetaryTotal>` : ''}
     ${lines}</${root}>`;
 }
 
@@ -124,7 +156,7 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
   const tenant = db.tenants.find(t => t.id === tenantId);
   const customer = db.customers.find(c => c.id === record.customerId && owned(c));
   const incoming = record.type === 'PURCHASE' || record.type === 'PURCHASE_DESPATCH';
-  const type = kind === 'DESPATCH' ? 'EIRSALIYE' : (record as Invoice).invoiceProfile === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA';
+  const type = kind === 'DESPATCH' ? 'EIRSALIYE' : ((record as Invoice).invoiceProfile || textValue(savedModel(record)?.invoiceheader?.ProfileID)) === 'EARSIVFATURA' ? 'EARSIV' : 'EFATURA';
   const archived = db.electronicDocuments?.find(d => d.tenantId === tenantId && d.documentType === kind && d.internalDocumentId === id && d.xmlStoragePath);
   let xml = archived?.xmlStoragePath ? DocumentStorageService.readXml(tenantId, archived.xmlStoragePath) : null;
   let xmlSource: 'archive' | 'erp' = archived ? 'archive' : 'erp';
@@ -139,7 +171,7 @@ export function getErpDocumentVisual(id: string, tenantId: string, kind: 'INVOIC
     }
   }
   if (!xml) {
-    const party = customer || recordedCustomer(record);
+    const party = customer ? { ...customer, ...savedParty(savedModel(record)?.customer) } : recordedCustomer(record);
     if (!tenant || !party) throw new DocumentVisualError('Belgenin firma veya kayıtlı alıcı bilgisi bulunamadı.');
     xml = erpPreviewXml(record, tenant, party, kind);
   }

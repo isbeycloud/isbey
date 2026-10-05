@@ -160,6 +160,7 @@ export interface PreviewResponse {
 }
 
 export interface DocumentVisualResponse extends PreviewResponse {
+  documentProfile?: string;
   xml: string;
   xslt: string;
   templateSource: 'embedded' | 'company' | 'standard';
