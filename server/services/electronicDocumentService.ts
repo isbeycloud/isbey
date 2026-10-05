@@ -7,7 +7,7 @@ import {
   Customer,
 } from '../db/schema';
 import { ElectronicDocumentQueue } from './electronicDocumentQueue';
-import { TaxpayerService } from './taxpayerService';
+import { resolveInvoiceRecipient } from './invoiceRecipientService';
 import { ProviderFactory } from './providers/providerFactory';
 import { CreditWalletService } from './creditWalletService';
 
@@ -75,6 +75,11 @@ export class ElectronicDocumentService {
     // düşülüyordu. Kullanıcıya açık hata döner.
     const { provider } = ProviderFactory.getProviderForTenant(tenantId);
 
+    const customer = (db.customers || []).find(c => c.id === invoice.customerId && c.tenantId === tenantId);
+    const receiverTaxNumber = customer?.taxNumber || invoice.recipientTaxNumber || (!invoice.customerId ? invoice.customerCode : '');
+    const recipient = await resolveInvoiceRecipient(receiverTaxNumber || '', tenantId, profile || invoice.invoiceProfile);
+    const finalProfile = recipient.profile;
+
     // Atomik Kontör Rezervasyonu (Yetersiz ise burada hata fırlatır).
     // Test sağlayıcısında rezerve EDİLMEZ: belge gerçekten gönderilmediği için
     // kontör hiç düşülmeyecek; rezerve etmek düşük bakiyeli test kiracısında
@@ -82,25 +87,6 @@ export class ElectronicDocumentService {
     const testProviderMi = provider.providerId.toUpperCase() === 'MOCK';
     if (!testProviderMi) {
       await CreditWalletService.reserveCredits(tenantId, 1, 'INVOICE', invoice.invoiceNo);
-    }
-
-    const customer = (db.customers || []).find(c => c.id === invoice.customerId);
-    const receiverTaxNumber = customer?.taxNumber || invoice.customerCode || '11111111111';
-
-    // Otomatik profil belirleme (Mükellef sorgusu)
-    // 2026-09-12: Sorgu başarısız olursa (ağ hatası / yapılandırma eksiği)
-    // "mükellef değil" SONUCU ÇIKARILMAZ; VKN hane sayısına dayalı dürüst bir
-    // tahmin uygulanır (10 hane → kurumlar/e-Fatura, 11 hane → şahıs/e-Arşiv).
-    // Önceleri sağlayıcı katmanı hatayı yutup "mükellef değil" döndürüyordu ve
-    // bu yanlış cevap 24 saatlik önbelleğe yazılıyordu.
-    let finalProfile = profile;
-    if (!finalProfile) {
-      try {
-        const tp = await TaxpayerService.checkTaxpayer(receiverTaxNumber, tenantId);
-        finalProfile = tp.isEInvoiceUser ? 'TEMELFATURA' : 'EARSIVFATURA';
-      } catch {
-        finalProfile = receiverTaxNumber.length === 10 ? 'TEMELFATURA' : 'EARSIVFATURA';
-      }
     }
 
     const uuid = invoice.eInvoiceUUID || crypto.randomUUID();
@@ -146,6 +132,7 @@ export class ElectronicDocumentService {
     db.electronicDocuments.push(newDoc);
 
     invoice.eInvoiceStatus = 'QUEUED';
+    invoice.invoiceProfile = finalProfile;
     invoice.eInvoiceUUID = uuid;
 
     storage.addAuditLog({

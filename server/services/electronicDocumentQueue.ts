@@ -185,6 +185,16 @@ export class ElectronicDocumentQueue {
     }
 
     try {
+      // Kuyrukta beklerken alıcının kaydı değişmiş olabilir; her gönderim denemesinde doğrula.
+      if (doc.documentType === 'INVOICE') {
+        const { resolveInvoiceRecipient } = await import('./invoiceRecipientService');
+        const recipient = await resolveInvoiceRecipient(doc.receiverIdentifier, doc.tenantId, doc.profile);
+        // Daha önce hazırlanmış XML eski profili taşıyabilir; doğrulanan profille yeniden üret.
+        if (doc.profile !== recipient.profile) doc.xmlStoragePath = undefined;
+        doc.profile = recipient.profile;
+        const invoice = db.invoices.find(i => i.id === doc.internalDocumentId && i.tenantId === doc.tenantId);
+        if (invoice) invoice.invoiceProfile = recipient.profile;
+      }
       // 1. XML Dosyası Varlığını ve Geçerliliğini Doğrula
       let xmlContent = '';
       if (doc.xmlStoragePath) {

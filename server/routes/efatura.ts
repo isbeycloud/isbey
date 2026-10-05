@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { HizliConnectService, tokenStore } from '../services/hizliConnectService';
 import { dispatchHizliInvoice } from '../services/hizliInvoiceDispatch';
+import { resolveInvoiceRecipient } from '../services/invoiceRecipientService';
 import { reconcileSendingInvoice } from '../services/hizliInvoiceReconcile';
 import { DocumentConversionService } from '../services/documentConversionService';
-import { requireAuth, requireRole } from '../middleware/authGuards';
+import { PERMISSIONS, requireAuth, requireRole, requirePermission, resolveTenant } from '../middleware/authGuards';
 import { getDataDirectory } from '../config/environment';
 
 const router = Router();
@@ -1985,7 +1986,7 @@ router.post('/hizli/import-xslt', async (req: Request, res: Response) => {
 // "GİB kuyruğuna alındı" diyordu. Bu yanıltıcı parametre kaldırıldı; uç artık
 // yalnız TASLAK kaydeder. Gönderim için ayrı uç (`/hizli/send-invoice` veya
 // `/batch-send`) kullanılmalıdır. Uydurma ETTN üretimi de kaldırıldı.
-router.post('/hizli/create-model-invoice', async (req: Request, res: Response) => {
+router.post('/hizli/create-model-invoice', resolveTenant, requirePermission(PERMISSIONS.INVOICES_CREATE), async (req: Request, res: Response) => {
   try {
     const { model, isDraft = true } = req.body;
     if (!model || !model.invoiceheader || !model.customer) {
@@ -1994,6 +1995,10 @@ router.post('/hizli/create-model-invoice', async (req: Request, res: Response) =
 
     const header = model.invoiceheader;
     const cust = model.customer;
+    if (!req.tenantId) return res.status(403).json({ success: false, message: 'Firma kimliği gereklidir.' });
+    const recipient = await resolveInvoiceRecipient(cust.IdentificationID, req.tenantId, header.ProfileID);
+    header.ProfileID = recipient.profile;
+    header.DestinationUrn = recipient.aliasPK || null;
     const lines = model.invoiceLines || [];
     const db = storage.getState();
 
@@ -2004,9 +2009,7 @@ router.post('/hizli/create-model-invoice', async (req: Request, res: Response) =
     const requestTenantId = req.tenantId;
 
     let matchedCustomer = db.customers.find(
-      c => (!requestTenantId || c.tenantId === requestTenantId) &&
-           ((cust.IdentificationID && c.taxNumber === cust.IdentificationID) ||
-            (c.title && c.title.toLowerCase() === cust.PartyName?.toLowerCase()))
+      c => c.tenantId === requestTenantId && c.taxNumber?.replace(/\D/g, '') === recipient.identifier
     );
 
     const invoiceDate = header.IssueDate && header.IssueDate.includes('.')
@@ -2070,6 +2073,8 @@ router.post('/hizli/create-model-invoice', async (req: Request, res: Response) =
       customerId: matchedCustomer ? matchedCustomer.id : null,
       customerTitle: cust.PartyName || `${cust.Person_FirstName || ''} ${cust.Person_FamilyName || ''}`.trim() || '',
       customerCode: cust.IdentificationID || '',
+      invoiceProfile: recipient.profile,
+      recipientTaxNumber: recipient.identifier,
       date: invoiceDate,
       maturityDate: invoiceDate,
       items: processedItems,

@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import axios from 'axios';
+import type { AddressInfo } from 'node:net';
+if (process.env.NODE_ENV !== 'test' || path.basename(process.env.DATABASE_PATH || '') !== 'invoiceRecipientContractTest.ts.json') throw new Error('İzole test veritabanı gereklidir.');
+process.env.JWT_SECRET ||= crypto.randomBytes(48).toString('hex');
+const { storage } = await import('../db/storage');
+const { ProviderFactory } = await import('../services/providers/providerFactory');
+const { HizliTeknolojiProvider } = await import('../services/providers/hizliTeknolojiProvider');
+const { HizliConnectService: H } = await import('../services/hizliConnectService');
+const { setTenantTokenForTest, invalidateTenant } = await import('../services/hizliTenantCredentialRegistry');
+const { decideInvoiceRecipient } = await import('../services/invoiceRecipientService');
+const { default: efatura } = await import('../routes/efatura');
+const { invoicesRouter } = await import('../routes/invoices');
+const { v1InvoicesRouter } = await import('../routes/v1/invoices');
+const { ElectronicDocumentService } = await import('../services/electronicDocumentService');
+const T = 'recipient-fixture';
+const settings = { tenantId: T, environment: 'TEST', senderIdentifier: '1111111111', senderAliasGB: 'urn:mail:sender@example.test', defaultInvoicePrefix: 'BTF' } as any;
+storage.update(db => {
+  db.tenants = [{ ...db.tenants[0], id: T, status: 'ACTIVE', isArchived: false, taxNumber: settings.senderIdentifier }];
+  db.users = [{ ...db.users[0], id: 'recipient-admin', role: 'SUPER_ADMIN', active: true }];
+  db.customers = [{ ...db.customers[0], id: 'recipient-customer', tenantId: T, taxNumber: '2222222222', title: 'Test Alıcı', balance: 0 }];
+  db.products = [{ ...db.products[0], id: 'recipient-product', tenantId: T, name: 'Ürün', currentStock: 100, vatRate: 20, salePrice: 100 }];
+  db.invoices = []; db.stockMovements = []; db.currentTransactions = []; db.accountTransactions = []; db.electronicDocuments = []; db.taxpayerCache = [];
+});
+const oldFactory = ProviderFactory.getProviderForTenant, oldGet = axios.get, oldPost = axios.post;
+let registered = true, failing = false, ambiguous = false, queries = 0, sends = 0, sent: any;
+axios.get = (async (url: string) => {
+  assert.match(url, /GetGibUserList/); queries++;
+  if (failing) return { data: { IsSucceeded: false, Message: 'Sorgu geçici olarak kullanılamıyor.' } };
+  const identifier = new URL(url).searchParams.get('Identifier');
+  const pk = url.includes('Type=PK');
+  const rows = registered ? [{ Identifier: identifier, Title: 'Test Alıcı', Alias: pk ? 'urn:mail:pk@example.test' : 'urn:mail:gb@example.test' }] : [];
+  if (ambiguous && pk) rows.push({ Identifier: identifier, Title: 'Test Alıcı', Alias: 'urn:mail:other@example.test' });
+  return { data: { IsSucceeded: true, gibUserLists: rows } };
+}) as typeof axios.get;
+axios.post = (async (_url: string, payload: any) => { sends++; sent = structuredClone(payload); return { data: [{ IsSucceeded: true }] }; }) as typeof axios.post;
+ProviderFactory.getProviderForTenant = ((tenantId: string) => { assert.equal(tenantId, T); return { provider: new HizliTeknolojiProvider(), settings }; }) as typeof oldFactory;
+setTenantTokenForTest(T, true, 'fixture-token');
+const app = express(); app.use(express.json()); app.use('/efatura', efatura); app.use('/invoices', invoicesRouter); app.use('/v1/invoices', v1InvoicesRouter);
+const server = app.listen(0, '127.0.0.1'); await new Promise<void>(r => server.once('listening', r));
+const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+const token = jwt.sign({ userId: 'recipient-admin', tenantId: T }, process.env.JWT_SECRET);
+const model = () => ({ invoiceheader: { ProfileID: 'EARSIVFATURA', Invoice_ID: 'BTF2026000000999', UUID: crypto.randomUUID(), IssueDate: '2026-10-05', LineExtensionAmount: 100, TaxInclusiveAmount: 120, PayableAmount: 120, DestinationUrn: 'urn:mail:old@example.test' },
+  customer: { IdentificationID: '2222222222', PartyName: 'Test Alıcı' }, supplier: { supplierParty: { IdentificationID: settings.senderIdentifier } }, invoiceLines: [{ Item_Name: 'Ürün', Quantity_Amount: 1, Price_Amount: 100 }] });
+const post = async (route: string, body: unknown) => { const r = await fetch(base + route, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+try {
+  assert.equal(decideInvoiceRecipient({ isEInvoiceUser: false }, 'TEMELFATURA').profile, 'EARSIVFATURA');
+  assert.throws(() => decideInvoiceRecipient({ isEInvoiceUser: null }), /doğrulanamadı/);
+  assert.throws(() => decideInvoiceRecipient({ isEInvoiceUser: true }), /posta kutusu/);
+  let r = await post('/efatura/hizli/create-model-invoice', { model: model() });
+  assert.equal(r.status, 200); assert.equal(r.body.invoice.invoiceProfile, 'TICARIFATURA'); assert.equal(r.body.invoice.hizliModel.invoiceheader.DestinationUrn, 'urn:mail:pk@example.test'); assert.equal(sends, 0);
+  registered = false;
+  const negative = model(); negative.invoiceheader.ProfileID = 'TEMELFATURA'; negative.customer.IdentificationID = '33333333333';
+  r = await post('/efatura/hizli/create-model-invoice', { model: negative });
+  assert.equal(r.body.invoice.invoiceProfile, 'EARSIVFATURA'); assert.equal(r.body.invoice.hizliModel.invoiceheader.DestinationUrn, null);
+  const inputs = { type: 'SALES', customerId: 'recipient-customer', invoiceProfile: 'TICARIFATURA', paymentType: 'OPEN_ACCOUNT', items: [{ productId: 'recipient-product', quantity: 1, unitPrice: 100, vatRate: 20 }] };
+  r = await post('/invoices', inputs); assert.equal(r.status, 200); assert.equal(r.body.invoice.invoiceProfile, 'EARSIVFATURA');
+  registered = true;
+  r = await post('/v1/invoices', { ...inputs, invoiceProfile: 'EARSIVFATURA', tenantId: 'other' }); assert.equal(r.status, 201); assert.equal(r.body.invoice.invoiceProfile, 'TICARIFATURA'); assert.equal(r.body.invoice.tenantId, T);
+  failing = true;
+  const before = JSON.stringify(storage.getState()), beforeQueries = queries;
+  for (const [route, body] of [['/efatura/hizli/create-model-invoice', { model: model() }], ['/invoices', inputs], ['/v1/invoices', inputs]] as const) {
+    r = await post(route, body); assert.equal(r.body.success, false); assert.equal(JSON.stringify(storage.getState()), before);
+  }
+  assert.ok(queries > beforeQueries, '24 saatlik önbellek kayıt/gönderim sorgusunu atlamamalı');
+  await assert.rejects(() => ElectronicDocumentService.queueInvoice({ tenantId: T, invoiceId: storage.getState().invoices[0].id, profile: 'TEMELFATURA', userId: 'recipient-admin' }));
+  assert.equal(JSON.stringify(storage.getState()), before, 'sorgu hatasında kuyruk, kontör, stok ve cari değişmemeli');
+  const invoice: any = { id: 'fixture', tenantId: T, status: 'DRAFT', hizliModel: model(), customerCode: '2222222222' };
+  let result = await H.sendInvoice(invoice, undefined, { taxNumber: settings.senderIdentifier }, { tenantSettings: settings }); assert.equal(result.success, false); assert.equal(sends, 0);
+  failing = false; registered = false;
+  result = await H.sendInvoice(invoice, undefined, { taxNumber: settings.senderIdentifier }, { tenantSettings: settings }); assert.equal(result.success, true); assert.equal(sent[0].AppType, 2); assert.equal(sent[0].InvoiceModel.invoiceheader.ProfileID, 'EARSIVFATURA'); assert.equal(sent[0].DestinationUrn, null);
+  registered = true;
+  result = await H.sendInvoice(invoice, undefined, { taxNumber: settings.senderIdentifier }, { tenantSettings: settings }); assert.equal(result.success, true); assert.equal(sent[0].AppType, 1); assert.equal(sent[0].DestinationUrn, 'urn:mail:pk@example.test');
+  ambiguous = true; const previousSends = sends;
+  result = await H.sendInvoice(invoice, undefined, { taxNumber: settings.senderIdentifier }, { tenantSettings: settings }); assert.equal(result.success, false); assert.equal(sends, previousSends);
+  assert.equal(invoice.hizliModel.invoiceheader.ProfileID, 'EARSIVFATURA', 'gönderim kopyası kayıtlı modeli değiştirmemeli');
+  console.warn('invoiceRecipientContractTest: taslak/ERP/gönderim profili, zorunlu canlı sorgu, PK, değişen mükellefiyet, tenant ve hata öncesi yan etki koruması PASS.');
+} finally { ProviderFactory.getProviderForTenant = oldFactory; axios.get = oldGet; axios.post = oldPost; invalidateTenant(T); await new Promise<void>(r => server.close(() => r())); }

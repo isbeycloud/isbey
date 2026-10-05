@@ -988,7 +988,9 @@ export class HizliConnectService {
         );
         const data = response.data;
         if (data?.IsSucceeded !== true || !Array.isArray(data.gibUserLists)) {
-          throw new Error('Sağlayıcı mükellef sorgusunu doğrulamadı.');
+          const error = new Error(data?.Message || 'Sağlayıcı mükellef sorgusunu doğrulamadı.');
+          if (/geçersiz token/i.test(data?.Message || '')) (error as any).status = 401;
+          throw error;
         }
         if (data.gibUserLists.some((u: any) => !u || u.Identifier !== cleanVkn ||
           typeof u.Alias !== 'string' || !u.Alias.startsWith('urn:mail:') || !u.Alias.slice(9).trim() ||
@@ -1035,6 +1037,7 @@ export class HizliConnectService {
         aliasPk: '',
         aliasGb: '',
         message: `GİB mükellef sorgusu başarısız: ${err?.response?.data?.Message || err.message}`,
+        error: err?.response?.status || err?.status,
       };
     }
   }
@@ -1822,8 +1825,17 @@ export class HizliConnectService {
       payload.invoiceheader.Prefix = prefix;
       payload.invoiceheader.SourceUrn = settings.senderAliasGB;
       const isTest = settings.environment !== 'PRODUCTION';
-      const { ensureTenantToken } = await import('./hizliTenantCredentialRegistry');
+      const { ensureTenantToken, invalidateTenantToken } = await import('./hizliTenantCredentialRegistry');
       const active = await ensureTenantToken(settings, isTest);
+      const taxpayer = await this.checkGibUser(payload.customer.IdentificationID, active.token, isTest);
+      if (!taxpayer.success) {
+        if (Number(taxpayer.error) === 401) invalidateTenantToken(settings.tenantId, isTest);
+        throw new Error(taxpayer.message || 'Alıcı mükellefiyet sorgusu başarısız; gönderim yapılmadı.');
+      }
+      const { decideInvoiceRecipient } = await import('./invoiceRecipientService');
+      const recipient = decideInvoiceRecipient({ isEInvoiceUser: taxpayer.isEInvoiceUser, aliasPK: taxpayer.aliasPk }, payload.invoiceheader.ProfileID);
+      payload.invoiceheader.ProfileID = recipient.profile;
+      payload.invoiceheader.DestinationUrn = recipient.aliasPK || null;
       const appType = payload.invoiceheader.ProfileID === 'EARSIVFATURA' ? 2 : 1;
 
       // ──────────────────────────────────────────────────────────────────
@@ -1872,7 +1884,7 @@ export class HizliConnectService {
         IsXml: false,
       }], active.token, isTest);
       // This is the UUID supplied in the accepted document, not a fabricated provider ID.
-      return { ...result, uuid: result.success ? payload.invoiceheader.UUID : undefined };
+      return { ...result, invoiceProfile: recipient.profile, recipientAliasPK: recipient.aliasPK, uuid: result.success ? payload.invoiceheader.UUID : undefined };
     } catch (err: any) {
       return { success: false, message: err.message, invoiceNumber: invoice?.invoiceNo, uuid: invoice?.eInvoiceUUID };
     }

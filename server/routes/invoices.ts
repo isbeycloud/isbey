@@ -3,6 +3,7 @@ import { storage } from '../db/storage';
 import { Invoice, InvoiceItem, StockMovement, CurrentTransaction, CashTransaction, BankTransaction } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
 import { DocumentConversionService } from '../services/documentConversionService';
+import { resolveInvoiceRecipient } from '../services/invoiceRecipientService';
 
 export const invoicesRouter = Router();
 
@@ -100,12 +101,16 @@ invoicesRouter.post('/', async (req, res) => {
   const isPurchase = invoiceType === 'PURCHASE';
 
   try {
+    const selectedCustomer = storage.getState().customers.find(c => c.id === customerId && c.tenantId === req.tenantId);
+    if (!selectedCustomer) throw new Error('Seçilen cari kart sistemde bulunamadı!');
+    const recipient = invoiceType === 'SALES' ? await resolveInvoiceRecipient(selectedCustomer.taxNumber || '', req.tenantId!, invoiceProfile) : undefined;
     const createdInvoice = await storage.runTransaction(draft => {
       // 1. Verify Customer
       const customer = draft.customers.find(c => c.id === customerId);
       if (!customer) {
         throw new Error('Seçilen cari kart sistemde bulunamadı!');
       }
+      if (recipient && customer.taxNumber?.replace(/\D/g, '') !== recipient.identifier) throw new Error('Alıcının vergi numarası değişti. Cariyi tekrar seçip sorgulayın.');
 
       // 2. Generate Invoice Document Number
       const seqType = isPurchase ? 'PURCHASE_INVOICE' : 'SALES_INVOICE';
@@ -275,14 +280,14 @@ invoicesRouter.post('/', async (req, res) => {
         warehouseId: warehouseId || 'wh-1',
         currency,
         exchangeRate: Number(exchangeRate) || 1,
-        invoiceProfile: invoiceProfile as any,
+        invoiceProfile: recipient?.profile || invoiceProfile as any,
         invoiceCategory: invoiceCategory as any,
         withholdingCode: withholdingCode || undefined,
         withholdingRate: numWithholdingRate > 0 ? numWithholdingRate : undefined,
         withholdingAmount: totalWithholding > 0 ? totalWithholding : undefined,
         exemptionCode: exemptionCode || undefined,
-        recipientTaxNumber: recipientTaxNumber || customer.taxNumber,
-        recipientAliasGB: recipientAliasGB || undefined,
+        recipientTaxNumber: recipient?.identifier || recipientTaxNumber || customer.taxNumber,
+        recipientAliasGB: recipient ? recipient.aliasGB : recipientAliasGB || undefined,
         notes: notes || '',
         items: processedItems,
         eInvoiceStatus: 'DRAFT',

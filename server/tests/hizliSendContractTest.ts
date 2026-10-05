@@ -23,6 +23,7 @@ axios.post = (async (_url: string, payload: any, config: any) => {
 // 2026-09-25: 'Otomatik' belge no artık sağlayıcının sırasından çözülür
 // (bkz. hizliInvoiceNumberContractTest.ts). Bu testte yalnız o uç taklit edilir.
 axios.get = (async (url: string) => {
+  if (url.includes('GetGibUserList')) return { data: { IsSucceeded: true, gibUserLists: [{ Identifier: '1234567890', Title: 'Fixture', Alias: url.includes('Type=PK') ? 'urn:mail:pk@example.test' : 'urn:mail:gb@example.test' }] } };
   assert.match(url, /GetLastInvoiceIdAndDate/);
   return { data: { IsSucceeded: true, NextDocumentId: 'BTF2026000000143', Message: 'Başarılı' } };
 }) as typeof axios.get;

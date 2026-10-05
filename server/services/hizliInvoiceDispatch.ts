@@ -23,6 +23,14 @@ export async function dispatchHizliInvoice(invoiceId: string, tenantId: string) 
   await storage.runTransaction(draft => {
     const invoice = draft.invoices.find(i => i.id === invoiceId && i.tenantId === tenantId);
     if (!invoice) throw new Error('Gönderim sonrası kayıt bulunamadı; sağlayıcı durumunu kontrol edin.');
+    if (result.invoiceProfile) {
+      invoice.invoiceProfile = result.invoiceProfile;
+      const model = (invoice as any).hizliModel;
+      if (model?.invoiceheader) {
+        model.invoiceheader.ProfileID = result.invoiceProfile;
+        model.invoiceheader.DestinationUrn = result.recipientAliasPK || null;
+      }
+    }
     if (result.success) invoice.eInvoiceStatus = 'SENT';
     else if (!result.requiresReconciliation) invoice.eInvoiceStatus = reserved.invoice.eInvoiceStatus;
     // An uncertain response remains SENDING and blocks retries until reconciled.

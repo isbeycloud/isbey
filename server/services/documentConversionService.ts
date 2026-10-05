@@ -38,6 +38,9 @@ export interface CreateInvoiceParams {
   sourceWaybillId?: string;
   userId: string;
   username?: string;
+  invoiceProfile?: Invoice['invoiceProfile'];
+  recipientTaxNumber?: string;
+  recipientAliasGB?: string;
 }
 
 export class DocumentConversionService {
@@ -220,6 +223,9 @@ export class DocumentConversionService {
       sourceOrderId,
       sourceWaybillId,
       currency: 'TRY',
+      invoiceProfile: params.invoiceProfile,
+      recipientTaxNumber: params.recipientTaxNumber,
+      recipientAliasGB: params.recipientAliasGB,
       userId,
       isDeleted: false,
       createdAt: now,

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { DocumentConversionService } from '../../services/documentConversionService';
+import { resolveInvoiceRecipient } from '../../services/invoiceRecipientService';
 
 export const v1InvoicesRouter = Router();
 
@@ -141,9 +142,13 @@ v1InvoicesRouter.post('/', requirePermission(PERMISSIONS.INVOICES_CREATE), async
   const user = req.user!;
 
   try {
+    const customer = storage.getState().customers.find(c => c.id === req.body.customerId && c.tenantId === tenantId);
+    if (!customer) throw new Error('Cari hesap bulunamadı.');
+    const recipient = (req.body.type || 'SALES') === 'SALES' ? await resolveInvoiceRecipient(customer.taxNumber || '', tenantId, req.body.invoiceProfile) : undefined;
     const invoice = await DocumentConversionService.createInvoice({
-      tenantId,
       ...req.body,
+      tenantId,
+      ...(recipient ? { invoiceProfile: recipient.profile, recipientTaxNumber: recipient.identifier, recipientAliasGB: recipient.aliasGB } : {}),
       userId: user.id,
       username: user.fullName || user.username,
     });

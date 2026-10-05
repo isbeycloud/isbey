@@ -70,6 +70,7 @@ function invoice(overrides: Record<string, any> = {}) {
 /** GetLastInvoiceIdAndDate yanıtını taklit eder (yalnız o uç için). */
 function sonBelgeYaniti(nextDocumentId: string | undefined, basarili = true) {
   axios.get = (async (url: string) => {
+    if (url.includes('GetGibUserList')) return { data: { IsSucceeded: true, gibUserLists: [{ Identifier: customer.taxNumber, Title: 'Fixture', Alias: url.includes('Type=PK') ? 'urn:mail:pk@example.test' : 'urn:mail:gb@example.test' }] } };
     getCalls.push(url);
     if (!url.includes('GetLastInvoiceIdAndDate')) throw new Error(`Beklenmeyen GET: ${url}`);
     if (basarili && nextDocumentId) {
@@ -118,6 +119,7 @@ try {
   // ---- 5) Sağlayıcı boş NextDocumentId dönerse de gönderim YAPILMAZ -------
   postCalls = [];
   axios.get = (async (url: string) => {
+    if (url.includes('GetGibUserList')) return { data: { IsSucceeded: true, gibUserLists: [{ Identifier: customer.taxNumber, Title: 'Fixture', Alias: url.includes('Type=PK') ? 'urn:mail:pk@example.test' : 'urn:mail:gb@example.test' }] } };
     getCalls.push(url);
     return { data: { IsSucceeded: true, NextDocumentId: '   ' } };
   }) as typeof axios.get;

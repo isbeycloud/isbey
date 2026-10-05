@@ -183,6 +183,7 @@ export class HizliTeknolojiProvider implements ElectronicDocumentProvider {
       const res = await HizliConnectService.checkGibUser(identifier, token, isTest);
       // checkGibUser gerçek dönüş alanları: isEInvoiceUser, aliasPk, aliasGb (FAZ 13: alias uydurulmaz)
       invalidateStaleTokenIfUnauthorized(res, settings, isTest);
+      if (!res.success) throw new ProviderTransportError(res.message || 'Alıcı mükellefiyet sorgusu başarısız.');
       if (res.success && res.isEInvoiceUser) {
         return {
           isEInvoiceUser: true,

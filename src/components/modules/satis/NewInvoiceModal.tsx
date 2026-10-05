@@ -56,6 +56,8 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
   const [currency, setCurrency] = useState<'TRY' | 'USD' | 'EUR' | 'GBP'>('TRY');
   const [exchangeRate, setExchangeRate] = useState<number>(1);
   const [isTaxpayerChecking, setIsTaxpayerChecking] = useState(false);
+  const [taxpayerError, setTaxpayerError] = useState('');
+  const [taxpayerRetry, setTaxpayerRetry] = useState(0);
   // 2026-09-12: Üç değerli mükellefiyet alanları için açık tip (isEInvoiceUser: boolean | null)
   const [taxpayerInfo, setTaxpayerInfo] = useState<{
     vkn: string;
@@ -88,24 +90,34 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
 
   // Handle Taxpayer Check when Customer changes
   useEffect(() => {
+    let active = true;
+    setTaxpayerInfo(null);
+    setTaxpayerError('');
+    setIsTaxpayerChecking(false);
     if (!selectedCustomer) {
       setTaxpayerInfo(null);
       return;
     }
-
+    if (invoiceType !== 'SALES') return;
     const vkn = (selectedCustomer.taxNumber || '').trim().replace(/\D/g, '');
     if (vkn.length === 10 || vkn.length === 11) {
-      checkTaxpayerStatus(vkn);
+      checkTaxpayerStatus(vkn, () => active);
     } else {
-      setTaxpayerInfo(null);
-      setInvoiceProfile('EARSIVFATURA');
+      setTaxpayerError('Alıcının 10 veya 11 haneli VKN/TCKN bilgisini tamamlayın.');
     }
-  }, [selectedCustomer]);
+    return () => { active = false; };
+  }, [selectedCustomer, invoiceType, taxpayerRetry]);
 
-  const checkTaxpayerStatus = async (vkn: string) => {
+  const checkTaxpayerStatus = async (vkn: string, active: () => boolean) => {
     setIsTaxpayerChecking(true);
     try {
-      const res = await api.checkTaxpayer(vkn);
+      const checked = await api.checkTaxpayerV1(vkn, true);
+      if (!active()) return;
+      if (!checked.success || typeof checked.taxpayer?.isEInvoiceUser !== 'boolean') throw new Error('Alıcı mükellefiyeti doğrulanamadı.');
+      const t = checked.taxpayer;
+      if (t.isEInvoiceUser && !t.aliasPK) throw new Error('Alıcının tekil e-Fatura posta kutusu doğrulanamadı.');
+      const res = { success: true, taxpayer: { vkn: t.identifier, title: t.title, isEInvoiceUser: t.isEInvoiceUser,
+        isEArchiveUser: null, aliases: [...(t.aliasPK ? [{ type: 'PK' as const, alias: t.aliasPK }] : []), ...(t.aliasGB ? [{ type: 'GB' as const, alias: t.aliasGB }] : [])] } };
       if (res.success && res.taxpayer) {
         setTaxpayerInfo(res.taxpayer);
         // 2026-09-12 (uydurma temizliği): `isEInvoiceUser` artık üç değerli —
@@ -118,17 +130,14 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         } else if (res.taxpayer.isEInvoiceUser === false) {
           setInvoiceProfile('EARSIVFATURA');
           showToast(`ℹ️ Müşteri e-Arşiv faturası kapsamındadır.`, 'info');
-        } else {
-          setInvoiceProfile('EARSIVFATURA');
-          showToast('ℹ️ Mükellefiyet durumu GİB\'den doğrulanamadı; e-Arşiv seçildi. Gerekirse elle değiştirin.', 'info');
         }
       } else if (res && (res as any).message) {
         showToast(`ℹ️ ${(res as any).message}`, 'info');
       }
     } catch (err) {
-      console.warn('Taxpayer check failed:', err);
+      if (active()) setTaxpayerError(err instanceof Error ? err.message : 'Alıcı sorgulanamadı.');
     } finally {
-      setIsTaxpayerChecking(false);
+      if (active()) setIsTaxpayerChecking(false);
     }
   };
 
@@ -157,7 +166,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, selectedCustomer, items, date, maturityDate, paymentType, notes, invoiceProfile, invoiceCategory, withholdingCode, withholdingRate, exemptionCode, currency, exchangeRate]);
+  }, [isOpen, selectedCustomer, items, date, maturityDate, paymentType, notes, invoiceProfile, invoiceCategory, withholdingCode, withholdingRate, exemptionCode, currency, exchangeRate, taxpayerInfo, taxpayerError, isTaxpayerChecking]);
 
   const resetForm = () => {
     setSelectedCustomer(null);
@@ -317,6 +326,10 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
   };
 
   const handleSaveInvoice = async () => {
+    if (invoiceType === 'SALES' && (isTaxpayerChecking || !taxpayerInfo || taxpayerError)) {
+      showToast(taxpayerError || 'Alıcının mükellefiyet sorgusunun tamamlanmasını bekleyin.', 'warning');
+      return;
+    }
     if (!selectedCustomer) {
       showToast('Lütfen Cari Seçim Penceresi üzerinden bir cari seçiniz.', 'warning');
       setIsCustomerSelectorOpen(true);
@@ -376,7 +389,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
               <button type="button" className="btn btn-secondary" onClick={onClose}>
                 İptal (ESC)
               </button>
-              <button type="button" className="btn btn-primary" onClick={handleSaveInvoice}>
+              <button type="button" className="btn btn-primary" disabled={invoiceType === 'SALES' && (isTaxpayerChecking || !taxpayerInfo || !!taxpayerError)} onClick={handleSaveInvoice}>
                 Faturayı Kaydet ve Muhasebeleştir (CTRL+ENTER)
               </button>
             </div>
@@ -384,6 +397,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {taxpayerError && <div role="alert" style={{ color: '#b91c1c' }}>{taxpayerError} <button type="button" className="btn btn-secondary" onClick={() => setTaxpayerRetry(n => n + 1)}>Tekrar sorgula</button></div>}
           
           {/* 1. CARİ VE E-DÖNÜŞÜM / SENARYO PANELİ */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '14px' }}>
@@ -517,9 +531,9 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
                   value={invoiceProfile}
                   onChange={e => setInvoiceProfile(e.target.value as any)}
                 >
-                  <option value="TICARIFATURA">Ticari Fatura (Kabul/Red)</option>
-                  <option value="TEMELFATURA">Temel Fatura (Doğrudan Kabul)</option>
-                  <option value="EARSIVFATURA">e-Arşiv Fatura (Bireysel/GİB)</option>
+                  <option value="TICARIFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Ticari Fatura (Kabul/Red)</option>
+                  <option value="TEMELFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Temel Fatura (Doğrudan Kabul)</option>
+                  <option value="EARSIVFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === true}>e-Arşiv Fatura (Bireysel/GİB)</option>
                   <option value="IHRACAT">İhracat Faturası (GÇB)</option>
                   <option value="KAMU">Kamu Faturası</option>
                   <option value="HAL">Hal Faturası</option>

@@ -74,6 +74,8 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
   const [activeTab, setActiveTab] = useState<TabKey>('ALICI');
   const [submitting, setSubmitting] = useState(false);
   const [fetchingRate, setFetchingRate] = useState(false);
+  const [recipientCheck, setRecipientCheck] = useState<{ identifier: string; registered?: boolean; error?: string; checking: boolean }>({ identifier: '', checking: false });
+  const [recipientRetry, setRecipientRetry] = useState(0);
 
   // Müşteri & Ürün Arama Havuzu
   const [existingCustomers, setExistingCustomers] = useState<any[]>([]);
@@ -178,6 +180,27 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
       },
     ],
   });
+
+  useEffect(() => {
+    let active = true;
+    const identifier = model.customer.IdentificationID;
+    setRecipientCheck({ identifier, checking: false });
+    if (!isOpen || !/^\d{10,11}$/.test(identifier)) return;
+    setRecipientCheck({ identifier, checking: true });
+    const timer = window.setTimeout(() => {
+      api.checkTaxpayerV1(identifier, true).then(res => {
+        if (!active) return;
+        if (!res.success || typeof res.taxpayer?.isEInvoiceUser !== 'boolean') throw new Error('Alıcı mükellefiyeti doğrulanamadı.');
+        const taxpayer = res.taxpayer;
+        if (taxpayer.isEInvoiceUser && !taxpayer.aliasPK) throw new Error('Alıcının tekil e-Fatura posta kutusu doğrulanamadı.');
+        setRecipientCheck({ identifier, registered: taxpayer.isEInvoiceUser, checking: false });
+        setModel(prev => prev.customer.IdentificationID !== identifier ? prev : ({ ...prev, invoiceheader: { ...prev.invoiceheader,
+          ProfileID: taxpayer.isEInvoiceUser ? (prev.invoiceheader.ProfileID === 'EARSIVFATURA' ? 'TICARIFATURA' : prev.invoiceheader.ProfileID) : 'EARSIVFATURA',
+          DestinationUrn: taxpayer.isEInvoiceUser ? taxpayer.aliasPK || null : null } }));
+      }).catch(err => { if (active) setRecipientCheck({ identifier, checking: false, error: err.message || 'Alıcı sorgulanamadı.' }); });
+    }, 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [isOpen, model.customer.IdentificationID, recipientRetry]);
 
   // Başlangıç verilerini yükle
   useEffect(() => {
@@ -425,6 +448,11 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
   //   2) Yalnız gönderim istenmişse gerçek gönderim ucu çağrılır (send-invoice)
   //      ve GİB/entegratör reddederse fatura "gönderildi" SAYILMAZ.
   const handleSubmitInvoice = async (sendToGib: boolean) => {
+    if (recipientCheck.identifier !== model.customer.IdentificationID || typeof recipientCheck.registered !== 'boolean' || recipientCheck.checking || recipientCheck.error) {
+      toast(recipientCheck.error || 'Önce alıcının VKN/TCKN bilgisini girip mükellefiyet sorgusunun tamamlanmasını bekleyin.', 'error');
+      setActiveTab('ALICI');
+      return;
+    }
     if (!/^[A-Z][A-Z0-9]{2}$/.test(model.invoiceheader.Prefix || '')) {
       toast('Üç karakterli fatura serisini giriniz.', 'error');
       return;
@@ -611,9 +639,9 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
                   }
                   className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 >
-                  <option value="TICARIFATURA">TİCARİ FATURA</option>
-                  <option value="TEMELFATURA">TEMEL FATURA</option>
-                  <option value="EARSIVFATURA">e-ARŞİV FATURA</option>
+                  <option value="TICARIFATURA" disabled={recipientCheck.registered === false}>TİCARİ FATURA</option>
+                  <option value="TEMELFATURA" disabled={recipientCheck.registered === false}>TEMEL FATURA</option>
+                  <option value="EARSIVFATURA" disabled={recipientCheck.registered === true}>e-ARŞİV FATURA</option>
                   <option value="IHRACAT">İHRACAT FATURASI</option>
                   <option value="KAMU">KAMU FATURASI</option>
                   <option value="SGK">SGK FATURASI</option>
@@ -908,6 +936,9 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
                           VKN / TCKN *
                         </label>
+                        {recipientCheck.checking && <p role="status" className="text-xs text-indigo-600">Alıcının e-Fatura kaydı sorgulanıyor…</p>}
+                        {typeof recipientCheck.registered === 'boolean' && <p role="status" className="text-xs text-emerald-700">{recipientCheck.registered ? 'Alıcı e-Fatura mükellefi — e-Fatura hazırlanacak.' : 'Alıcı e-Fatura mükellefi değil — e-Arşiv hazırlanacak.'}</p>}
+                        {recipientCheck.error && <div role="alert" className="text-xs text-red-600">{recipientCheck.error} <button type="button" onClick={() => setRecipientRetry(n => n + 1)}>Tekrar sorgula</button></div>}
                         <input
                           type="text"
                           maxLength={11}
