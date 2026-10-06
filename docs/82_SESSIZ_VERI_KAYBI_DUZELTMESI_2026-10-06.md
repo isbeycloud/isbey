@@ -8,9 +8,10 @@
 
 ## 1. Ne bulundu
 
-`DocumentConversionService`'in beş metodu, **transaction DIŞINDAN** çağrıldığında
-sessiz veri kaybı üretiyordu: API `{ success: true }` dönüyor, ama fatura /
-irsaliye / stok hareketi / cari hareket **diske hiç yazılmıyordu**.
+`DocumentConversionService`'in **dört** public metodu, **transaction DIŞINDAN**
+çağrıldığında sessiz veri kaybı üretiyordu: API `{ success: true }` dönüyor, ama
+fatura / irsaliye / stok hareketi / cari hareket **diske hiç yazılmıyordu**.
+(Dört metot beş canlı ucu besler — `createInvoice` iki uçtan çağrılır.)
 
 ### Kök neden
 
@@ -49,11 +50,20 @@ siparis durumu    : PENDING           (SHIPPED olmaliydi)
 | 4 | `convertWaybillToInvoice` | `POST /api/v1/waybills/:id/convert-to-invoice` | `v1/waybills.ts:199` |
 | 5 | `convertQuoteToOrder` | `POST /api/v1/quotes/:id/convert-to-order` | `v1/quotes.ts:159` |
 
-**Ön yüz hangi uçları kullanıyor?** `src/services/api.ts`:
-`createInvoice` → `/api/invoices` (**etkilenen** #2 çekirdeği),
-`convertWaybillToInvoice` → `/api/waybills/:id/convert-to-invoice` (**etkilenen** #4).
-`convertOrderToWaybill` ve `convertQuoteToOrder` ise `/api/quotes/...` (legacy,
-`runTransaction`'lı) uçlarını kullanır → ön yüzde etkilenmez.
+### ⚠️ DÜZELTME (Codex karşı-doğrulaması, 2026-10-06) — ön yüz iddiası geri alındı
+
+Bu raporun ilk sürümü "normal ön yüz `/api/invoices` ve
+`/api/waybills/:id/convert-to-invoice` çağırıyor, ikisi de etkilendi" diyordu.
+**Bu yanlıştı.** `src/services/api.ts:362,444` talepleri `/api/...` altına gider
+(`API_BASE = '/api'`); bu yollar **legacy** router'lara mount edilir
+(`server/index.ts:183,185`), `DocumentConversionService`'e değil:
+
+- `server/routes/invoices.ts:107` — kendi `runTransaction`'ı içinde fatura üretir,
+  servisi **yalnız `cancelInvoice` için** import eder (`:567`).
+- `server/routes/waybills.ts:75` — kendi `runTransaction`'ı içinde dönüştürür.
+
+İkisi de `currentTransactions`'a doğrudan yazar. Yani **kanıtlanan kusur v1 servis
+uçlarına aittir; legacy ön yüz yolları etkilenmez.**
 
 ### ETKİLENMEYEN yollar (yanlış yeri düzeltmemek için)
 
@@ -128,7 +138,48 @@ yol hiç ölçülmüyordu (sahte yeşil).
 
 ---
 
-## 5. Sınır
+## 5. AYRICA DOĞRULANAN EKSİK: `createInvoice` cari bakiyeyi sürdürmüyor
+
+2026-10-06, Codex karşı-doğrulaması + bağımsız yeniden ölçüm.
+
+`createInvoiceCore` cari hareketi `accountTransactions`'a yazar
+(`documentConversionService.ts:264`) ve `customer.balance`'ı kendisi artırır
+(`:268-274`). Ama `runTransaction` commit'inde `storage.recalculateBalances`
+müşteri bakiyesini **yalnız `currentTransactions`'tan** yeniden türetir
+(`storage.ts:1649-1663`). `createInvoice` bu deftere hiç yazmadığı için artırılan
+bakiye **sıfırlanır**.
+
+Bağımsız ölçüm (izole fixture, 30 TL + %20 KDV = 36 TL açık satış faturası):
+
+```json
+{
+  "invoiceCount": 1,
+  "invoiceGrand": 36,
+  "accountTransactionDebit": 36,
+  "currentTransactionCount": 0,
+  "persistedCustomerBalance": 0,
+  "persistedCustomerDebit": 0
+}
+```
+
+Fatura kaydediliyor, cari bakiye **0 TL** kalıyor. Bu, dosyadaki kendi yorumlarının
+da belgelediği bilinen bir tutarsızlıktır (`incomingInvoiceService.ts:873-879`:
+*"`createInvoice` cari hareketi `accountTransactions`'a yazar; fakat bakiyeyi
+sürdüren defter `accountTransactions` DEĞİL, `currentTransactions`'tır"*). Gelen
+belge akışı bu yüzden `createInvoice`'a **ek olarak** `currentTransactions`'a da
+yazar (`:881-900`); legacy `invoices.ts` ve `waybills.ts` de öyle.
+
+**Erişilebilirlik:** `POST /api/v1/invoices` (`v1/invoices.ts:148`) ve
+`POST /api/v1/waybills` üzerinden **canlı**. Ön yüz legacy `/api/invoices`
+kullandığı için kullanıcı akışında görünmez; ama veri seviyesinde gerçektir.
+
+**Bu düzeltmenin kapsamına ALINMADI.** Cari/muhasebe mantığına dokunur; ayrı ve
+onaylı bir iş olarak ele alınmalıdır (her iki deftere de yazmak ya da yetkili
+defteri `currentTransactions` olarak tekilleştirmek).
+
+---
+
+## 6. Sınır
 
 - Testler **canlıya çıkmadı**; push ayrı onay konusu.
 - `phase19DocumentLifecycleTest`, `.env`'deki canlı Hızlı Bilişim URL'i
