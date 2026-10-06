@@ -35,7 +35,7 @@ productsRouter.get('/', (req, res) => {
     list = list.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.code.toLowerCase().includes(q) ||
-      p.barcode.includes(q)
+      (p.barcode ?? '').includes(q)
     );
   }
 
@@ -138,7 +138,7 @@ productsRouter.post('/', async (req, res) => {
           productId: product.id,
           productCode: product.code,
           productName: product.name,
-          warehouseId: product.warehouseId,
+          warehouseId: product.warehouseId ?? 'wh-1',
           warehouseName: product.warehouseName,
           documentNo: `DEV-${new Date().getFullYear()}-001`,
           documentType: 'ADJUSTMENT',

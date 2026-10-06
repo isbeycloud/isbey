@@ -365,9 +365,7 @@ documentTemplatesRouter.put('/:id', requireAuth, async (req: Request, res: Respo
       createdAt: new Date().toISOString(),
     };
 
-    let updatedTemplate: DocumentTemplate | null = null;
-
-    await storage.runTransaction(draft => {
+    const updatedTemplate = await storage.runTransaction(draft => {
       const target = draft.documentTemplates?.find(t => t.id === req.params.id);
       if (target) {
         if (name) target.name = name.trim();
@@ -389,11 +387,11 @@ documentTemplatesRouter.put('/:id', requireAuth, async (req: Request, res: Respo
           }
           target.isDefault = isDefault;
         }
-        updatedTemplate = { ...target };
       }
 
       if (!draft.documentTemplateVersions) draft.documentTemplateVersions = [];
       draft.documentTemplateVersions.push(newVersion);
+      return target ? { ...target } : null;
     });
 
     res.json({

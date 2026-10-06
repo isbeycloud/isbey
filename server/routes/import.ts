@@ -115,7 +115,7 @@ router.post('/products', async (req: Request, res: Response) => {
             productId: newProd.id,
             productCode: newProd.code,
             productName: newProd.name,
-            warehouseId: newProd.warehouseId,
+            warehouseId: newProd.warehouseId ?? defaultWh,
             documentNo: 'DEVIR-ILK-STOK',
             documentType: 'ADJUSTMENT',
             movementType: 'COUNT_ADJUSTMENT',

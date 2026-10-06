@@ -9,6 +9,7 @@ const suites = [
   'hizliDocumentFileContractTest.ts',
   'invoiceRecipientContractTest.ts',
   'customerSearchTest.ts',
+  'optionalFieldsContractTest.ts',
   'hizliSendContractTest.ts',
   'hizliReconcileContractTest.ts',
   'hizliSendingLockTest.ts',

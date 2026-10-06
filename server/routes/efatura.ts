@@ -1606,7 +1606,7 @@ router.post('/hizli/send-invoice', requireRole('SUPER_ADMIN', 'platform_admin'),
       // Gönderim GERÇEKLEŞTİĞİ (result.success === true) için alanlar burada
       // gerçek yanıttan doldurulur — uydurma değer yazılmaz.
       inv.eInvoiceStatus = 'SENT';
-      inv.eInvoiceUUID = sentUuid || inv.eInvoiceUUID || null;
+      inv.eInvoiceUUID = sentUuid || inv.eInvoiceUUID || undefined;
       inv.notes = `${inv.notes || ''} [e-Connect GİB No: ${sentInvoiceNumber || 'YOK'} | ETTN: ${sentUuid || 'YOK'}]`;
       invoiceUpdated = true;
     });

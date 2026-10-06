@@ -244,6 +244,9 @@ router.post('/orders/:id/convert-to-waybill', async (req: Request, res: Response
       const waybillItems: WaybillItem[] = [];
       let hasAnyQty = false;
       for (const oi of order.items) {
+        if (oi.remainingQuantity === undefined || oi.orderedQuantity === undefined) {
+          throw new Error('Siparis sevk miktarlari tanimli degil: ' + oi.productName);
+        }
         const shipQty = shipQuantities[oi.id || oi.productId] ?? oi.remainingQuantity;
         if (shipQty <= 0) continue;
         if (shipQty > oi.remainingQuantity) throw new Error('Sevk miktari kalan miktardan fazla olamaz: ' + oi.productName);
@@ -267,7 +270,7 @@ router.post('/orders/:id/convert-to-waybill', async (req: Request, res: Response
       }
       // Update order status
       const allShipped = order.items.every(oi => oi.remainingQuantity === 0);
-      const someShipped = order.items.some(oi => oi.shippedQuantity > 0);
+      const someShipped = order.items.some(oi => (oi.shippedQuantity ?? 0) > 0);
       order.status = allShipped ? 'SHIPPED' : (someShipped ? 'PARTIALLY_SHIPPED' : order.status);
       order.updatedAt = new Date().toISOString();
       storage.addAuditLog({ userId: 'usr-1', username: 'admin', action: 'CREATE', module: 'IRSALIYE', documentNo: waybillNo, ipAddress: '127.0.0.1', details: order.orderNo + ' siparisi ' + waybillNo + ' irsaliyesine donusturuldu.' });

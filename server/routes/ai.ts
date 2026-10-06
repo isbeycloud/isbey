@@ -15,7 +15,8 @@ aiRouter.get('/insights', (req, res) => {
       let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
       let insight = '';
 
-      const limitUsage = cust.riskLimit > 0 ? (cust.balance / cust.riskLimit) * 100 : 50;
+      const riskLimit = cust.riskLimit ?? 0;
+      const limitUsage = riskLimit > 0 ? (cust.balance / riskLimit) * 100 : 50;
 
       if (cust.code === 'CAR-002') {
         riskScore = 88;

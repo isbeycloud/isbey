@@ -553,6 +553,11 @@ export class DocumentConversionService {
     const order = (db.orders || []).find(o => o.id === orderId && (!o.tenantId || o.tenantId === tenantId));
     if (!order) throw new Error('Sipariş bulunamadı.');
 
+    const shipmentItems = order.items.map(it => {
+      const quantity = it.remainingQuantity || it.orderedQuantity;
+      if (quantity === undefined) throw new Error('Sipariş sevk miktarı tanımlı değil: ' + it.productName);
+      return { item: it, quantity };
+    });
     const now = new Date().toISOString();
     const waybillNo = storage.getNextSequence('WAYBILL');
     const waybillId = `wb-${Date.now()}`;
@@ -572,12 +577,12 @@ export class DocumentConversionService {
       sourceOrderId: order.id,
       sourceOrderNo: order.orderNo,
       notes: `Siparişten sevk irsaliyesi oluşturuldu: ${order.orderNo}`,
-      items: order.items.map(it => ({
+      items: shipmentItems.map(({ item: it, quantity }) => ({
         id: `wbi-${Date.now()}-${it.productId}`,
         productId: it.productId,
         productCode: it.productCode,
         productName: it.productName,
-        quantity: it.remainingQuantity || it.orderedQuantity,
+        quantity,
         unit: it.unit,
         unitPrice: it.unitPrice,
         discount1: it.discount1,

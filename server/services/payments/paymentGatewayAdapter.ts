@@ -48,6 +48,14 @@ export class PaymentGatewayAdapter {
     const db = storage.getState();
     const tenant = (db.tenants || []).find(t => t.id === tenantId);
     if (!tenant) throw new Error('Şirket / Tenant bulunamadı.');
+    const creditPackage = orderType === 'CREDIT_PURCHASE' && creditPackageId
+      ? (db.creditPackages || []).find(p => p.id === creditPackageId)
+      : undefined;
+    const creditToAdd = (() => {
+      const credits = creditPackage ? creditPackage.creditAmount : 100;
+      if (credits === undefined) throw new Error('Kontör paketinin miktarı tanımlı değil.');
+      return credits;
+    })();
 
     const cleanCard = (cardNumber || '').replace(/[^0-9]/g, '');
     const cardLast4 = cleanCard.slice(-4) || '1234';
@@ -145,8 +153,7 @@ export class PaymentGatewayAdapter {
 
     // 2. Kontör Satın Alma İşlemi
     if (orderType === 'CREDIT_PURCHASE' && creditPackageId) {
-      const pkg = (db.creditPackages || []).find(p => p.id === creditPackageId);
-      const creditToAdd = pkg ? pkg.creditAmount : 100;
+      const pkg = creditPackage;
       const prevCredits = tenant.eInvoiceCredits || 0;
       tenant.eInvoiceCredits = prevCredits + creditToAdd;
       tenant.updatedAt = now;

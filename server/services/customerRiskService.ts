@@ -26,11 +26,12 @@ export class CustomerRiskService {
       let maxOverdueDays = 0;
 
       for (const tx of custTxs) {
-        if (tx.debt > 0 && tx.dueDate) {
+        const debt = tx.debt ?? 0;
+        if (debt > 0 && tx.dueDate) {
           const dueDate = new Date(tx.dueDate);
           if (dueDate < now) {
             const diffDays = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-            overdueDebt += tx.debt;
+            overdueDebt += debt;
             if (diffDays > maxOverdueDays) maxOverdueDays = diffDays;
           }
         }

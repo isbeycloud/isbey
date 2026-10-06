@@ -133,7 +133,7 @@ export class HizliBilisimSyncService {
       }
       // Yalnız gerçekten farklı alanlar yazılır — "her turda güncellendi"
       // demek operatörü yanıltırdı.
-      const alanlar: (keyof ExternalCustomer)[] = [
+      const alanlar: (keyof ExternalCustomer & keyof RemoteHizliCustomer)[] = [
         'companyName', 'title', 'taxOffice', 'contactName', 'phone', 'email', 'address', 'city', 'district',
       ];
       for (const alan of alanlar) {

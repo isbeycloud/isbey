@@ -16,10 +16,13 @@ import { MonitoringService } from '../services/monitoringService';
 export const authRouter = Router();
 
 // FAZ 9: Fallback JWT secret YASAK — secret yoksa uygulama açıkça hata verir (CLAUDE.md kuralı)
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET ortam değişkeni tanımlı değil. .env dosyasına JWT_SECRET ekleyin.');
-}
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET ortam değişkeni tanımlı değil. .env dosyasına JWT_SECRET ekleyin.');
+  }
+  return secret;
+})();
 const JWT_EXPIRES_IN = '7d';
 
 /**

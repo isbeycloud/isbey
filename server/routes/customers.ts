@@ -80,7 +80,7 @@ customersRouter.get('/:id/statement', requirePermission(PERMISSIONS.CUSTOMERS_VI
       totalCredit: customer.totalCredit,
       currentBalance: customer.balance,
       riskLimit: customer.riskLimit,
-      availableLimit: Math.max(0, customer.riskLimit - customer.balance),
+      availableLimit: Math.max(0, (customer.riskLimit ?? 0) - customer.balance),
     },
   });
 });

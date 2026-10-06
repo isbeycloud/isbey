@@ -125,7 +125,8 @@ export class StockService {
     db.products.push(newProduct);
 
     // Ek barkodları kaydet
-    const allBarcodes = Array.from(new Set([newProduct.barcode, ...barcodes])).filter(Boolean);
+    const allBarcodes = Array.from(new Set([newProduct.barcode, ...barcodes]))
+      .filter((barcode): barcode is string => typeof barcode === 'string' && Boolean(barcode));
     if (!db.productBarcodes) db.productBarcodes = [];
     allBarcodes.forEach((b, idx) => {
       db.productBarcodes!.push({
