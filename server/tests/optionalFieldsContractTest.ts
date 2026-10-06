@@ -28,7 +28,20 @@ storage.update(db => {
   db.orders = [structuredClone(order)];
   db.currentTransactions = [{ ...db.currentTransactions[0], id: 'optional-tx', tenantId, customerId: order.customerId, debt: undefined, dueDate: '2020-01-01' }];
   db.creditPackages = [{ id: 'optional-package', name: 'Eksik miktar', quantity: 100, price: 10, vatRate: 20, totalPrice: 12, unitPrice: 0.1, status: 'ACTIVE', displayOrder: 1 }];
-  db.paymentOrders = []; db.creditTransactions = []; db.waybills = []; db.stockMovements = [];
+  db.paymentOrders = []; db.creditTransactions = []; db.waybills = [];
+  // 2026-10-06: Açılış stoğu MUTLAKA bir stok hareketiyle temsil edilmeli.
+  // `runTransaction` sonunda `recalculateBalances` ürün stoğunu yalnız stok
+  // hareketlerinden yeniden türetir (`inQty - outQty`). Bu hareket yokken stok
+  // 0'a düşüyordu. Önceden sevk yolu transaction DIŞINDA çalıştığı için
+  // `recalculateBalances` hiç koşmuyor ve eksik seed GÖRÜNMÜYORDU: servis "başarılı"
+  // der gibi yapıp hiçbir şey yazmıyordu ve test yeşil kalıyordu (sahte yeşil).
+  db.stockMovements = [{
+    id: 'optional-sm-base', tenantId, productId: item.productId, productCode: item.productCode,
+    productName: item.productName, warehouseId: 'wh-test', documentNo: 'ACILIS-OPT',
+    documentType: 'INVOICE' as const, documentId: 'optional-opening', movementType: 'PURCHASE' as const,
+    quantity: 10, direction: 'IN' as const, unitPrice: 10, totalAmount: 100, currency: 'TRY',
+    date: '2026-10-01', userId: 'optional-admin', createdBy: 'Sistem', createdAt: '2026-10-01T00:00:00.000Z',
+  }];
 });
 const app = express();
 app.use(express.json());
@@ -68,8 +81,12 @@ try {
   assert.equal(storage.getState().tenants[0].eInvoiceCredits, 125);
   assert.equal(storage.getState().creditTransactions![0].amount, 100);
   storage.update(db => { db.orders[0].items[0].orderedQuantity = 2; db.orders[0].items[0].remainingQuantity = 1; });
+  const stockBeforeShipment = storage.getState().products.find(p => p.id === item.productId)!.currentStock;
   const waybill = await DocumentConversionService.convertOrderToWaybill(order.id, tenantId, 'optional-admin');
   assert.equal(waybill.items[0].quantity, 1);
+  // Kalıcılık: servis stok'u GERÇEKTEN düşürmeli (eskiden sessizce kaybolurdu).
+  assert.equal(storage.getState().products.find(p => p.id === item.productId)!.currentStock, stockBeforeShipment - 1, 'Sevk stoğu düşmeli.');
+  assert.equal(storage.getState().orders[0].status, 'SHIPPED', 'Sipariş SHIPPED olmalı.');
   const validShipment = await fetch(`${base}/quotes/orders/${order.id}/convert-to-waybill`, { method: 'POST', headers, body: '{}' });
   assert.equal(validShipment.status, 200);
   assert.equal((await validShipment.json()).data.waybill.items[0].quantity, 1);

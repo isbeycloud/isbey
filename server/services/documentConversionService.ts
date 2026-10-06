@@ -49,6 +49,22 @@ export class DocumentConversionService {
    * Fatura + Otomatik Stok Hareketi + Cari Hareket + (Varsa) Tahsilat/Ödeme
    */
   static async createInvoice(params: CreateInvoiceParams): Promise<Invoice> {
+    // 2026-10-06 — KALICILIK DÜZELTMESİ (bkz. documentConversionPersistenceTest).
+    //
+    // Gövde veriyi `storage.getState()` ile okur. Transaction DIŞINDA bu çağrı
+    // `this.db`'nin CANLI referansını döndürür; `storage.getNextSequence()`
+    // içeride `update()` çağırır, `update()` derin klon üretip `this.db`'yi YENİ
+    // nesneyle değiştirir. O andan sonra metot başındaki referans BAYATLAR ve
+    // tüm yazımlar (fatura, stok hareketi, cari hareket) sessizce kaybolur —
+    // üstelik metot `newInvoice` döndürdüğü için API "başarılı" der.
+    //
+    // Çözüm: okuma+yazmayı TEK transaction draft'ı üzerinde yürütmek. Transaction
+    // içindeyken `getState()` zaten draft'ı döndürür ve `update()` erken çıkar;
+    // bayatlama oluşmaz.
+    return storage.runTransaction(() => DocumentConversionService.createInvoiceCore(params));
+  }
+
+  private static async createInvoiceCore(params: CreateInvoiceParams): Promise<Invoice> {
     const {
       tenantId,
       type = 'SALES',
@@ -317,7 +333,7 @@ export class DocumentConversionService {
       details: `${customer.title} adına ${grandTotal} TL tutarında ${type} faturası (${invoiceNo}) oluşturuldu.`,
     });
 
-    storage.save();
+    // `storage.save()` KALDIRILDI: commit `runTransaction` içinde yapılır.
     return newInvoice;
   }
 
@@ -474,6 +490,11 @@ export class DocumentConversionService {
    * 3. TEKLİFİ SİPARİŞE DÖNÜŞTÜRME
    */
   static async convertQuoteToOrder(quoteId: string, tenantId: string, userId: string, username: string = 'Sistem'): Promise<Order> {
+    // 2026-10-06 — KALICILIK: `getNextSequence` bayatlatmasına karşı transaction.
+    return storage.runTransaction(() => DocumentConversionService.convertQuoteToOrderCore(quoteId, tenantId, userId, username));
+  }
+
+  private static async convertQuoteToOrderCore(quoteId: string, tenantId: string, userId: string, username: string): Promise<Order> {
     const db = storage.getState();
     const quote = (db.quotes || []).find(q => q.id === quoteId && (!q.tenantId || q.tenantId === tenantId));
     if (!quote) throw new Error('Teklif bulunamadı.');
@@ -541,7 +562,6 @@ export class DocumentConversionService {
       details: `${quote.quoteNo} nolu teklif ${orderNo} nolu siparişe dönüştürüldü.`,
     });
 
-    storage.save();
     return newOrder;
   }
 
@@ -549,6 +569,11 @@ export class DocumentConversionService {
    * 4. SİPARİŞİ İRSALİYEYE DÖNÜŞTÜRME
    */
   static async convertOrderToWaybill(orderId: string, tenantId: string, userId: string, username: string = 'Sistem'): Promise<Waybill> {
+    // 2026-10-06 — KALICILIK (KANITLANMIŞ CANLI HATA): `getNextSequence` bayatlatması.
+    return storage.runTransaction(() => DocumentConversionService.convertOrderToWaybillCore(orderId, tenantId, userId, username));
+  }
+
+  private static async convertOrderToWaybillCore(orderId: string, tenantId: string, userId: string, username: string): Promise<Waybill> {
     const db = storage.getState();
     const order = (db.orders || []).find(o => o.id === orderId && (!o.tenantId || o.tenantId === tenantId));
     if (!order) throw new Error('Sipariş bulunamadı.');
@@ -645,7 +670,6 @@ export class DocumentConversionService {
       details: `${order.orderNo} nolu sipariş ${waybillNo} nolu irsaliyeye sevk edildi.`,
     });
 
-    storage.save();
     return newWaybill;
   }
 
@@ -653,6 +677,14 @@ export class DocumentConversionService {
    * 5. İRSALİYEYİ FATURAYA DÖNÜŞTÜRME
    */
   static async convertWaybillToInvoice(waybillId: string, tenantId: string, userId: string, username: string = 'Sistem'): Promise<Invoice> {
+    // 2026-10-06 — KALICILIK: `createInvoice` bir transaction açar; bu metot ise
+    // irsaliyeyi faturalandırıldı olarak işaretler. Ayrı transaction'lara
+    // bölünürse irsaliye "INVOICED" işaretlenip fatura yazılmadan kalabilirdi.
+    // Tek transaction'da atomik yapılır.
+    return storage.runTransaction(() => DocumentConversionService.convertWaybillToInvoiceCore(waybillId, tenantId, userId, username));
+  }
+
+  private static async convertWaybillToInvoiceCore(waybillId: string, tenantId: string, userId: string, username: string): Promise<Invoice> {
     const db = storage.getState();
     const waybill = (db.waybills || []).find(w => w.id === waybillId && (!w.tenantId || w.tenantId === tenantId));
     if (!waybill) throw new Error('İrsaliye bulunamadı.');
@@ -690,7 +722,6 @@ export class DocumentConversionService {
       details: `${waybill.waybillNo} nolu irsaliye ${invoice.invoiceNo} nolu faturaya dönüştürüldü.`,
     });
 
-    storage.save();
     return invoice;
   }
 }

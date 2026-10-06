@@ -10,6 +10,11 @@ const suites = [
   'invoiceRecipientContractTest.ts',
   'customerSearchTest.ts',
   'optionalFieldsContractTest.ts',
+  // 2026-10-06: CANLI SESSİZ VERİ KAYBI. `DocumentConversionService` metotları
+  // transaction DIŞINDAN çağrıldığında `getNextSequence` bayatlatmasına
+  // yakalanıyordu: fatura/irsaliye/stok hareketi diske yazılmıyor ama API
+  // "başarılı" diyordu. Bu dosya beş metodu da kalıcılık açısından ölçer.
+  'documentConversionPersistenceTest.ts',
   'hizliSendContractTest.ts',
   'hizliReconcileContractTest.ts',
   'hizliSendingLockTest.ts',
