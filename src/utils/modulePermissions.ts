@@ -24,6 +24,22 @@ const MEMBERSHIP_MODULE_RESOURCES: Record<string, string[]> = {
   'gelen-belgeler': ['e-documents', 'einvoice'],
 };
 
+/**
+ * SIDEBAR'DA GÖSTERİLMEYEN modüller (2026-10-07, kullanıcı talebi).
+ *
+ * `edonusum` ("e-Belge & GİB") yan menüden kaldırıldı. Modül **SİLİNMEDİ**:
+ *  - Ekran Faturalar → "e-Fatura & e-Arşiv Portalı" sekmesinden erişilebilir.
+ *  - `serviceAccess.ts` paket modülleri (EFATURA, EARSIV, EIRSALIYE, ESMM,
+ *    EDEFTER) `edonusum` menüsüne eşlenir; menü kimliği silinirse bu paketlere
+ *    sahip MEVCUT müşteriler e-fatura erişimini kaybederdi.
+ *  - `MODULE_ACCESS_MATRIX` satırı korunur → rota kapısı ve
+ *    `phase17RolePermissionIsolationTest` değişmez.
+ *
+ * Bu yüzden gizleme, sidebar'ın TEK çıkış noktası olan `getMembershipSidebar`
+ * içinde yapılır; rol listelerine dokunulmaz (tek karar noktası, tek geri alma).
+ */
+const SIDEBAR_HIDDEN_MODULES = new Set<string>(['edonusum']);
+
 export function canAccessMembershipModule(roles: string[], codes: string[] | undefined, moduleId: string): boolean {
   if (moduleId === 'hizmetler') return true;
   if (roles.some(role => canAccessModule(role, moduleId))) return true;
@@ -33,16 +49,20 @@ export function canAccessMembershipModule(roles: string[], codes: string[] | und
 }
 
 export function getMembershipSidebar(roles: string[], codes?: string[]): SidebarGroup[] {
+  const visible = (id: AppView) => !SIDEBAR_HIDDEN_MODULES.has(id);
   const groups = new Map<string, AppView[]>();
   const seen = new Set<AppView>();
   for (const role of roles) {
     for (const group of getSidebarModulesForRole(role)) {
-      const ids = group.moduleIds.filter(id => !seen.has(id) && canAccessMembershipModule(roles, codes, id));
+      const ids = group.moduleIds.filter(id => !seen.has(id) && visible(id) && canAccessMembershipModule(roles, codes, id));
       ids.forEach(id => seen.add(id));
       groups.set(group.groupLabel, [...(groups.get(group.groupLabel) || []), ...ids]);
     }
   }
-  const additional = ['dashboard', ...Object.keys(MEMBERSHIP_MODULE_RESOURCES)].filter(id => !seen.has(id as AppView) && canAccessMembershipModule(roles, codes, id)) as AppView[];
+  // ⚠️ TUZAK: Bu liste `MEMBERSHIP_MODULE_RESOURCES` anahtarlarını "FİRMA
+  // MODÜLLERİ" grubuna GERİ ekler. `visible()` burada da uygulanmazsa, az önce
+  // gizlenen `edonusum` menüsü alttan geri gelirdi (sessiz geri alma).
+  const additional = ['dashboard', ...Object.keys(MEMBERSHIP_MODULE_RESOURCES)].filter(id => !seen.has(id as AppView) && visible(id as AppView) && canAccessMembershipModule(roles, codes, id)) as AppView[];
   if (additional.length) groups.set('FİRMA MODÜLLERİ', additional);
   return [...groups].map(([groupLabel, moduleIds]) => ({ groupLabel, moduleIds })).filter(group => group.moduleIds.length);
 }
