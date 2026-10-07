@@ -4,7 +4,7 @@
 **Taban:** `c1e2d97`
 **Hazırlayan:** Claude
 **Kullanıcı kararları:** (1) Önce tasarım + görev listesi. (2) "Gelen" tarafında **iki kaynak ayrı** gösterilecek.
-**Durum:** Uygulandı (commit `1333087`). Bkz. §9 uygulama kaydı ve UI kanıtı.
+**Durum:** Uygulandı — yerelde `61e20bf` (3 commit: `1333087` ekran, `3a2c219` UI kanıtı, `61e20bf` tam paket ölçümü). **PUSH EDİLMEDİ**: bu oturumda GitHub yazma kimliği yok (`git push` → `could not read Username`), kalıcılaştırılmış token/credential helper bulunmuyor. Bkz. §9 uygulama kaydı ve UI kanıtı.
 
 ---
 
