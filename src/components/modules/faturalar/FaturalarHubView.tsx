@@ -4,20 +4,32 @@ import {
   ShoppingBag,
   Zap,
   Truck,
+  Search,
 } from 'lucide-react';
 import { InvoiceListView } from '../satis/InvoiceListView';
 import { PurchaseInvoiceView } from '../alis/PurchaseInvoiceView';
 import { EDonusumView } from '../edonusum/EDonusumView';
 import { WaybillListView } from '../irsaliye/WaybillListView';
+import { BelgeSorgulamaView } from '../sorgulama/BelgeSorgulamaView';
 
+/**
+ * Faturalar çalışma alanı.
+ *
+ * `sorgulama` sekmesi (docs/85) gelen/giden fatura ve irsaliyeleri TEK çubuktan
+ * tarih/unvan/VKN/belge-no ile arar. Sekme, hub'ın bir parçası olarak durur:
+ * ayrı bir AppView + sidebar girdisi eklemek MODULE_ACCESS_MATRIX, sidebar
+ * grupları ve `faz252d` hizalama testini gereksiz yere değiştirirdi — mevcut
+ * `faturalar` yetkisi zaten bu ekranı kapsıyor.
+ */
 export const FaturalarHubView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'satis' | 'alis' | 'efatura' | 'irsaliye'>('satis');
+  const [activeTab, setActiveTab] = useState<'satis' | 'alis' | 'efatura' | 'irsaliye' | 'sorgulama'>('satis');
 
   const tabs = [
     { id: 'satis', label: 'Satış Faturaları', icon: FileText, badge: 'Giden' },
     { id: 'alis', label: 'Alış Faturaları', icon: ShoppingBag, badge: 'Gelen' },
     { id: 'efatura', label: 'e-Fatura & e-Arşiv Portalı', icon: Zap, badge: 'GİB' },
     { id: 'irsaliye', label: 'e-İrsaliyeler & Sevk', icon: Truck, badge: 'Lojistik' },
+    { id: 'sorgulama', label: 'Belge Sorgulama', icon: Search, badge: 'ARA' },
   ];
 
   return (
@@ -60,6 +72,7 @@ export const FaturalarHubView: React.FC = () => {
         {activeTab === 'alis' && <PurchaseInvoiceView />}
         {activeTab === 'efatura' && <EDonusumView />}
         {activeTab === 'irsaliye' && <WaybillListView />}
+        {activeTab === 'sorgulama' && <BelgeSorgulamaView />}
       </div>
     </div>
   );

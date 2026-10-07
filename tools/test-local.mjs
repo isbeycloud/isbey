@@ -15,6 +15,10 @@ const suites = [
   // yakalanıyordu: fatura/irsaliye/stok hareketi diske yazılmıyor ama API
   // "başarılı" diyordu. Bu dosya beş metodu da kalıcılık açısından ölçer.
   'documentConversionPersistenceTest.ts',
+  // 2026-10-07 (`docs/85`): Belge sorgulama filtreleri. Karşı-taraf VKN'si belge
+  // YÖNÜNE göre çözülür: gelen faturada `recipientTaxNumber` BİZİM VKN'mizdir,
+  // tedarikçi değil. Yanlış alan okunursa arama sessizce yanlış/boş sonuç verir.
+  'documentQueryFilterTest.ts',
   'hizliSendContractTest.ts',
   'hizliReconcileContractTest.ts',
   'hizliSendingLockTest.ts',

@@ -86,6 +86,14 @@ import type {
 
 const API_BASE = '/api';
 
+/** Sunucu sayfalaması sözleşmesi (v1 uçları). */
+export interface QueryPagination {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 // 2026-10-02: CANLI HATA — `params ? \`?${new URLSearchParams(params as any)}\` : ''`
 // kalıbı `undefined`/`null` alanları "undefined"/"null" STRING'ine çeviriyordu.
 // Nesne her zaman truthy olduğu için boş filtrede bile `?search=undefined`
@@ -357,6 +365,17 @@ export const api = {
   getInvoices: (params?: { type?: string; customerId?: string; status?: string; search?: string; startDate?: string; endDate?: string }) => {
     const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; invoices: Invoice[] }>(`/invoices${query}`);
+  },
+  // ── Belge sorgulama (docs/85) ──────────────────────────────────────────────
+  // v1 uçları SUNUCU sayfalaması + özet döndürür; düz uçların hepsini çekip
+  // tarayıcıda süzme alışkanlığından farklıdır. `signal` ile istek iptal edilebilir.
+  queryInvoices: (params?: Record<string, unknown>, signal?: AbortSignal) => {
+    const query = buildQuery(params);
+    return request<{ success: boolean; data: Invoice[]; pagination: QueryPagination; summary: any }>(`/v1/invoices${query}`, { signal });
+  },
+  queryWaybills: (params?: Record<string, unknown>, signal?: AbortSignal) => {
+    const query = buildQuery(params);
+    return request<{ success: boolean; data: Waybill[]; pagination: QueryPagination }>(`/v1/waybills${query}`, { signal });
   },
   getInvoice: (id: string) => request<{ success: boolean; invoice: Invoice }>(`/invoices/${id}`),
   createInvoice: (data: any) => request<{ success: boolean; invoice: Invoice; message: string }>('/invoices', { method: 'POST', body: JSON.stringify(data) }),
@@ -808,14 +827,14 @@ export const api = {
     supplierTaxNumber?: string;
     documentNo?: string;
     ettn?: string;
-  }) => {
+  }, signal?: AbortSignal) => {
     const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
       data: IncomingInvoice[];
       statusCounts: StatusCounts;
       pagination: { total: number; page: number; limit: number; totalPages: number };
-    }>(`/v1/e-documents/incoming/list${query}`);
+    }>(`/v1/e-documents/incoming/list${query}`, { signal });
   },
 
   /** Detay ekranı verisi (Belge + Kalemler sekmeleri). SALT OKUNUR. */
@@ -965,7 +984,7 @@ export const api = {
     supplierTaxNumber?: string;
     documentNo?: string;
     ettn?: string;
-  }) => {
+  }, signal?: AbortSignal) => {
     const query = buildQuery(params as Record<string, unknown>);
     return request<{
       success: boolean;
@@ -974,7 +993,7 @@ export const api = {
       statusCounts: StatusCounts;
       pagination: { total: number; page: number; limit: number; totalPages: number };
       total: number;
-    }>(`/v1/e-documents/incoming-despatches/list${query}`);
+    }>(`/v1/e-documents/incoming-despatches/list${query}`, { signal });
   },
 
   /** Entegratörden gelen irsaliyeleri çeker. STOK/CARİ DEĞİŞMEZ. */

@@ -3,6 +3,13 @@ import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { DocumentConversionService } from '../../services/documentConversionService';
 import { resolveInvoiceRecipient } from '../../services/invoiceRecipientService';
+import {
+  parseDateRange,
+  normalizeTaxNumber,
+  tenantCustomerTaxMap,
+  resolveCounterpartyTaxNumber,
+  attachCounterpartyTaxNumber,
+} from '../../utils/documentQuery';
 
 export const v1InvoicesRouter = Router();
 
@@ -52,6 +59,9 @@ v1InvoicesRouter.get('/', requirePermission(PERMISSIONS.INVOICES_VIEW), (req: Re
     search = '',
     startDate,
     endDate,
+    taxNumber,
+    invoiceNo,
+    titleOnly,
     sort = 'date',
     order = 'desc',
   } = req.query as Record<string, string>;
@@ -59,7 +69,15 @@ v1InvoicesRouter.get('/', requirePermission(PERMISSIONS.INVOICES_VIEW), (req: Re
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 25));
 
+  // Tarih doğrulaması: geçersiz biçim veya ters aralık 400 döner (sessiz yutma yok).
+  const range = parseDateRange(startDate, endDate);
+  if ('error' in range) {
+    return res.status(400).json({ success: false, message: range.error });
+  }
+
   const db = storage.getState();
+  // Karşı-taraf VKN'si için tek harita: hem filtrede hem yanıtta AYNI kaynak kullanılır.
+  const taxMap = tenantCustomerTaxMap(db.customers || [], tenantId);
   let list = (db.invoices || []).filter(
     inv => (inv.tenantId === tenantId || (tenantId === 'tnt-isbey' && !inv.tenantId)) && !inv.isDeleted
   );
@@ -80,21 +98,39 @@ v1InvoicesRouter.get('/', requirePermission(PERMISSIONS.INVOICES_VIEW), (req: Re
     list = list.filter(inv => inv.customerId === customerId);
   }
 
-  if (startDate) {
-    list = list.filter(inv => inv.date >= startDate);
+  if (range.startDate) {
+    list = list.filter(inv => String(inv.date || '').slice(0, 10) >= range.startDate!);
   }
 
-  if (endDate) {
-    list = list.filter(inv => inv.date <= endDate);
+  if (range.endDate) {
+    // Bitiş günü DAHİL: damga taşıyan kayıtlar da ('2026-10-06T10:00') eşleşir.
+    list = list.filter(inv => String(inv.date || '').slice(0, 10) <= range.endDate!);
+  }
+
+  if (invoiceNo?.trim()) {
+    const n = invoiceNo.trim().toLowerCase();
+    list = list.filter(inv => inv.invoiceNo?.toLowerCase().includes(n));
+  }
+
+  if (taxNumber?.trim()) {
+    // ⚠️ Karşı taraf VKN'si yöne göre çözülür (bkz. utils/documentQuery).
+    const wanted = normalizeTaxNumber(taxNumber);
+    if (wanted) {
+      list = list.filter(inv => resolveCounterpartyTaxNumber(inv, taxMap) === wanted);
+    }
   }
 
   if (search.trim()) {
     const q = search.trim().toLowerCase();
+    // titleOnly=1 ise YALNIZ unvan; aksi halde belge no + unvan + kod (mevcut davranış).
+    const titleOnlyMode = titleOnly === '1' || titleOnly === 'true';
     list = list.filter(
       inv =>
-        inv.invoiceNo?.toLowerCase().includes(q) ||
         inv.customerTitle?.toLowerCase().includes(q) ||
-        inv.customerCode?.toLowerCase().includes(q)
+        (!titleOnlyMode && (
+          inv.invoiceNo?.toLowerCase().includes(q) ||
+          inv.customerCode?.toLowerCase().includes(q)
+        ))
     );
   }
 
@@ -111,7 +147,10 @@ v1InvoicesRouter.get('/', requirePermission(PERMISSIONS.INVOICES_VIEW), (req: Re
 
   const total = list.length;
   const startIndex = (pageNum - 1) * limitNum;
-  const paginated = list.slice(startIndex, startIndex + limitNum);
+  // Sayfadaki her belgeye karşı-taraf VKN'sini ekle (filtreyle AYNI harita).
+  const paginated = list
+    .slice(startIndex, startIndex + limitNum)
+    .map(inv => attachCounterpartyTaxNumber(inv, taxMap));
 
   const summary = {
     totalInvoices: list.length,

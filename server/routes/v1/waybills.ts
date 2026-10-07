@@ -3,6 +3,13 @@ import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { Waybill, StockMovement } from '../../db/schema';
 import { DocumentConversionService } from '../../services/documentConversionService';
+import {
+  parseDateRange,
+  normalizeTaxNumber,
+  tenantCustomerTaxMap,
+  resolveCounterpartyTaxNumber,
+  attachCounterpartyTaxNumber,
+} from '../../utils/documentQuery';
 
 export const v1WaybillsRouter = Router();
 
@@ -13,12 +20,31 @@ v1WaybillsRouter.use(requireAuth, resolveTenant);
  */
 v1WaybillsRouter.get('/', requirePermission(PERMISSIONS.WAYBILLS_VIEW), (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
-  const { page = '1', limit = '25', status, type, search = '' } = req.query as Record<string, string>;
+  const {
+    page = '1',
+    limit = '25',
+    status,
+    type,
+    search = '',
+    startDate,
+    endDate,
+    taxNumber,
+    waybillNo,
+    titleOnly,
+  } = req.query as Record<string, string>;
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 25));
 
+  // Tarih doğrulaması: geçersiz biçim veya ters aralık 400 döner.
+  const range = parseDateRange(startDate, endDate);
+  if ('error' in range) {
+    return res.status(400).json({ success: false, message: range.error });
+  }
+
   const db = storage.getState();
+  // Karşı-taraf VKN'si için tek harita: filtre ve yanıt AYNI kaynağı kullanır.
+  const taxMap = tenantCustomerTaxMap(db.customers || [], tenantId);
   let list = (db.waybills || []).filter(
     w => (w.tenantId === tenantId || (tenantId === 'tnt-isbey' && !w.tenantId))
   );
@@ -31,20 +57,56 @@ v1WaybillsRouter.get('/', requirePermission(PERMISSIONS.WAYBILLS_VIEW), (req: Re
     list = list.filter(w => w.type === type);
   }
 
+  if (range.startDate) {
+    list = list.filter(w => String(w.date || '').slice(0, 10) >= range.startDate!);
+  }
+
+  if (range.endDate) {
+    // Bitiş günü DAHİL.
+    list = list.filter(w => String(w.date || '').slice(0, 10) <= range.endDate!);
+  }
+
+  if (waybillNo?.trim()) {
+    const n = waybillNo.trim().toLowerCase();
+    list = list.filter(w => w.waybillNo?.toLowerCase().includes(n));
+  }
+
+  if (taxNumber?.trim()) {
+    // İrsaliyede vergi no alanı YOK → cari üzerinden join edilir; cari yoksa boş kalır
+    // (tahmin edilmez). Cari haritası belge listesiyle AYNI tenant kuralını uygular.
+    const wanted = normalizeTaxNumber(taxNumber);
+    if (wanted) {
+      list = list.filter(w => resolveCounterpartyTaxNumber(
+        { customerId: w.customerId, type: 'SALES', recipientTaxNumber: undefined },
+        taxMap
+      ) === wanted);
+    }
+  }
+
   if (search.trim()) {
     const s = search.trim().toLowerCase();
-    list = list.filter(
-      w =>
-        w.waybillNo?.toLowerCase().includes(s) ||
-        w.customerTitle?.toLowerCase().includes(s)
-    );
+    if (titleOnly === '1' || titleOnly === 'true') {
+      list = list.filter(w => w.customerTitle?.toLowerCase().includes(s));
+    } else {
+      list = list.filter(
+        w =>
+          w.waybillNo?.toLowerCase().includes(s) ||
+          w.customerTitle?.toLowerCase().includes(s)
+      );
+    }
   }
 
   list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const total = list.length;
   const startIndex = (pageNum - 1) * limitNum;
-  const paginated = list.slice(startIndex, startIndex + limitNum);
+  // İrsaliyede vergi alanı YOK → karşı-taraf VKN'si cari üzerinden türetilip eklenir.
+  const paginated = list
+    .slice(startIndex, startIndex + limitNum)
+    .map(w => attachCounterpartyTaxNumber(
+      { ...w, type: 'SALES', recipientTaxNumber: undefined },
+      taxMap
+    ));
 
   res.json({
     success: true,

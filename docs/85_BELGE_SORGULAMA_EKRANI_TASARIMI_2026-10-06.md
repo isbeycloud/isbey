@@ -278,3 +278,66 @@ Codex'in ön kontrol raporu bağımsız olarak yeniden ölçüldü:
 | `recipientTaxNumber` gelen belgede tedarikçiyi temsil etmez | **DOĞRULANDI** — `routes/invoices.ts:289` yalnız alıcıyı yazar; §2.4'e eklendi |
 | `Waybill`'da VKN alanı yok | **DOĞRULANDI** — `types/index.ts:698-721` |
 | `AppView` union + menü eşlemesi de gerekir | **DOĞRULANDI** — `AppContext.tsx:5`, `modulePermissions.ts:153,172+` |
+
+---
+
+## 9. Uygulama kaydı (2026-10-07) — plandan ölçülen sapmalar
+
+Uygulama sırasında **dört** noktada tasarımdan sapıldı. Hepsi bilinçli; gerekçeleri ve
+kanıtları aşağıda. Tasarımın §4'teki 7 adımı korundu, yalnız adımların *içeriği* ölçüme göre
+netleşti.
+
+### 9.1 Yetki kapısı `can()` DEĞİL, `canAccessModule()` (kritik düzeltme)
+İlk yazımda sekme görünürlüğü `can('view', 'invoices')` ile yapılıyordu. **Yanlıştı.**
+`hasPermission(action, module)` (modulePermissions.ts:302) **BÜYÜK harfli kaynak** adları
+bekler (`'SALES'`, `'CUSTOMERS'`, `'POS'`…); küçük harfli bir modül adı hiçbir dalla eşleşmez
+ve `if (userRole === 'SATIS') { ... return false }` dalında **sessizce false** döner.
+Sonuç: SATIS/MUHASEBE rolleri sekmeleri hiç görmezdi — hata mesajı yok, boş ekran.
+**Düzeltme:** modül kimliği (`'satis' | 'alis' | 'irsaliye' | 'edonusum'`) `canAccessModule`
+ile kontrol edilir. Bu, §3.4'teki `INVOICES_VIEW`/`WAYBILLS_VIEW`/`EINVOICE_VIEW` yetkilerinin
+**arayüz karşılığıdır** ve sunucu uçlarındaki `requirePermission` ile aynı hizadadır.
+
+### 9.2 Ayrı `AppView` yerine **hub sekmesi** (§4 Adım 5 yerine)
+Tasarım, `App.tsx` + `AppContext` + `Sidebar` + `erpMenus` + `modulePermissions`'a dokunmayı
+öngörüyordu. Ölçüm bunun **gereksiz regresyon yüzeyi** olduğunu gösterdi: yeni bir `AppView`
+eklemek `MODULE_ACCESS_MATRIX`, `getSidebarModulesForRole` (7 rol dalı), `MODULE_META`,
+`MEMBERSHIP_MODULE_RESOURCES` ve `faz252d` hizalama testini (20 kontrol) birden etkiliyordu.
+`faz252d` **§3-b** her modülde `SUPER_ADMIN` bulunmasını şart koşar; yeni modül eklenirse
+matrise satır + sidebar dalı + kaynak eşlemesi gerekir — hepsi mevcut `faturalar` yetkisinin
+**zaten kapsadığı** bir ekran için.
+**Karar:** ekran `FaturalarHubView`'a **5. sekme** olarak bağlandı (`Belge Sorgulama`).
+Mevcut `faturalar` yetkisi (`guard('faturalar', …)`) yeterli; yeni yetki kodu üretilmedi
+(§3.4 kuralı). `faz252d` 20/20 PASS — hizalama **bozulmadı**.
+
+### 9.3 Karşı-taraf VKN'si sunucuda **türetilir** (`_counterpartyTaxNumber`)
+`types/index.ts`'te `_vkn` diye bir alan **yok**; ilk yazımda sütun onu okuyordu ve her satırda
+boş kalırdı. Ayrıca VKN'nin istemcide cari tablosundan çözülmesi, filtrenin kullandığı VKN ile
+sütunun gösterdiği VKN'nin **ayrışması** riskini taşır.
+**Düzeltme:** `attachCounterpartyTaxNumber()` (documentQuery.ts) liste yanıtındaki her belgeye
+`_counterpartyTaxNumber` ekler; filtre ve sütun **AYNI `tenantCustomerTaxMap`'i** kullanır.
+Alan **yalnız döndürülen kopyaya** eklenir; DB'ye yazılmaz (testte salt-okunur doğrulanır).
+Bu, §2.4'teki yön tuzağını **ekranda görünür** kılar: gelen faturada sütun tedarikçi VKN'sini
+gösterir, bizim VKN'mizi değil.
+
+### 9.4 Havuz irsaliyesi: `getIncomingDespatches` zaten vardı
+Tasarım "havuz uçları hazır" demişti; doğruydu — `api.getIncomingDespatches` **mevcuttu**
+(§3.4). İki yönteme yalnızca `signal?: AbortSignal` eklendi (opsiyonel → mevcut çağıranlar
+uyumlu). İlk denemede ikinci bir kopya tanımı oluştu; `tsc` `TS1117` ile yakaladı, kaldırıldı.
+
+### 9.5 Ölçülen sonuçlar
+
+| Kapı | Sonuç |
+|---|---|
+| `tsc -b` | **PASS** (exit 0) |
+| `oxlint` (7 dosya) | **0 hata**, 3 uyarı — hepsi `api.ts`'te **önceden var olan** kullanılmayan import |
+| `documentQueryFilterTest.ts` | **26 kontrol PASS** (yön-farkında VKN + negatif kontrol + tenant izolasyonu + 400 + sütun değeri + salt-okunur) |
+| `documentConversionPersistenceTest.ts` | **PASS** |
+| `invoiceRecipientContractTest.ts` | **PASS** |
+| `productionTenantTest.ts` | **PASS** (42 HTTP kontrolü) |
+| `faz252dFrontendMatrixAlignmentTest.mjs` | **20/20 PASS** (hizalama bozulmadı) |
+| `hizliQueryParamSanitizeTest.mjs` | **20/20 PASS** (`search=undefined` tuzağı kapalı) |
+| Tam `npm test` | **KOŞULAMADI** — Linux VM'de `npm test` ~178 sn komut zaman aşımını aşıyor; etkilenen tüm suite'ler tek tek yeşil |
+| `vite build` | **KOŞULAMADI** — VM'de yerel ikili eksik (bilinen kısıt); build kanıtı kullanıcı ortamında alınmalı |
+
+> **FAIL olarak raporlanan:** Tam paket ve `vite build` **koşulamadı** (PASS değil). Bu bir
+> ortam kısıtıdır, kod hatası değil; ama kanıt üretilmediği için PASS sayılmaz.
