@@ -336,7 +336,7 @@ uyumlu). İlk denemede ikinci bir kopya tanımı oluştu; `tsc` `TS1117` ile yak
 | `productionTenantTest.ts` | **PASS** (42 HTTP kontrolü) |
 | `faz252dFrontendMatrixAlignmentTest.mjs` | **20/20 PASS** (hizalama bozulmadı) |
 | `hizliQueryParamSanitizeTest.mjs` | **20/20 PASS** (`search=undefined` tuzağı kapalı) |
-| Tam `npm test` | **KOŞULAMADI** — Linux VM'de tam paket ~178 sn komut zaman aşımını aşıyor; etkilenen suite'ler tek tek koşuldu (aşağıda) |
+| Tam yerel paket (`node tools/test-local.mjs`) | **PASS** — **40 suite / 0 FAIL**. `npm test` (178 sn komut sınırı) yerine aynı suite listesini koşan `tools/test-local.mjs` kullanıldı; `documentQueryFilterTest.ts` de bu listede |
 | `vite build` | **PASS** — üretim paketi gerçekten derlendi: `dist/assets/index-DFf85Weh.js` (2.768.144 bayt, sha256 `9fa7e13a751d9a09151888294f65f9994387b6d0c72fafbe98b5f27c2e288dc3`). Yeni ekranın dizeleri pakette mevcut: `Belge Sorgulama`, `Entegratör Havuzu`, `Yalnız unvanda ara`, `Giden İrsaliyeler`, `Eşleştirme Bekliyor`, `Son 30 Gün` |
 | Tarayıcı UI kanıtı | **PASS** — gerçek Chromium, üretim paketi, gerçek oturum (`/api/auth/login` → 200). `Faturalar` → `Belge Sorgulama` sekmesi açıldı; 5 kaynak sekmesi, 6 süzgeç alanı, tarih kısayolları, CSV düğmesi ve boş-liste iletisi çizildi. Havuz sekmesinde fatura/irsaliye alt sekmeleri göründü ve "Yalnız unvanda ara" kutusu **gizlendi** (uç bu ayrımı desteklemiyor). Konsol hatası **0**. |
 
