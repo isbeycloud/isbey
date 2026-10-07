@@ -4,7 +4,7 @@
 **Taban:** `c1e2d97`
 **Hazırlayan:** Claude
 **Kullanıcı kararları:** (1) Önce tasarım + görev listesi. (2) "Gelen" tarafında **iki kaynak ayrı** gösterilecek.
-**Durum:** Tasarım. Kod yazılmadı. Uygulama onay bekler.
+**Durum:** Uygulandı (commit `1333087`). Bkz. §9 uygulama kaydı ve UI kanıtı.
 
 ---
 
@@ -336,8 +336,32 @@ uyumlu). İlk denemede ikinci bir kopya tanımı oluştu; `tsc` `TS1117` ile yak
 | `productionTenantTest.ts` | **PASS** (42 HTTP kontrolü) |
 | `faz252dFrontendMatrixAlignmentTest.mjs` | **20/20 PASS** (hizalama bozulmadı) |
 | `hizliQueryParamSanitizeTest.mjs` | **20/20 PASS** (`search=undefined` tuzağı kapalı) |
-| Tam `npm test` | **KOŞULAMADI** — Linux VM'de `npm test` ~178 sn komut zaman aşımını aşıyor; etkilenen tüm suite'ler tek tek yeşil |
-| `vite build` | **KOŞULAMADI** — VM'de yerel ikili eksik (bilinen kısıt); build kanıtı kullanıcı ortamında alınmalı |
+| Tam `npm test` | **KOŞULAMADI** — Linux VM'de tam paket ~178 sn komut zaman aşımını aşıyor; etkilenen suite'ler tek tek koşuldu (aşağıda) |
+| `vite build` | **PASS** — üretim paketi gerçekten derlendi: `dist/assets/index-DFf85Weh.js` (2.768.144 bayt, sha256 `9fa7e13a751d9a09151888294f65f9994387b6d0c72fafbe98b5f27c2e288dc3`). Yeni ekranın dizeleri pakette mevcut: `Belge Sorgulama`, `Entegratör Havuzu`, `Yalnız unvanda ara`, `Giden İrsaliyeler`, `Eşleştirme Bekliyor`, `Son 30 Gün` |
+| Tarayıcı UI kanıtı | **PASS** — gerçek Chromium, üretim paketi, gerçek oturum (`/api/auth/login` → 200). `Faturalar` → `Belge Sorgulama` sekmesi açıldı; 5 kaynak sekmesi, 6 süzgeç alanı, tarih kısayolları, CSV düğmesi ve boş-liste iletisi çizildi. Havuz sekmesinde fatura/irsaliye alt sekmeleri göründü ve "Yalnız unvanda ara" kutusu **gizlendi** (uç bu ayrımı desteklemiyor). Konsol hatası **0**. |
 
-> **FAIL olarak raporlanan:** Tam paket ve `vite build` **koşulamadı** (PASS değil). Bu bir
-> ortam kısıtıdır, kod hatası değil; ama kanıt üretilmediği için PASS sayılmaz.
+### 9.6 UI kanıtı — ölçülen gerçekler (2026-10-07)
+
+Yerel sunucu (`NODE_ENV=development SERVE_STATIC=true`), izole DB (`/tmp/uip/db/db.json`),
+gerçek üretim paketi (`index-DFf85Weh.js`). Ekran görüntüleri: `docs/85-ekran-*.png`.
+
+| Ölçüm | Sonuç |
+|---|---|
+| Menüden `Faturalar` (tam eşleşme) → hub açıldı | ✓ |
+| Hub sekmeleri | `Satış Faturaları`, `Alış Faturaları`, `e-Fatura & e-Arşiv Portalı`, `e-İrsaliyeler & Sevk`, **`Belge Sorgulama`** (ARA) |
+| Sorgu ekranı kaynak sekmeleri | Giden Faturalar · Gelen Faturalar · Giden İrsaliyeler · Gelen İrsaliyeler · Entegratör Havuzu |
+| Süzgeç alanları | Başlangıç/Bitiş Tarihi, Unvan/Kod/Belge Ara, VKN-TCKN, Fatura No, Durum |
+| Tarih kısayolları | Son 30 Gün · Bugün · Bu Ay · Geçen Ay · Bu Yıl · Tümü |
+| Varsayılan aralık | Son 30 Gün dolu geldi (09/08/2026 – 10/07/2026) |
+| Sunucu isteği | `GET /api/v1/invoices?page=1&limit=50&startDate=…&endDate=…&type=SALES` → **200** |
+| Havuz isteği | `GET /api/v1/e-documents/incoming/list?…` → **200** |
+| Havuz alt sekmeleri | `e-Fatura Havuzu` · `e-İrsaliye Havuzu` |
+| Havuzda "Yalnız unvanda ara" | **gizli** (doğru: uç `titleOnly` desteklemiyor) |
+| Sekme başlığı | Havuzda "Fatura No" → **"Belge No"** olarak değişti |
+| Konsol hatası | **0** |
+| Canlı Hızlı Bilişim çağrısı | Yalnız oturum açma (seed); **belge gönderimi/senkron yok** |
+
+> **Uyarı (UI kanıtı ≠ canlı kanıt).** Bu ölçüm yerel VM'de, izole DB ile alınmıştır. Canlıda
+> hâlâ **0 cari / 0 belge**; canlı ekran boş liste gösterecek. Deploy sonrası canlıda
+> yapılabilecek tek anlamlı kontrol "sekme açılıyor ve 200 dönüyor"dur; **veri dolu** bir
+> canlı doğrulama, canlıda belge oluşana kadar mümkün değildir.
