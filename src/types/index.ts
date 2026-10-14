@@ -1692,6 +1692,10 @@ export interface StockCountItem {
   productId: string;
   productCode: string;
   productName: string;
+  /** 2026-10-12: Sayılan varyant (barkodla seçildiyse). */
+  variantId?: string;
+  /** 2026-10-12: Varyantın görünen adı. */
+  variantName?: string;
   barcode: string;
   systemQuantity: number;
   countedQuantity: number;

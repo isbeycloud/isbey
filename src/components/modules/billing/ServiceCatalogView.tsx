@@ -6,7 +6,17 @@ import { EServiceApplications } from '../edonusum/EServiceApplications';
 
 export function ServiceCatalogView() {
   const { user, activeTenant, refreshProfile } = useAuth();
-  const [selection, setSelection] = useState<string[]>(activeTenant?.selectedServicePlanIds || []);
+  // 2026-10-14: `activeTenant` ilk render'da henüz yüklenmemiş olabilir;
+  // seçim state'i yalnız ilk değerle kurulurdu ve sonradan gelen tenant
+  // planları kutulara YANSIMAZDI (yeni üye ekranında "bu kalıyor" hissi).
+  const [selection, setSelection] = useState<string[]>([]);
+  const [selectionSynced, setSelectionSynced] = useState(false);
+  useEffect(() => {
+    if (!selectionSynced && activeTenant) {
+      setSelection(activeTenant.selectedServicePlanIds || []);
+      setSelectionSynced(true);
+    }
+  }, [activeTenant, selectionSynced]);
   const canSelect = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'].includes(r || ''));
   const canOrder = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'].includes(r || ''));
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -53,7 +63,16 @@ export function ServiceCatalogView() {
       </div>
       {canSelect && <button className="btn btn-primary" disabled={busy || !selection.length} onClick={async () => {
         setBusy(true); setError(''); setMessage('');
-        try { const r = await api.selectServicePlans(selection); await refreshProfile(); setMessage(r.message); }
+        try {
+          const r = await api.selectServicePlans(selection);
+          // 2026-10-14: Etkinleştirme sonrası profil YENİDEN yüklenir ve seçim
+          // sunucudaki gerçek planlarla eşitlenir. Önceden `refreshProfile`
+          // sonucu beklenmeden mesaj yazılıyordu ve kutular eski halde
+          // kalıyordu ("düzenleme çalışmıyor" hissi).
+          await refreshProfile();
+          await loadRequests();
+          setMessage(r.message);
+        }
         catch (e) { setError((e as Error).message); } finally { setBusy(false); }
       }}>Seçtiğim paketleri etkinleştir</button>}
       {!!requests.length && <section><h3>Paket talepleri</h3><ul>{requests.map(r => <li key={r.id}>{r.companyName} — {r.planName} · {r.period === 'MONTHLY' ? 'Aylık' : 'Yıllık'} · İncelemede</li>)}</ul></section>}

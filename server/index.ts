@@ -50,6 +50,7 @@ import { v1ProductImagesRouter } from './routes/v1/productImages';
 import { v1UserScopesRouter } from './routes/v1/userScopes';
 import { v1InvoiceSeriesRouter } from './routes/v1/invoiceSeries';
 import { v1DraftPdfsRouter } from './routes/v1/draftPdfs';
+import { v1StockCountsRouter } from './routes/v1/stockCounts';
 import { v1CashRouter } from './routes/v1/cash';
 import { v1BanksRouter } from './routes/v1/banks';
 import { v1CollectionsRouter } from './routes/v1/collections';
