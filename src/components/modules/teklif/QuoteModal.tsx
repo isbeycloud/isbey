@@ -4,6 +4,7 @@ import type { Customer, Product, QuoteItem } from '../../../types';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
+import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { CustomerSelectorModal } from '../../common/CustomerSelectorModal';
 import { ProductSelectorModal } from '../../common/ProductSelectorModal';
 import { QuickCustomerCreateModal } from '../../common/QuickCustomerCreateModal';
@@ -25,6 +26,12 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
   const { triggerRefresh, openPrintModal } = useApp();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  // 2026-10-12: Fiyat listesi mantığı tek kaynakta (bkz. hooks/usePriceListPricing).
+  const { resolvePrice, trackProduct, repriceItems } = usePriceListPricing({
+    isOpen,
+    customer: selectedCustomer,
+    isPurchase: quoteType === 'PURCHASE_QUOTE',
+  });
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [validUntil, setValidUntil] = useState(
     new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0]
@@ -55,13 +62,18 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
     setItems([]);
   };
 
-  const handleAddProductToItems = (p: Product) => {
-    const unitPrice = quoteType === 'SALES_QUOTE' ? p.salePrice : p.purchasePrice;
+  const handleAddProductToItems = (p: Product, variant?: import('../../../types').ProductVariant) => {
+    // 2026-10-12: Fiyat carinin listesine + VARYANTA göre çözülür.
+    const resolved = resolvePrice(p, variant);
+    const unitPrice = resolved.unitPrice;
     const vatRate = p.vatRate || 20;
     const lineTotal = unitPrice;
     const vatAmount = lineTotal * (vatRate / 100);
+    const label = variant ? `${p.name} (${variant.name})` : p.name;
 
-    const existingIndex = items.findIndex(it => it.productId === p.id);
+    const existingIndex = items.findIndex(
+      it => it.productId === p.id && (it.variantId || undefined) === (variant?.id || undefined)
+    );
     if (existingIndex >= 0) {
       const updated = [...items];
       const existing = updated[existingIndex];
@@ -77,14 +89,16 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
         lineGrandTotal: discounted + vAmount,
       };
       setItems(updated);
-      showToast(`"${p.name}" miktarı artırıldı: ${newQty} ${p.unit}`, 'info');
+      showToast(`"${label}" miktarı artırıldı: ${newQty} ${p.unit}`, 'info');
       return;
     }
 
     const newItem: QuoteItem = {
       productId: p.id,
+      variantId: variant?.id,
+      variantName: variant?.name,
       productCode: p.code,
-      productName: p.name,
+      productName: label,
       quantity: 1,
       unit: p.unit,
       unitPrice,
@@ -92,12 +106,38 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({
       discount2: 0,
       vatRate,
       vatAmount,
+      priceListId: resolved.priceListId,
       lineTotal,
       lineGrandTotal: lineTotal + vatAmount,
     };
     setItems(prev => [...prev, newItem]);
-    showToast(`"${p.name}" teklife eklendi.`, 'success');
+    trackProduct(p, unitPrice, variant);
+    showToast(`"${label}" teklife eklendi.`, 'success');
   };
+
+  /**
+   * 2026-10-12: Cari (veya fiyat listesi) değişince elle dokunulmamış
+   * satırları yeniden fiyatla. Kural tek kaynakta (usePriceListPricing).
+   */
+  useEffect(() => {
+    setItems(prevItems =>
+      repriceItems(prevItems, (item, unitPrice, priceListId) => {
+        const qty = Number(item.quantity) || 1;
+        const d1 = Number(item.discount1) || 0;
+        const d2 = Number(item.discount2) || 0;
+        const afterDisc = qty * unitPrice * (1 - d1 / 100) * (1 - d2 / 100);
+        const vat = afterDisc * ((Number(item.vatRate) || 0) / 100);
+        return {
+          ...item,
+          unitPrice,
+          priceListId,
+          lineTotal: afterDisc,
+          vatAmount: vat,
+          lineGrandTotal: afterDisc + vat,
+        };
+      })
+    );
+  }, [selectedCustomer, repriceItems]);
 
   const handleUpdateItem = (index: number, field: keyof QuoteItem, value: any) => {
     const updated = [...items];
