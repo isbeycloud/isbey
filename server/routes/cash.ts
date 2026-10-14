@@ -8,14 +8,22 @@ export const cashRouter = Router();
 cashRouter.use(requireAuth);
 cashRouter.use(resolveTenant);
 
-// List all cash registers with balances (Tenant Isolated)
+// List all cash registers with balances (Tenant Isolated + KAPSAM filtresi)
 cashRouter.get('/', (req, res) => {
   const db = storage.getState();
   const tenantId = req.tenantId || 'tnt-isbey';
-  const cashRegisters = (db.cashRegisters || []).filter(c => 
+  const cashRegisters = (db.cashRegisters || []).filter(c =>
     c.id.includes(tenantId) || tenantId === 'tnt-isbey' || c.isDefault
   );
-  res.json({ success: true, cashRegisters: cashRegisters.length > 0 ? cashRegisters : db.cashRegisters });
+  // 2026-10-12: Kullanıcı kapsamı DOLU ise yalnız listedeki kasalar döner.
+  // Kapsam YOKSA/BOŞSA mevcut davranış korunur (tamamı görünür).
+  const scope = (db.userScopes || []).find(
+    s => s.userId === String((req as any).user?.id || '') && s.tenantId === tenantId
+  );
+  const visible = (scope && scope.cashRegisterIds.length > 0)
+    ? cashRegisters.filter(c => scope.cashRegisterIds.includes(c.id))
+    : cashRegisters;
+  res.json({ success: true, cashRegisters: visible.length > 0 ? visible : (scope?.cashRegisterIds.length ? visible : db.cashRegisters) });
 });
 
 // List cash transactions with filters (Tenant Isolated)

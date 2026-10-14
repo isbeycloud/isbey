@@ -91,6 +91,9 @@ invoicesRouter.post('/', async (req, res) => {
     exemptionCode,
     recipientTaxNumber,
     recipientAliasGB,
+    // 2026-10-12: Fatura SERİSİ (A/B Serisi…). Verilmezse mevcut tek sayaç
+    // kullanılır (geriye dönük uyum). Verilirse numara o seriden gelir.
+    invoiceSeriesId,
   } = req.body;
 
   if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
@@ -99,6 +102,14 @@ invoicesRouter.post('/', async (req, res) => {
 
   const invoiceType = type || 'SALES';
   const isPurchase = invoiceType === 'PURCHASE';
+
+  // 2026-10-12: GİB fatura tipi kapısı. `InvoiceTypeCode` alanına GİB'in kabul
+  // etmediği bir değer girerse entegratör reddeder; bu yüzden depoya girmeden
+  // reddedilir (sessiz bozulma olmaz).
+  const VALID_CATEGORIES = ['SATIS', 'IADE', 'TEVKIFAT', 'ISTISNA', 'OZELMATRAH', 'IHRACKAYITLI', 'KONAKLAMA', 'SGK'];
+  if (invoiceCategory !== undefined && !VALID_CATEGORIES.includes(String(invoiceCategory))) {
+    return res.status(400).json({ success: false, message: `Geçersiz GİB fatura tipi: ${invoiceCategory}.` });
+  }
 
   try {
     const selectedCustomer = storage.getState().customers.find(c => c.id === customerId && c.tenantId === req.tenantId);
@@ -113,8 +124,33 @@ invoicesRouter.post('/', async (req, res) => {
       if (recipient && customer.taxNumber?.replace(/\D/g, '') !== recipient.identifier) throw new Error('Alıcının vergi numarası değişti. Cariyi tekrar seçip sorgulayın.');
 
       // 2. Generate Invoice Document Number
-      const seqType = isPurchase ? 'PURCHASE_INVOICE' : 'SALES_INVOICE';
-      const invoiceNo = storage.getNextSequence(seqType);
+      // 2026-10-12: SERİ seçildiyse numara o serinin sayacından gelir.
+      // Seri bulunamazsa/pasifse/yabancıysa 400 (sessizce eski sayaca DÜŞÜLMEZ —
+      // kullanıcı yanlış seriden numara aldığını bilmeli).
+      const seqKind = isPurchase ? 'PURCHASE' : 'SALES';
+      let invoiceNo: string;
+      let usedSeriesId: string | undefined;
+      const seriesId = typeof invoiceSeriesId === 'string' && invoiceSeriesId.trim()
+        ? invoiceSeriesId.trim()
+        : undefined;
+      if (seriesId) {
+        const tenantId = req.tenantId || 'tnt-isbey';
+        const series = (draft.invoiceSeries || []).find(
+          s => s.id === seriesId && (s.tenantId === tenantId || (tenantId === 'tnt-isbey' && !s.tenantId))
+        );
+        if (!series) throw new Error('Fatura serisi bulunamadı.');
+        if (series.active === false) throw new Error(`Fatura serisi pasif: ${series.name}.`);
+        if (series.invoiceTypes.length > 0 && !series.invoiceTypes.includes(seqKind as any)) {
+          throw new Error(`Bu seri ${seqKind === 'SALES' ? 'satış' : 'alış'} faturaları için tanımlı değil: ${series.name}.`);
+        }
+        const yr = new Date().getFullYear();
+        series.lastNumber += 1;
+        invoiceNo = `${series.prefix}-${yr}-${String(series.lastNumber).padStart(series.length || 6, '0')}`;
+        usedSeriesId = series.id;
+      } else {
+        const seqType = isPurchase ? 'PURCHASE_INVOICE' : 'SALES_INVOICE';
+        invoiceNo = storage.nextSequenceInTransaction(draft, seqType);
+      }
 
       const invoiceDate = date || new Date().toISOString().split('T')[0];
       const invMaturity = maturityDate || (
@@ -144,9 +180,31 @@ invoicesRouter.post('/', async (req, res) => {
           throw new Error(`Geçersiz miktar: ${product.name}`);
         }
 
+        // 2026-10-12: Varyant stok kontrolü. Varyantlı üründe satır MUTLAKA bir
+        // varyanta bağlı olmalı; yoksa hangi varyanttan düşüleceği belirsizdir
+        // ve ürün toplamından sessizce düşmek varyant stoklarını bozar.
+        // Varyantsız üründe mevcut davranış AYNEN korunur.
+        let variant: import('../db/schema').ProductVariant | undefined;
+        const variantId = typeof itemInput.variantId === 'string' && itemInput.variantId.trim()
+          ? itemInput.variantId.trim()
+          : undefined;
+        if (Array.isArray(product.variants) && product.variants.length > 0) {
+          if (!variantId) {
+            throw new Error(`Varyant seçimi zorunlu: ${product.name} için bir varyant seçin.`);
+          }
+          variant = product.variants.find(v => v.id === variantId && v.active !== false);
+          if (!variant) {
+            throw new Error(`Varyant bulunamadı: ${product.name}`);
+          }
+        }
+
         // Check stock for sales
-        if (!isPurchase && product.currentStock < quantity) {
-          throw new Error(`Yetersiz stok! Ürün: ${product.name} (Mevcut: ${product.currentStock} ${product.unit}, İstenen: ${quantity})`);
+        if (!isPurchase) {
+          const available = variant ? Number(variant.currentStock) || 0 : product.currentStock;
+          const label = variant ? `${product.name} (${variant.name})` : product.name;
+          if (available < quantity) {
+            throw new Error(`Yetersiz stok! Ürün: ${label} (Mevcut: ${available} ${product.unit}, İstenen: ${quantity})`);
+          }
         }
 
         const unitPrice = Number(itemInput.unitPrice) || (isPurchase ? product.purchasePrice : product.salePrice);
@@ -195,9 +253,12 @@ invoicesRouter.post('/', async (req, res) => {
           id: `item-${Date.now()}-${i}`,
           invoiceId,
           productId: product.id,
+          // 2026-10-12: Varyant izi (tutar hesabı değişmez).
+          variantId: variant?.id,
+          variantName: variant?.name,
           productCode: product.code,
-          productName: product.name,
-          barcode: product.barcode,
+          productName: variant ? `${product.name} (${variant.name})` : product.name,
+          barcode: variant?.barcode || product.barcode,
           quantity,
           unit: product.unit,
           unitPrice,
@@ -211,6 +272,13 @@ invoicesRouter.post('/', async (req, res) => {
           withholdingRate: numWithholdingRate || undefined,
           withholdingAmount: lineWithholding || undefined,
           exemptionReasonCode: exemptionCode || undefined,
+          // 2026-10-12: Satırın hangi fiyat listesiyle fiyatlandığının İZİ.
+          // Tutar hesabı `unitPrice` üzerinden yapılır; bu alan yalnızca
+          // sonradan "hangi listeyle fiyatlandı" sorusunu yanıtlar.
+          // Geçersiz/boş değer diske yazılmaz (undefined kalır).
+          priceListId: typeof itemInput.priceListId === 'string' && itemInput.priceListId.trim()
+            ? itemInput.priceListId.trim()
+            : undefined,
           lineTotal: lineNet,
           lineGrandTotal: lineGross,
         };
@@ -223,6 +291,10 @@ invoicesRouter.post('/', async (req, res) => {
         const stockMovement: StockMovement = {
           id: `sm-${Date.now()}-${i}`,
           productId: product.id,
+          // 2026-10-12: Varyant izi — recalculateBalances varyant stoğunu
+          // bu alandan hesaplar.
+          variantId: variant?.id,
+          variantName: variant?.name,
           productCode: product.code,
           productName: product.name,
           warehouseId: targetWhId,
@@ -259,6 +331,8 @@ invoicesRouter.post('/', async (req, res) => {
         id: invoiceId,
         tenantId: req.tenantId || 'tnt-isbey',
         invoiceNo,
+        // 2026-10-12: Seri izi (serisiz faturalarda undefined).
+        invoiceSeriesId: usedSeriesId,
         type: invoiceType,
         status: 'ACTIVE',
         customerId: customer.id,

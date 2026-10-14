@@ -4,6 +4,7 @@ import type { Customer, Product, WaybillItem, WaybillType } from '../../../types
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
+import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { CustomerSelectorModal } from '../../common/CustomerSelectorModal';
 import { ProductSelectorModal } from '../../common/ProductSelectorModal';
 import { QuickCustomerCreateModal } from '../../common/QuickCustomerCreateModal';
@@ -25,6 +26,12 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
   const { triggerRefresh, openPrintModal } = useApp();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  // 2026-10-12: Fiyat listesi mantığı tek kaynakta (bkz. hooks/usePriceListPricing).
+  const { resolvePrice, trackProduct, repriceItems } = usePriceListPricing({
+    isOpen,
+    customer: selectedCustomer,
+    isPurchase: waybillType === 'PURCHASE_DESPATCH',
+  });
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [shipmentDate, setShipmentDate] = useState(new Date().toISOString().split('T')[0]);
   const [carrierTitle, setCarrierTitle] = useState('');
@@ -56,11 +63,16 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
     setItems([]);
   };
 
-  const handleAddProductToItems = (p: Product) => {
-    const unitPrice = waybillType === 'SALES_DESPATCH' ? p.salePrice : p.purchasePrice;
+  const handleAddProductToItems = (p: Product, variant?: import('../../../types').ProductVariant) => {
+    // 2026-10-12: Fiyat carinin listesine + VARYANTA göre çözülür.
+    const resolved = resolvePrice(p, variant);
+    const unitPrice = resolved.unitPrice;
     const lineTotal = unitPrice;
+    const label = variant ? `${p.name} (${variant.name})` : p.name;
 
-    const existingIndex = items.findIndex(it => it.productId === p.id);
+    const existingIndex = items.findIndex(
+      it => it.productId === p.id && (it.variantId || undefined) === (variant?.id || undefined)
+    );
     if (existingIndex >= 0) {
       const updated = [...items];
       const existing = updated[existingIndex];
@@ -71,28 +83,48 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
         lineTotal: newQty * existing.unitPrice,
       };
       setItems(updated);
-      showToast(`"${p.name}" miktarı artırıldı: ${newQty} ${p.unit}`, 'info');
+      showToast(`"${label}" miktarı artırıldı: ${newQty} ${p.unit}`, 'info');
       return;
     }
 
     const vRate = p.vatRate || 20;
     const newItem: WaybillItem = {
       productId: p.id,
+      variantId: variant?.id,
+      variantName: variant?.name,
       productCode: p.code,
-      productName: p.name,
+      productName: label,
       quantity: 1,
       unit: p.unit,
       unitPrice,
       discount1: 0,
       discount2: 0,
       vatRate: vRate,
+      priceListId: resolved.priceListId,
       lineTotal,
       lineGrandTotal: lineTotal * (1 + vRate / 100),
     };
     setItems(prev => [...prev, newItem]);
-    showToast(`"${p.name}" irsaliyeye eklendi.`, 'success');
+    trackProduct(p, unitPrice, variant);
+    showToast(`"${label}" irsaliyeye eklendi.`, 'success');
   };
 
+  /**
+   * 2026-10-12: Cari (veya fiyat listesi) değişince elle dokunulmamış
+   * satırları yeniden fiyatla. İrsaliyede KDV/iskonto hesabı yapılmaz;
+   * yalnız birim fiyat ve satır toplamı yenilenir (mevcut davranış).
+   */
+  useEffect(() => {
+    setItems(prevItems =>
+      repriceItems(prevItems, (item, unitPrice, priceListId) => ({
+        ...item,
+        unitPrice,
+        priceListId,
+        lineTotal: (Number(item.quantity) || 1) * unitPrice,
+        lineGrandTotal: (Number(item.quantity) || 1) * unitPrice * (1 + (Number(item.vatRate) || 0) / 100),
+      }))
+    );
+  }, [selectedCustomer, repriceItems]);
 
   const handleUpdateItem = (index: number, field: keyof WaybillItem, value: any) => {
     const updated = [...items];

@@ -2,19 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
 
-import type { Product } from '../../../types';
+import type { Product, PriceList } from '../../../types';
 import { api } from '../../../services/api';
+import { priceListName } from '../../../utils/priceResolver';
 
 import { useApp } from '../../../context/AppContext';
 import { ProductModal } from './ProductModal';
 import { StockMovementModal } from './StockMovementModal';
 import { WarehouseTransferModal } from './WarehouseTransferModal';
+import { VariantOptionsTab } from './VariantOptionsTab';
 import {
   Plus,
   ArrowRightLeft,
   ArrowUpDown,
   Edit2,
   AlertTriangle,
+  Layers,
+  List,
+  Package,
 } from 'lucide-react';
 
 export const ProductListView: React.FC = () => {
@@ -23,6 +28,11 @@ export const ProductListView: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [criticalOnly, setCriticalOnly] = useState(false);
+  // 2026-10-12: Stok ekranı iki sekmelidir: ürün listesi + varyant özellikleri.
+  const [stockTab, setStockTab] = useState<'PRODUCTS' | 'VARIANTS'>('PRODUCTS');
+  // 2026-10-12: "Fiyat Listeleri" sütununda liste ADLARINI gösterebilmek için
+  // liste tanımları gerekir; ürün yalnız `priceListId` taşır.
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
 
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [movementProduct, setMovementProduct] = useState<Product | null>(null);
@@ -31,6 +41,14 @@ export const ProductListView: React.FC = () => {
   useEffect(() => {
     loadProducts();
   }, [criticalOnly, refreshKey]);
+
+  useEffect(() => {
+    // Liste adları yardımcı bir gösterimdir; yükleme hatası ürün listesini
+    // ENGELLEMEZ (sütun kimlik yerine "—" gösterir).
+    api.getPriceLists()
+      .then(res => { if (res.success) setPriceLists(res.priceLists); })
+      .catch(err => console.error(err));
+  }, []);
 
   const loadProducts = async () => {
     setLoading(true);
@@ -76,6 +94,15 @@ export const ProductListView: React.FC = () => {
           )}
           <div>
             <div style={{ fontWeight: 600 }}>{p.name}</div>
+            {/* 2026-10-12: Varyantlı ürün rozeti + varyant adları (filtre/rapor). */}
+            {(p.variants || []).filter(v => v.active !== false).length > 0 && (
+              <div
+                style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600 }}
+                title={(p.variants || []).filter(v => v.active !== false).map(v => `${v.name} (${v.currentStock} ${p.unit})`).join('\n')}
+              >
+                <Layers size={10} /> {(p.variants || []).filter(v => v.active !== false).length} varyant: {(p.variants || []).filter(v => v.active !== false).slice(0, 3).map(v => v.name).join(', ')}{(p.variants || []).filter(v => v.active !== false).length > 3 ? '…' : ''}
+              </div>
+            )}
             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
               {p.groupName || 'Genel'} • {p.warehouseName || 'Merkez Depo'}
             </div>
@@ -128,6 +155,40 @@ export const ProductListView: React.FC = () => {
       ),
     },
     {
+      // 2026-10-12: Ürün başına kaç fiyat listesi fiyatı tanımlı olduğunu
+      // gösterir. Tanımsız ürünlerde boş kalır (taban fiyat geçerli).
+      key: 'salePrices',
+      title: 'Fiyat Listeleri',
+      sortable: false,
+      width: '130px',
+      render: p => {
+        const entries = p.salePrices || [];
+        if (entries.length === 0) {
+          return <span style={{ color: 'var(--text-light)', fontSize: 'var(--fs-xs)' }}>—</span>;
+        }
+        return (
+          <span
+            title={entries
+              .map(e => `${priceListName(priceLists, e.priceListId)}: ${e.salePrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`)
+              .join('\n')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              fontSize: 'var(--fs-xs)',
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: 'var(--bg-surface-hover)',
+              color: 'var(--text-muted)',
+            }}
+          >
+            <List size={11} />
+            {entries.length} liste
+          </span>
+        );
+      },
+    },
+    {
       key: 'vatRate',
       title: 'KDV',
       width: '70px',
@@ -162,6 +223,28 @@ export const ProductListView: React.FC = () => {
 
   return (
     <div className="view-content-container">
+      {/* 2026-10-12: Üst seviye sekmeler (ürün listesi / varyant özellikleri). */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button
+          className={`btn ${stockTab === 'PRODUCTS' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          onClick={() => setStockTab('PRODUCTS')}
+        >
+          <Package size={14} />
+          <span>Ürünler</span>
+        </button>
+        <button
+          className={`btn ${stockTab === 'VARIANTS' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          onClick={() => setStockTab('VARIANTS')}
+        >
+          <Layers size={14} />
+          <span>Varyantlar</span>
+        </button>
+      </div>
+
+      {stockTab === 'VARIANTS' && <VariantOptionsTab />}
+
+      {stockTab === 'PRODUCTS' && (
+      <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -200,6 +283,8 @@ export const ProductListView: React.FC = () => {
         showTotals={true}
         totalColumns={['currentStock']}
       />
+      </>
+      )}
 
       <ProductModal
         isOpen={isNewProductModalOpen || !!editingProduct}

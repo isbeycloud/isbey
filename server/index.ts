@@ -44,6 +44,12 @@ import { invitationsRouter } from './routes/invitations';
 import { impersonationRouter } from './routes/admin-impersonation';
 import { v1CustomersRouter } from './routes/v1/customers';
 import { v1ProductsRouter } from './routes/v1/products';
+import { v1PriceListsRouter } from './routes/v1/priceLists';
+import { v1VariantOptionsRouter } from './routes/v1/variantOptions';
+import { v1ProductImagesRouter } from './routes/v1/productImages';
+import { v1UserScopesRouter } from './routes/v1/userScopes';
+import { v1InvoiceSeriesRouter } from './routes/v1/invoiceSeries';
+import { v1DraftPdfsRouter } from './routes/v1/draftPdfs';
 import { v1CashRouter } from './routes/v1/cash';
 import { v1BanksRouter } from './routes/v1/banks';
 import { v1CollectionsRouter } from './routes/v1/collections';
@@ -107,7 +113,7 @@ import { defaultDeny } from './middleware/securityGate';
 //  mount öneki yerine route seviyesinde, kimlikli uçlar etkilenmesin diye)
 import { securityHeaders, buildCorsOptions } from './middleware/productionSecurity';
 // FAZ 27: Environment management & fail-closed security validation
-import { validateEnvironmentConfig, getEnvironment, getDatabasePath, isProduction } from './config/environment';
+import { validateEnvironmentConfig, getEnvironment, getDatabasePath, getDataDirectory, isProduction } from './config/environment';
 
 // FAZ 27: Ortam konfigürasyonu güvenlik doğrulaması
 const envValidation = validateEnvironmentConfig();
@@ -220,6 +226,12 @@ app.use('/api/admin', impersonationRouter);
 // ──────────────────────────────────────────────────────────
 app.use('/api/v1/customers', v1CustomersRouter);
 app.use('/api/v1/products', v1ProductsRouter);
+app.use('/api/v1/price-lists', v1PriceListsRouter);
+app.use('/api/v1/variant-options', v1VariantOptionsRouter);
+app.use('/api/v1/product-images', v1ProductImagesRouter);
+app.use('/api/v1/user-scopes', v1UserScopesRouter);
+app.use('/api/v1/invoice-series', v1InvoiceSeriesRouter);
+app.use('/api/v1/draft-pdfs', v1DraftPdfsRouter);
 app.use('/api/v1/invoices', v1InvoicesRouter);
 app.use('/api/v1/quotes', v1QuotesRouter);
 app.use('/api/v1/orders', v1OrdersRouter);
@@ -301,6 +313,16 @@ app.get('/api/health', (req, res) => {
 
 // Canlı QA Test Ekranı (docs/20 zincirinin tarayıcı karşılığı)
 app.use('/api/test-screen', testScreenRouter);
+
+// 2026-10-12: Ürün görselleri (`data/uploads/...`). Salt-okunur statik servis;
+// yükleme/silme YALNIZCA `/api/v1/product-images` uçlarından (auth + izinli).
+// `dotfiles: 'deny'` ile gizli dosyalar servis edilmez; tenant klasörü dışına
+// çıkış express.static içinde engellenir.
+app.use('/uploads', express.static(path.join(getDataDirectory(), 'uploads'), {
+  index: false,
+  maxAge: '7d',
+  dotfiles: 'deny',
+}));
 
 // Global Error Handler
 // API misses stay JSON; SPA fallback must never turn them into successful HTML.

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { storage } from '../db/storage';
-import { Product, StockMovement } from '../db/schema';
+import { Product, ProductPriceEntry, StockMovement } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
 
 export const productsRouter = Router();
@@ -89,12 +89,127 @@ productsRouter.get('/:id', (req, res) => {
   res.json({ success: true, product, movements });
 });
 
+/**
+ * 2026-10-12: Varyant girdilerini sunucu tarafında temizler.
+ *
+ * Neden gerekli: istemci `variants` dizisini olduğu gibi gönderir. Geçersiz
+ * girdiler (boş varyant kimliği, sayı olmayan stok/fiyat) diske yazılırsa stok
+ * raporu ve belge satırı bozulur. Yalnızca geçerli girdiler alınır.
+ *
+ * @param variantOptionIds Ürünün kullandığı özellik kimlikleri.
+ * @param options Tenant'ın varyant özellik tanımları (atıf doğrulama için).
+ */
+function sanitizeProductVariants(
+  input: unknown,
+  variantOptionIds: string[],
+  options: import('../db/schema').VariantOption[]
+): import('../db/schema').ProductVariant[] {
+  if (!Array.isArray(input) || variantOptionIds.length === 0) return [];
+  const byId = new Map(options.map(o => [o.id, o]));
+  const seen = new Set<string>();
+  const out: import('../db/schema').ProductVariant[] = [];
+  const now = new Date().toISOString();
+
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const v = raw as Record<string, unknown>;
+    const attrs = Array.isArray(v.attributes) ? v.attributes : [];
+    // Her seçili özelliğe GEÇERLİ bir değer atanmalı; eksik/hatalı atıf varsa
+    // satır atlanır (sessizce bozuk varyant yazılmaz).
+    const cleanAttrs: Array<{ optionId: string; valueId: string }> = [];
+    let valid = true;
+    for (const optionId of variantOptionIds) {
+      const found = attrs.find(
+        (a: any) => a && typeof a === 'object' && a.optionId === optionId && typeof a.valueId === 'string'
+      ) as { optionId: string; valueId: string } | undefined;
+      const opt = byId.get(optionId);
+      if (!found || !opt || !opt.values.some(val => val.id === found.valueId)) {
+        valid = false;
+        break;
+      }
+      cleanAttrs.push({ optionId, valueId: found.valueId });
+    }
+    if (!valid) continue;
+
+    const key = cleanAttrs.map(a => `${a.optionId}=${a.valueId}`).join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const stock = Number(v.currentStock);
+    const sale = v.salePrice === undefined || v.salePrice === null || v.salePrice === '' ? undefined : Number(v.salePrice);
+    const purchase = v.purchasePrice === undefined || v.purchasePrice === null || v.purchasePrice === '' ? undefined : Number(v.purchasePrice);
+    const barcode = typeof v.barcode === 'string' && v.barcode.trim() ? v.barcode.trim() : undefined;
+    const name = typeof v.name === 'string' && v.name.trim()
+      ? v.name.trim()
+      : cleanAttrs.map(a => byId.get(a.optionId)?.values.find(val => val.id === a.valueId)?.name || '').filter(Boolean).join(' / ');
+    const imageUrl = typeof v.imageUrl === 'string' && v.imageUrl.trim() ? v.imageUrl.trim() : undefined;
+
+    out.push({
+      id: typeof v.id === 'string' && v.id.trim() ? v.id.trim() : `var-${Date.now()}-${out.length}`,
+      attributes: cleanAttrs,
+      name: name || `Varyant ${out.length + 1}`,
+      barcode,
+      currentStock: Number.isFinite(stock) ? Math.max(0, stock) : 0,
+      salePrice: sale !== undefined && Number.isFinite(sale) ? sale : undefined,
+      purchasePrice: purchase !== undefined && Number.isFinite(purchase) ? purchase : undefined,
+      salePrices: sanitizeProductPrices(v.salePrices),
+      imageUrl,
+      active: v.active !== false,
+      createdAt: typeof v.createdAt === 'string' ? v.createdAt : now,
+      updatedAt: now,
+    });
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+/**
+ * 2026-10-12: Fiyat listesi girdilerini sunucu tarafında temizler.
+ *
+ * Neden gerekli: istemci `salePrices` dizisini olduğu gibi gönderir. Geçersiz
+ * girdiler (boş `priceListId`, sayı olmayan fiyat) diske yazılırsa belge satırı
+ * `NaN` fiyatla hesaplanır ve fatura tutarı bozulur. Bu yüzden yalnızca geçerli
+ * girdiler alınır; aynı listeye ait tekrar eden kayıtlar son değerle tekilleşir.
+ */
+function sanitizeProductPrices(input: unknown): ProductPriceEntry[] {
+  if (!Array.isArray(input)) return [];
+  const byList = new Map<string, ProductPriceEntry>();
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    const priceListId = typeof entry.priceListId === 'string' ? entry.priceListId.trim() : '';
+    if (!priceListId) continue;
+
+    const sale = Number(entry.salePrice);
+    if (!Number.isFinite(sale)) continue;
+
+    const discount = Number(entry.discountRate);
+    const purchase = Number(entry.purchasePrice);
+
+    byList.set(priceListId, {
+      priceListId,
+      salePrice: sale,
+      discountRate: Number.isFinite(discount) ? discount : undefined,
+      purchasePrice: Number.isFinite(purchase) ? purchase : undefined,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  return [...byList.values()];
+}
+
 // Create Product
 productsRouter.post('/', async (req, res) => {
-  const { barcode, code, name, groupId, unit, purchasePrice, salePrice, vatRate, criticalStock, warehouseId, description, imageUrl, initialStock } = req.body;
+  const { barcode, code, name, groupId, unit, purchasePrice, salePrice, salePrices, variantOptionIds, variants, vatRate, criticalStock, warehouseId, description, imageUrl, initialStock } = req.body;
 
-  if (!name || !salePrice) {
-    return res.status(400).json({ success: false, message: 'Ürün adı ve satış fiyatı zorunludur.' });
+  // 2026-10-12: Satış fiyatı artık YALNIZCA `salePrice` değildir — ürün yalnız
+  // fiyat listesi fiyatlarıyla da tanımlanabilir (taban fiyat 0 kalabilir).
+  // Eski kapı `!salePrice` idi ve `salePrice: 0` + dolu `salePrices` kombinasyonunu
+  // reddediyordu; bu, "fiyatı yalnız listeden gelen" ürünü imkânsız kılıyordu.
+  // Zorunluluk şimdi "iki fiyat kanalından en az biri dolu" biçimindedir.
+  const hasBasePrice = salePrice !== undefined && salePrice !== null && salePrice !== '' && Number.isFinite(Number(salePrice));
+  const prices = sanitizeProductPrices(salePrices);
+  if (!name || (!hasBasePrice && prices.length === 0)) {
+    return res.status(400).json({ success: false, message: 'Ürün adı ve en az bir satış fiyatı (taban veya fiyat listesi) zorunludur.' });
   }
 
   try {
@@ -105,10 +220,22 @@ productsRouter.post('/', async (req, res) => {
 
       const group = draft.productGroups.find(g => g.id === groupId);
       const warehouse = draft.warehouses.find(w => w.id === warehouseId) || draft.warehouses[0];
+      const tenantId = req.tenantId || 'tnt-isbey';
+
+      // 2026-10-12: Varyant özellikleri tenant'a ait olmalı (IDOR koruması).
+      // Geçersiz/başka firmaya ait özellik kimliği sessizce ATILIR — varyant
+      // satırı tanımsız özellikle yazılmaz.
+      const tenantOptions = (draft.variantOptions || []).filter(
+        o => o.tenantId === tenantId || (tenantId === 'tnt-isbey' && !o.tenantId)
+      );
+      const cleanOptionIds = Array.isArray(variantOptionIds)
+        ? [...new Set(variantOptionIds.filter(id => typeof id === 'string' && tenantOptions.some(o => o.id === id && o.active !== false)))]
+        : [];
+      const cleanVariants = sanitizeProductVariants(variants, cleanOptionIds, tenantOptions);
 
       const product: Product = {
         id: `prd-${Date.now()}`,
-        tenantId: req.tenantId || 'tnt-isbey',
+        tenantId,
         barcode: productBarcode,
         code: productCode,
         name,
@@ -116,10 +243,23 @@ productsRouter.post('/', async (req, res) => {
         groupName: group?.name || 'Genel',
         unit: unit || 'Adet',
         purchasePrice: Number(purchasePrice) || 0,
-        salePrice: Number(salePrice) || 0,
+        // 2026-10-12: Taban satış fiyatı verilmediyse liste fiyatlarının EN
+        // DÜŞÜĞÜ taban kabul edilir. `salePrice`'ı hâlâ doğrudan okuyan yerler
+        // (POS, raporlar, mobil, stok değerleme) 0 görürse bedava satış riski
+        // doğar; bu yüzden 0 bırakmak yerine güvenli bir taban türetilir.
+        salePrice: hasBasePrice
+          ? Number(salePrice)
+          : (prices.length > 0 ? Math.min(...prices.map(p => p.salePrice)) : 0),
+        salePrices: prices.length > 0 ? prices : undefined,
+        // 2026-10-12: Varyantlı üründe açılış stoğu VARYANT satırlarından gelir;
+        // ürün `initialStock` alanı varyant varsa YOK SAYILIR (çift sayım olmaz).
+        variantOptionIds: cleanOptionIds.length > 0 ? cleanOptionIds : undefined,
+        variants: cleanVariants.length > 0 ? cleanVariants : undefined,
         vatRate: Number(vatRate) !== undefined ? Number(vatRate) : 20,
         criticalStock: Number(criticalStock) || 5,
-        currentStock: Number(initialStock) || 0,
+        currentStock: cleanVariants.length > 0
+          ? cleanVariants.reduce((s, v) => s + (Number(v.currentStock) || 0), 0)
+          : (Number(initialStock) || 0),
         warehouseId: warehouse?.id || 'wh-1',
         warehouseName: warehouse?.name || 'Merkez Depo',
         description: description || '',
@@ -131,8 +271,41 @@ productsRouter.post('/', async (req, res) => {
 
       draft.products.push(product);
 
-      // If initial stock provided, create opening stock movement
-      if (Number(initialStock) > 0) {
+      // 2026-10-12: Varyantlı üründe açılış stoğu VARYANT başına hareketle
+      // kurulur. NEDEN: `recalculateBalances` varyant stoğunu hareketlerden
+      // hesaplar; varyant satırındaki sayı tek başına yetmez (ilk belgede
+      // varyant stoğu sıfırlanırdı). Varyant YOKSA mevcut davranış korunur.
+      if (product.variants && product.variants.length > 0) {
+        const now = new Date().toISOString();
+        const dateStr = now.split('T')[0];
+        for (const v of product.variants) {
+          const qty = Number(v.currentStock) || 0;
+          if (qty <= 0) continue;
+          const movement: StockMovement = {
+            id: `sm-${Date.now()}-${v.id}`,
+            productId: product.id,
+            variantId: v.id,
+            variantName: v.name,
+            productCode: product.code,
+            productName: product.name,
+            warehouseId: product.warehouseId ?? 'wh-1',
+            warehouseName: product.warehouseName,
+            documentNo: `DEV-${new Date().getFullYear()}-001`,
+            documentType: 'ADJUSTMENT',
+            movementType: 'COUNT_ADJUSTMENT',
+            quantity: qty,
+            direction: 'IN',
+            unitPrice: product.purchasePrice,
+            totalAmount: qty * product.purchasePrice,
+            date: dateStr,
+            notes: `Açılış Devir Stoğu (${v.name})`,
+            userId: req.user?.id || 'admin',
+            createdAt: now,
+          };
+          draft.stockMovements.push(movement);
+        }
+      } else if (Number(initialStock) > 0) {
+        // If initial stock provided, create opening stock movement
         const movement: StockMovement = {
           id: `sm-${Date.now()}`,
           productId: product.id,
@@ -187,16 +360,110 @@ productsRouter.put('/:id', async (req, res) => {
       const group = draft.productGroups.find(g => g.id === updateData.groupId);
       const warehouse = draft.warehouses.find(w => w.id === updateData.warehouseId);
 
+      // 2026-10-12: Varyant stok farkı için ÖNCEKİ değerler (`Object.assign`
+      // öncesi snapshot). Ürün kartından varyant stoğu değiştirilirse fark,
+      // düzeltme hareketiyle deftere işlenir; yoksa `recalculateBalances`
+      // ilk belgede değişimi silerdi.
+      const beforeVariantStock = new Map(
+        ((product.variants || []) as import('../db/schema').ProductVariant[]).map(v => [v.id, Number(v.currentStock) || 0])
+      );
+
+      // 2026-10-12: `salePrices` ham gövdeyle yazılamaz — geçersiz girdiler
+      // (boş priceListId, sayı olmayan fiyat) NaN tutar üretir. POST ile aynı
+      // temizleyiciden geçirilir. Alan HİÇ gönderilmediyse mevcut fiyatlar
+      // korunur (kısmi güncelleme `salePrices`'ı silmez); boş dizi gönderilirse
+      // tüm liste fiyatları kaldırılır.
+      const sanitizedPrices = updateData.salePrices !== undefined
+        ? sanitizeProductPrices(updateData.salePrices)
+        : undefined;
+
+      // 2026-10-12: Varyant güncellemesi. `variantOptionIds` HİÇ gönderilmediyse
+      // mevcut varyant yapısı korunur; boş dizi gönderilirse varyantlar TAMAMEN
+      // kaldırılır (ürün varyantsız olur). `variants` gönderildiyse temizlenir.
+      const tenantId = req.tenantId || 'tnt-isbey';
+      const tenantOptions = (draft.variantOptions || []).filter(
+        o => o.tenantId === tenantId || (tenantId === 'tnt-isbey' && !o.tenantId)
+      );
+      let nextOptionIds: string[] | undefined;
+      let nextVariants: import('../db/schema').ProductVariant[] | undefined;
+      let variantsTouched = false;
+      if (updateData.variantOptionIds !== undefined) {
+        variantsTouched = true;
+        const rawIds: unknown[] = Array.isArray(updateData.variantOptionIds) ? updateData.variantOptionIds : [];
+        nextOptionIds = [...new Set(
+          rawIds.filter((id): id is string => typeof id === 'string' && tenantOptions.some(o => o.id === id && o.active !== false))
+        )];
+        nextVariants = sanitizeProductVariants(updateData.variants, nextOptionIds, tenantOptions);
+      } else if (updateData.variants !== undefined) {
+        variantsTouched = true;
+        nextOptionIds = product.variantOptionIds || [];
+        nextVariants = sanitizeProductVariants(updateData.variants, nextOptionIds, tenantOptions);
+      }
+
       Object.assign(product, {
         ...updateData,
         groupName: group ? group.name : product.groupName,
         warehouseName: warehouse ? warehouse.name : product.warehouseName,
         purchasePrice: Number(updateData.purchasePrice ?? product.purchasePrice),
         salePrice: Number(updateData.salePrice ?? product.salePrice),
+        salePrices: sanitizedPrices !== undefined
+          ? (sanitizedPrices.length > 0 ? sanitizedPrices : undefined)
+          : product.salePrices,
+        variantOptionIds: variantsTouched
+          ? (nextOptionIds && nextOptionIds.length > 0 ? nextOptionIds : undefined)
+          : product.variantOptionIds,
+        // Varyant kaldırılırsa `variants` undefined olur; ürün varyantsız olur
+        // ve `currentStock` mevcut değerinde kalır (stok hareketleri korunur).
+        variants: variantsTouched
+          ? (nextVariants && nextVariants.length > 0 ? nextVariants : undefined)
+          : product.variants,
         vatRate: Number(updateData.vatRate ?? product.vatRate),
         criticalStock: Number(updateData.criticalStock ?? product.criticalStock),
         updatedAt: new Date().toISOString(),
       });
+
+      // Varyantlı üründe ürün stoğu = varyant toplamıdır.
+      if (Array.isArray(product.variants) && product.variants.length > 0) {
+        product.currentStock = product.variants.reduce((s, v) => s + (Number(v.currentStock) || 0), 0);
+      }
+
+      // 2026-10-12: Varyant stok FARKI için düzeltme hareketi. Ürün kartından
+      // varyant stoğu değiştirilirse fark deftere işlenir; yoksa
+      // `recalculateBalances` ilk belgede değişimi SİLERDİ. Yeni varyant
+      // (önceden yoktu) için TAMAMI açılış sayılır.
+      if (variantsTouched && Array.isArray(product.variants) && product.variants.length > 0) {
+        const now = new Date().toISOString();
+        const dateStr = now.split('T')[0];
+        for (const v of product.variants as import('../db/schema').ProductVariant[]) {
+          const before = beforeVariantStock.get(v.id);
+          const after = Number(v.currentStock) || 0;
+          const diff = before === undefined ? after : after - before;
+          if (!Number.isFinite(diff) || diff === 0) continue;
+          draft.stockMovements.push({
+            id: `sm-${Date.now()}-${v.id}`,
+            productId: product.id,
+            variantId: v.id,
+            variantName: v.name,
+            productCode: product.code,
+            productName: product.name,
+            warehouseId: product.warehouseId ?? 'wh-1',
+            warehouseName: product.warehouseName,
+            documentNo: `DUZ-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+            documentType: 'ADJUSTMENT',
+            movementType: 'COUNT_ADJUSTMENT',
+            quantity: Math.abs(diff),
+            direction: diff > 0 ? 'IN' : 'OUT',
+            unitPrice: product.purchasePrice,
+            totalAmount: Math.abs(diff) * product.purchasePrice,
+            date: dateStr,
+            notes: before === undefined
+              ? `Varyant açılış stoğu (${v.name})`
+              : `Varyant stok düzeltmesi (${v.name}): ${before} → ${after}`,
+            userId: req.user?.id || 'admin',
+            createdAt: now,
+          });
+        }
+      }
 
       return product;
     });

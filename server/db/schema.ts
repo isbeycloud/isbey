@@ -188,6 +188,11 @@ export interface Customer {
   country?: string;
   iban?: string;
   currency?: string; // 'TRY' | 'USD' | 'EUR' | 'GBP'
+  /**
+   * 2026-10-12: Carinin bağlı olduğu satış fiyat listesi. Belge satırı bu
+   * listenin fiyatını otomatik getirir; boşsa ürünün `salePrice`'ı kullanılır.
+   */
+  priceListId?: string;
   creditLimit?: number;
   riskLimit?: number;
   maturityDays?: number;
@@ -284,6 +289,114 @@ export interface Warehouse {
   updatedAt?: string;
 }
 
+/**
+ * 2026-10-12: İsimli satış fiyat listesi (Perakende, Toptan, Bayi, Proje…).
+ *
+ * Tasarım notu: `Product.salePrice` TEK satış fiyatıdır ve 12+ yerde doğrudan
+ * okunur (fatura, teklif, irsaliye, POS, raporlar). Bu yüzden `salePrice`
+ * KALDIRILMAZ — fiyat listesi yoksa yine o kullanılır (geriye dönük uyum).
+ * Fiyat listesi yalnızca bir "ek" katmandır: ürün kartında listeye özel fiyat
+ * tanımlanır, cari kartı bir listeye bağlanır, belge satırı carinin listesine
+ * göre fiyatlanır ve kullanıcı satırda elle değiştirebilir.
+ */
+export interface PriceList {
+  id: string;
+  tenantId?: string;
+  code: string;
+  name: string;
+  description?: string;
+  /** Listeye özel varsayılan iskonto (%) — satırda ön doldurulur, uygulanması zorunlu değildir. */
+  defaultDiscountRate?: number;
+  /** Tek bir liste "varsayılan" işaretlenebilir; caride liste yoksa bu kullanılır. */
+  isDefault?: boolean;
+  /** Sıralama/öncelik: küçük olan önce gelir. */
+  sortOrder?: number;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Ürünün bir fiyat listesindeki satış fiyatı.
+ *
+ * `Product.salePrices` içinde gömülü tutulur (ayrı koleksiyon değil): ürün
+ * silindiğinde/fiyatı değiştiğinde tek yerde tutarlı kalır ve JSON deposunda
+ * ürün başına okuma/yazma tek kayıtta kalır.
+ */
+export interface ProductPriceEntry {
+  priceListId: string;
+  /** Liste bazlı satış fiyatı (KDV hariç, ürünün para biriminde). */
+  salePrice: number;
+  /** Liste bazlı iskonto (%) — varsa satış fiyatından düşülür. */
+  discountRate?: number;
+  /** Listeye özel alış fiyatı (isteğe bağlı; maliyet takibi listeye göre değişebilir). */
+  purchasePrice?: number;
+  updatedAt?: string;
+}
+
+/**
+ * 2026-10-12: Varyant ÖZELLİĞİ (Renk, Ebat, Malzeme…). Firmaya özeldir
+ * (tenant verisi); aynı özellik (ör. "Ebat: S/M/L") birden çok üründe
+ * kullanılabilir. Değerler gömülü tutulur — özellik silinince değerleri de
+ * gider ve JSON deposunda tek kayıtta tutarlı kalır.
+ */
+export interface VariantOptionValue {
+  id: string;
+  /** Görünen ad (ör. "Kırmızı", "XL", "Pamuk"). */
+  name: string;
+  /** Görsel ipucu (renkler için hex, ör. "#d12131"; diğerlerinde boş). */
+  swatch?: string;
+  sortOrder?: number;
+}
+
+export interface VariantOption {
+  id: string;
+  tenantId?: string;
+  /** Özellik adı (ör. "Renk", "Ebat"). */
+  name: string;
+  /** Tek mi çok mu seçim (çoğu zaman tek; "ekstra malzeme" gibi durumlarda çok). */
+  selectionType?: 'SINGLE' | 'MULTI';
+  values: VariantOptionValue[];
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * 2026-10-12: Ürün VARYANTI (ör. "Tişört / Kırmızı / XL").
+ *
+ * `Product.variants` içinde GÖMÜLÜ tutulur (ayrı koleksiyon değil): ürün
+ * silindiğinde varyantları da gider, ürün kaydıyla atomik yazılır ve varyant
+ * başına okuma tek kayıttadır. Varyantın KENDİ stoğu, barkodu, fiyatı ve
+ * görseli olur — ürün seviyesindeki alanlar yalnızca VARYANTSIZ ürünlerde
+ * veya varyant toplamlarının özeti olarak anlamlıdır.
+ *
+ * STOK KURALI: Varyantlı üründe `Product.currentStock` = varyant stoklarının
+ * TOPLAMIDIR (recalculateBalances hesaplar). Asıl miktar varyant satırındadır.
+ */
+export interface ProductVariant {
+  id: string;
+  /** Ürünün hangi özellikleri kullandığı: [{ optionId, valueId }] */
+  attributes: Array<{ optionId: string; valueId: string }>;
+  /** Görünen varyant adı — otomatik üretilir ("Kırmızı / XL"), elle ezilebilir. */
+  name: string;
+  /** Varyanta özel barkod (boşsa ürünün ana barkodu kullanılır). */
+  barcode?: string;
+  /** Varyantın KENDİ stoğu. */
+  currentStock: number;
+  /** Varyantın KENDİ satış fiyatı (KDV hariç). Boşsa ürünün tabanı geçerli. */
+  salePrice?: number;
+  /** Varyantın KENDİ alış fiyatı (boşsa ürünün alış fiyatı geçerli). */
+  purchasePrice?: number;
+  /** Liste bazlı fiyatlar (varyant × liste matrisi; boşsa ürünün liste fiyatı geçerli). */
+  salePrices?: ProductPriceEntry[];
+  /** Varyanta özel görsel (boşsa ürünün ana görseli). Sunucuya yüklenen dosya yolu. */
+  imageUrl?: string;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Product {
   id: string;
   tenantId?: string;
@@ -304,6 +417,22 @@ export interface Product {
   unitId?: string;
   purchasePrice: number;
   salePrice: number;
+  /**
+   * 2026-10-12: İsimli fiyat listelerine göre satış fiyatları. Opsiyoneldir;
+   * boş/eksikse belge satırı `salePrice`'a düşer (geriye dönük uyum).
+   */
+  salePrices?: ProductPriceEntry[];
+  /**
+   * 2026-10-12: Ürünün kullandığı varyant özellikleri: [{ optionId }].
+   * Kombinasyonlar `variants` içinde tutulur. BOŞSA ürün varyantsızdır ve
+   * mevcut davranış AYNEN korunur (tek stok, tek fiyat, tek barkod).
+   */
+  variantOptionIds?: string[];
+  /**
+   * 2026-10-12: Ürün varyantları. Varyant varsa `currentStock` = varyant
+   * stoklarının toplamıdır (recalculateBalances hesaplar).
+   */
+  variants?: ProductVariant[];
   currency?: string; // 'TRY' | 'USD' | 'EUR'
   vatRate: number;
   otvRate?: number;
@@ -350,6 +479,15 @@ export interface StockMovement {
   id: string;
   tenantId?: string;
   productId: string;
+  /**
+   * 2026-10-12: Hareketin HANGİ varyanta ait olduğu (İZ kaydı). Tutar ve
+   * miktar hesabı değişmez; bu alan yalnız "varyant bazlı stok raporu"
+   * sorusunu yanıtlar ve varyant stoğunu yeniden hesaplamaya yarar.
+   * Varyantsız üründe undefined kalır.
+   */
+  variantId?: string;
+  /** Varyantın görünen adı (raporlarda ürün adı yanında gösterilir). */
+  variantName?: string;
   productCode: string;
   productName: string;
   warehouseId: string;
@@ -375,12 +513,26 @@ export type InvoiceType = 'SALES' | 'PURCHASE' | 'RETAIL_POS' | 'PROFORMA' | 'WA
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
 export type InvoiceStatus = 'ACTIVE' | 'CANCELLED' | 'APPROVED' | 'DRAFT';
 export type InvoiceProfile = 'TICARIFATURA' | 'TEMELFATURA' | 'EARSIVFATURA' | 'IHRACAT' | 'KAMU' | 'HAL';
-export type InvoiceCategory = 'SATIS' | 'IADE' | 'TEVKIFAT' | 'ISTISNA' | 'OZELMATRAH' | 'IHRACKAYITLI';
+/**
+ * 2026-10-12: GİB fatura tipleri (e-Devlet sekmesi). Ekran görüntüsündeki
+ * listeyle birebir: Satış, İade, Tevkifat, İstisna, Özel Matrah, İhraç Kayıtlı,
+ * Konaklama Vergisi, SGK. `InvoiceTypeCode` alanına doğrudan yazılır; GİB'in
+ * kabul ettiği kodlar dışında değer depoya GİRMEZ (sunucu kapısı doğrular).
+ */
+export type InvoiceCategory = 'SATIS' | 'IADE' | 'TEVKIFAT' | 'ISTISNA' | 'OZELMATRAH' | 'IHRACKAYITLI' | 'KONAKLAMA' | 'SGK';
 
 export interface InvoiceItem {
   id: string;
   invoiceId: string;
   productId: string;
+  /**
+   * 2026-10-12: Satırın HANGİ varyanta ait olduğu (İZ kaydı). Tutar hesabı
+   * `unitPrice` üzerinden yapılır; bu alan stok düşüşünün ve fiyatın hangi
+   * varyanttan geldiğini kayda geçirir. Varyantsız üründe undefined.
+   */
+  variantId?: string;
+  /** Varyantın görünen adı (belge çıktısında ürün adının yanında gösterilir). */
+  variantName?: string;
   productCode: string;
   productName: string;
   barcode?: string;
@@ -398,6 +550,13 @@ export interface InvoiceItem {
   withholdingAmount?: number;
   exemptionReasonCode?: string;
   gtipCode?: string;
+  /**
+   * 2026-10-12: Satırın fiyatlandığı liste. Yalnızca İZ KAYDI amaçlıdır —
+   * tutar hesabı `unitPrice` üzerinden yapılır, bu alan sonradan "hangi
+   * listeyle fiyatlandı" sorusunu yanıtlar. Elle değiştirilen fiyatlarda
+   * liste bilgisi de kalabilir (kullanıcı listeyi ezmiş olabilir).
+   */
+  priceListId?: string;
   lineTotal: number;
   lineGrandTotal: number;
 }
@@ -441,6 +600,11 @@ export interface Invoice {
   recipientTaxNumber?: string;
   recipientAliasGB?: string;
   senderAliasPK?: string;
+  /**
+   * 2026-10-12: Faturanın HANGİ seriden numaralandığı (İZ kaydı). Seri
+   * seçilmeden kesilen faturalarda undefined (eski tek sayaçtan gelmiştir).
+   */
+  invoiceSeriesId?: string;
   sourceQuoteId?: string;
   sourceQuoteNo?: string;
   sourceOrderId?: string;
@@ -765,6 +929,10 @@ export interface DocumentSequence {
 export interface QuoteItem {
   id?: string;
   productId: string;
+  /** 2026-10-12: Satırın varyantı (iz kaydı). */
+  variantId?: string;
+  /** 2026-10-12: Varyantın görünen adı. */
+  variantName?: string;
   productCode: string;
   productName: string;
   quantity: number;
@@ -774,6 +942,8 @@ export interface QuoteItem {
   discount2: number;
   vatRate: number;
   vatAmount: number;
+  /** 2026-10-12: Satırın fiyatlandığı liste (iz kaydı). */
+  priceListId?: string;
   lineTotal: number;
   lineGrandTotal: number;
 }
@@ -820,12 +990,18 @@ export interface OrderItem {
   orderedQuantity?: number;
   shippedQuantity?: number;
   remainingQuantity?: number;
+  /** 2026-10-12: Satırın varyantı (iz kaydı). */
+  variantId?: string;
+  /** 2026-10-12: Varyantın görünen adı. */
+  variantName?: string;
   unit: string;
   unitPrice: number;
   discount1: number;
   discount2: number;
   vatRate: number;
   vatAmount: number;
+  /** 2026-10-12: Satırın fiyatlandığı liste (iz kaydı). */
+  priceListId?: string;
   lineTotal: number;
   lineGrandTotal: number;
 }
@@ -863,6 +1039,10 @@ export type WaybillStatus = 'PENDING' | 'INVOICED' | 'CANCELLED';
 export interface WaybillItem {
   id?: string;
   productId: string;
+  /** 2026-10-12: Satırın varyantı (iz kaydı). */
+  variantId?: string;
+  /** 2026-10-12: Varyantın görünen adı. */
+  variantName?: string;
   productCode: string;
   productName: string;
   quantity: number;
@@ -871,6 +1051,8 @@ export interface WaybillItem {
   discount1?: number;
   discount2?: number;
   vatRate: number;
+  /** 2026-10-12: Satırın fiyatlandığı liste (iz kaydı). */
+  priceListId?: string;
   lineTotal: number;
   lineGrandTotal?: number;
 }
@@ -1572,6 +1754,67 @@ export interface DealerAuditLog {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+/**
+ * 2026-10-12: Kullanıcı görünürlük KAPSAMI (muhasebeci yetki kısıtlaması).
+ *
+ * Ekran görüntüsündeki "YETKİLENDİRME" sekmesinin karşılığı: firma yöneticisi,
+ * her muhasebeci (veya personel) kullanıcısı için HANGİ menülerin görüneceğini
+ * ve HANGİ kasa/banka/personel/vergi kayıtlarının açılacağını tek kayıtta tanımlar.
+ *
+ * SEMANTİK:
+ *  - Kayıt YOKSA kullanıcı her şeyi görür (mevcut davranış korunur).
+ *  - `menus` anahtarları KAPALI olan menü gizlenir; belirtilmeyen menü AÇIK
+ *    sayılır (varsayılan-açık: yeni modül eklenince sessizce gizlenmez).
+ *  - Hesap kapsamları BOŞSA o türün tamamı görünür; DOLU ise yalnız listedekiler.
+ *    (Boş = "kısıtlama yok" demektir, "hiçbiri görünmesin" DEĞİL.)
+ */
+export type ScopeMenuKey =
+  | 'dashboard' | 'maas' | 'vergi' | 'finansal-tablolar'
+  | 'alis-faturalari' | 'satis-faturalari' | 'cekler' | 'senetler'
+  | 'masraflar' | 'kdv-detaylari' | 'ba-bs' | 'vadesi-gecenler'
+  | 'stok-durum' | 'banka-hareketleri' | 'musteri-listesi';
+
+/**
+ * 2026-10-12: Fatura SERİSİ (A Serisi, B Serisi…). Fatura ekranında seri
+ * seçilir; belge numarası o serinin sayacından üretilir (`prefix-yıl-sıra`).
+ * Seri SİLİNMEZ — yalnız pasife alınır (kullanılmış numaralar korunur).
+ */
+export interface InvoiceSeries {
+  id: string;
+  tenantId?: string;
+  /** Görünen ad (ör. "A Serisi"). */
+  name: string;
+  /** Numara ön eki (ör. "A", "SAT-A"). */
+  prefix: string;
+  /** Son kullanılan sıra numarası. */
+  lastNumber: number;
+  /** Sıra basamak sayısı (varsayılan 6). */
+  length: number;
+  /** Hangi fatura türleri için (boş = tümü). */
+  invoiceTypes: Array<'SALES' | 'PURCHASE'>;
+  isDefault?: boolean;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserVisibilityScope {
+  id: string;
+  tenantId: string;
+  /** Kapsamın tanımlandığı kullanıcı. */
+  userId: string;
+  /** Menü anahtarları: false = gizli. Belirtilmeyen = açık. */
+  menus: Partial<Record<ScopeMenuKey, boolean>>;
+  /** Görünür kasa/banka hesapları. BOŞ = tamamı görünür. */
+  cashRegisterIds: string[];
+  bankAccountIds: string[];
+  /** Maaş tahakkuklarında görünür personel. BOŞ = tamamı görünür. */
+  employeeIds: string[];
+  /** Vergi tahakkuk türleri. BOŞ = tamamı görünür. */
+  taxTypes: string[];
+  updatedAt: string;
+  updatedBy?: string;
+}
 
 export interface DatabaseState {
   tenantConfigurations?: Record<string, {
@@ -1589,6 +1832,28 @@ export interface DatabaseState {
   productGroups: ProductGroup[];
   warehouses: Warehouse[];
   products: Product[];
+  /**
+   * 2026-10-12: İsimli satış fiyat listeleri (tenant verisi). OPTIONAL tutulur:
+   * eski `database.json` dosyalarında bu alan yoktur ve zorunlu yapılırsa
+   * mevcut veri dosyaları tip hatası verir (bkz. storage.ts merge bloğu).
+   */
+  priceLists?: PriceList[];
+  /**
+   * 2026-10-12: Varyant ÖZELLİK tanımları (Renk, Ebat…). OPTIONAL: eski DB
+   * dosyalarında yoktur, storage merge bloğunda `|| []` ile korunur.
+   */
+  variantOptions?: VariantOption[];
+  /**
+   * 2026-10-12: Kullanıcı görünürlük kapsamları. OPTIONAL: eski DB'de yoktur,
+   * storage merge bloğunda `|| []` ile korunur.
+   */
+  userScopes?: UserVisibilityScope[];
+  /**
+   * 2026-10-12: Fatura SERİ tanımları (A Serisi, B Serisi…). OPTIONAL: eski
+   * DB'de yoktur, storage merge bloğunda `|| []` ile korunur. Her seri kendi
+   * sayacını tutar; fatura ekranında seri seçilir, numara o seriden gelir.
+   */
+  invoiceSeries?: InvoiceSeries[];
   stockMovements: StockMovement[];
   costCenters: CostCenter[];
   quotes: Quote[];

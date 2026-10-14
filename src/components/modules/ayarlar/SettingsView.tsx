@@ -8,6 +8,8 @@ import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
 import { UserManagementTab } from './UserManagementTab';
+import { PriceListManagementTab } from './PriceListManagementTab';
+import { UserScopeTab } from './UserScopeTab';
 import { HizliConnectSettingsTab } from './HizliConnectSettingsTab';
 import { HizliBilisimIntegrationTab } from './HizliBilisimIntegrationTab';
 import { DocumentTemplateEngine } from '../../templates/DocumentTemplateEngine';
@@ -22,7 +24,7 @@ export const SettingsView: React.FC = () => {
   const { showToast } = useToast();
   const { triggerRefresh, openFormDesigner } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'COMPANY' | 'USERS' | 'HIZLI_CONNECT' | 'HIZLI_BILISIM' | 'TEMPLATES' | 'INVOICE_DESIGN' | 'SEQUENCES' | 'BACKUP' | 'AUDIT_LOGS' | 'SYSTEM'>('COMPANY');
+  const [activeTab, setActiveTab] = useState<'COMPANY' | 'USERS' | 'SCOPES' | 'HIZLI_CONNECT' | 'HIZLI_BILISIM' | 'TEMPLATES' | 'INVOICE_DESIGN' | 'SEQUENCES' | 'PRICE_LISTS' | 'BACKUP' | 'AUDIT_LOGS' | 'SYSTEM'>('COMPANY');
 
   // XSLT Document Designer states
   const [selectedXsltTemplateId, setSelectedXsltTemplateId] = useState<string | null>(null);
@@ -259,6 +261,14 @@ export const SettingsView: React.FC = () => {
           <Users size={14} />
           <span>Kullanıcılar & Roller (RBAC)</span>
         </button>
+        {/* 2026-10-12: Kullanıcı yetkilendirme (menü + hesap kapsamı). */}
+        <button
+          className={`btn ${activeTab === 'SCOPES' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          onClick={() => setActiveTab('SCOPES')}
+        >
+          <ShieldCheck size={14} />
+          <span>Yetkilendirme</span>
+        </button>
         <button
           className={`btn ${activeTab === 'HIZLI_CONNECT' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('HIZLI_CONNECT')}
@@ -297,6 +307,14 @@ export const SettingsView: React.FC = () => {
           <Sliders size={14} />
           <span>Belge Numaraları & Seriler</span>
         </button>
+        {/* 2026-10-12: İsimli satış fiyat listeleri (Perakende, Toptan, Bayi…) */}
+        <button
+          className={`btn ${activeTab === 'PRICE_LISTS' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+          onClick={() => setActiveTab('PRICE_LISTS')}
+        >
+          <Star size={14} />
+          <span>Fiyat Listeleri</span>
+        </button>
         <button
           className={`btn ${activeTab === 'SYSTEM' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('SYSTEM')}
@@ -323,6 +341,9 @@ export const SettingsView: React.FC = () => {
       {/* 0. KULLANICI YÖNETİMİ */}
 {activeTab === 'USERS' && <UserManagementTab />}
 
+      {/* 2026-10-12: KULLANICI YETKİLENDİRME (menü + hesap kapsamı) */}
+      {activeTab === 'SCOPES' && <UserScopeTab />}
+
       {/* 0.1 HIZLI TEKNOLOJİ e-CONNECT ENTEGRASYONU */}
       {activeTab === 'HIZLI_CONNECT' && <HizliConnectSettingsTab />}
 
@@ -331,6 +352,9 @@ export const SettingsView: React.FC = () => {
 
       {/* 0.3 FATURA TASARIM MODÜLÜ (FAZ 25.3-A) */}
       {activeTab === 'INVOICE_DESIGN' && <InvoiceDesignTab />}
+
+      {/* 0.4 SATIŞ FİYAT LİSTELERİ (2026-10-12) */}
+      {activeTab === 'PRICE_LISTS' && <PriceListManagementTab />}
 
       {/* 3. PROFESYONEL XSLT BELGE & FATURA TASARIMLARI */}
       {activeTab === 'TEMPLATES' && (

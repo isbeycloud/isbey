@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Modal } from './Modal';
-import type { Product, ProductGroup } from '../../types';
+import type { Product, ProductGroup, ProductVariant } from '../../types';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { QuickProductCreateModal } from './QuickProductCreateModal';
@@ -9,7 +9,11 @@ import { Search, Plus, Barcode, Check, Package, Layers, AlertTriangle, ArrowUpDo
 interface ProductSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (product: Product) => void;
+  /**
+   * 2026-10-12: Varyantlı üründe ikinci parametre seçili varyanttır.
+   * Varyantsız üründe undefined olur — mevcut arayanlar bozulmaz.
+   */
+  onSelect: (product: Product, variant?: ProductVariant) => void;
   priceType?: 'SALE' | 'PURCHASE';
   title?: string;
 }
@@ -31,6 +35,10 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
   const [selectedGroupId, setSelectedGroupId] = useState('ALL');
   const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'CRITICAL' | 'OUT_OF_STOCK'>('ALL');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  // 2026-10-12: Varyant seçim adımı. Varyantlı ürün seçilince tablo yerine
+  // varyant listesi gösterilir; geri dönülebilir.
+  const [variantStepProduct, setVariantStepProduct] = useState<Product | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -42,6 +50,8 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
       setSearchQuery('');
       setBarcodeInput('');
       setSelectedProductId(null);
+      setVariantStepProduct(null);
+      setSelectedVariantId(null);
       setTimeout(() => {
         searchInputRef.current?.focus();
       }, 100);
@@ -115,10 +125,25 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
     if (!barcodeInput.trim()) return;
 
     const b = barcodeInput.trim();
-    const found = products.find(p => p.barcode === b || p.code.toLowerCase() === b.toLowerCase());
-    if (found) {
-      showToast(`Barkod okundu: ${found.name}`, 'success');
-      onSelect(found);
+    // 2026-10-12: Varyant barkodları da aranır. Varyant barkodu okutulursa
+    // ürün + varyant birlikte seçilir (kasiyer varyant seçmek zorunda kalmaz).
+    let foundProduct: Product | undefined;
+    let foundVariant: ProductVariant | undefined;
+    for (const p of products) {
+      if (p.barcode === b || p.code.toLowerCase() === b.toLowerCase()) {
+        foundProduct = p;
+        break;
+      }
+      const v = (p.variants || []).find(vv => vv.barcode === b);
+      if (v) {
+        foundProduct = p;
+        foundVariant = v;
+        break;
+      }
+    }
+    if (foundProduct) {
+      showToast(`Barkod okundu: ${foundVariant ? `${foundProduct.name} (${foundVariant.name})` : foundProduct.name}`, 'success');
+      onSelect(foundProduct, foundVariant);
       onClose();
     } else {
       showToast(`"${b}" barkoduna ait ürün bulunamadı. Yeni ürün ekleyebilirsiniz.`, 'warning');
@@ -127,7 +152,23 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
   };
 
   const handleSelectProduct = (product: Product) => {
+    // 2026-10-12: Varyantlı üründe önce VARYANT seçilir. Varyantsız üründe
+    // doğrudan seçilir (mevcut davranış korunur).
+    const activeVariants = (product.variants || []).filter(v => v.active !== false);
+    if (activeVariants.length > 0) {
+      setVariantStepProduct(product);
+      setSelectedVariantId(activeVariants.length === 1 ? activeVariants[0].id : null);
+      return;
+    }
     onSelect(product);
+    onClose();
+  };
+
+  const handleConfirmVariant = () => {
+    if (!variantStepProduct || !selectedVariantId) return;
+    const variant = (variantStepProduct.variants || []).find(v => v.id === selectedVariantId);
+    if (!variant) return;
+    onSelect(variantStepProduct, variant);
     onClose();
   };
 
@@ -317,6 +358,13 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
                             )}
                             <div>
                               <div>{p.name}</div>
+                              {/* 2026-10-12: Varyantlı ürün rozeti — kasiyer varyant
+                                  seçeceğini önceden görür. */}
+                              {(p.variants || []).filter(v => v.active !== false).length > 0 && (
+                                <div style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600 }}>
+                                  <Layers size={10} /> {(p.variants || []).filter(v => v.active !== false).length} varyant
+                                </div>
+                              )}
                               {p.description && <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{p.description}</div>}
                             </div>
                           </div>
@@ -366,6 +414,84 @@ export const ProductSelectorModal: React.FC<ProductSelectorModalProps> = ({
               Kapat
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* 2026-10-12: VARYANT SEÇİM ADIMI — varyantlı ürün seçilince açılır. */}
+      <Modal
+        isOpen={!!variantStepProduct}
+        onClose={() => { setVariantStepProduct(null); setSelectedVariantId(null); }}
+        title={variantStepProduct ? `Varyant Seçin: ${variantStepProduct.name}` : 'Varyant Seçin'}
+        size="medium"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => { setVariantStepProduct(null); setSelectedVariantId(null); }}
+            >
+              ← Ürünlere Dön
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!selectedVariantId}
+              onClick={handleConfirmVariant}
+            >
+              <Check size={13} /> Varyantı Ekle
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '360px', overflowY: 'auto' }}>
+          {(variantStepProduct?.variants || [])
+            .filter(v => v.active !== false)
+            .map(v => {
+              const selected = selectedVariantId === v.id;
+              const stock = Number(v.currentStock) || 0;
+              const price = priceType === 'PURCHASE'
+                ? (v.purchasePrice ?? variantStepProduct!.purchasePrice)
+                : (v.salePrice ?? variantStepProduct!.salePrice);
+              return (
+                <div
+                  key={v.id}
+                  onClick={() => setSelectedVariantId(v.id)}
+                  onDoubleClick={() => { setSelectedVariantId(v.id); setTimeout(handleConfirmVariant, 0); }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    border: selected ? '2px solid var(--primary)' : '1px solid var(--border-color)',
+                    background: selected ? 'var(--primary-light)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {v.imageUrl || variantStepProduct?.imageUrl ? (
+                    <img
+                      src={v.imageUrl || variantStepProduct?.imageUrl}
+                      alt={v.name}
+                      style={{ width: '34px', height: '34px', borderRadius: '6px', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                    />
+                  ) : null}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{v.name}</div>
+                    {v.barcode && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {v.barcode}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`badge ${stock <= 0 ? 'badge-danger' : 'badge-success'}`}>
+                    {stock} {variantStepProduct?.unit}
+                  </span>
+                  <span style={{ fontWeight: 700, minWidth: '90px', textAlign: 'right' }}>
+                    {Number(price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                  </span>
+                </div>
+              );
+            })}
         </div>
       </Modal>
 

@@ -24,6 +24,7 @@ import {
   CheckSquare,
   Square,
   FileSpreadsheet,
+  FileDown,
   Layers,
   Sparkles,
 } from 'lucide-react';
@@ -191,6 +192,84 @@ export const InvoiceListView: React.FC = () => {
   const handleOpenViewer = (inv: Invoice) => {
     setViewingInvoice(inv);
     setIsViewerModalOpen(true);
+  };
+
+  /**
+   * 2026-10-12: TASLAK PDF — sunucudan yazdırılabilir HTML alınır, yeni
+   * sekmede açılır (tarayıcı yazdırma / PDF kaydetme oradan yapılır).
+   * Gönderilmiş faturalar BURADAN alınamaz (e-belge portalından).
+   */
+  const handleDraftPdf = async (inv: Invoice) => {
+    try {
+      const token = localStorage.getItem('isbey_token');
+      const res = await fetch(`/api/v1/draft-pdfs/outgoing/${encodeURIComponent(inv.id)}/html`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: 'Taslak PDF alınamadı.' }));
+        throw new Error(body.message || 'Taslak PDF alınamadı.');
+      }
+      const html = await res.text();
+      const win = window.open('', '_blank');
+      if (!win) {
+        showToast('Yeni sekme engellendi. Tarayıcı açılır pencere izni verin.', 'warning');
+        return;
+      }
+      win.document.write(html);
+      win.document.close();
+    } catch (err: any) {
+      showToast(err.message || 'Taslak PDF alınamadı.', 'error');
+    }
+  };
+
+  /**
+   * 2026-10-12: TASLAK RAPORU — giden taslakların özet listesi yeni sekmede
+   * açılır (yazdırılabilir tablo: belge, müşteri, tutar, durum).
+   */
+  const handleDraftReport = async () => {
+    try {
+      const token = localStorage.getItem('isbey_token');
+      const res = await fetch('/api/v1/draft-pdfs/report?kind=OUTGOING', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = await res.json();
+      if (!res.ok || !body.success) throw new Error(body.message || 'Rapor alınamadı.');
+      const rows = (body.report?.outgoing || []).map((r: any, i: number) => `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${i + 1}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.documentNo}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.date}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.counterparty}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${Number(r.grandTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${r.currency}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.status}</td>
+        </tr>`).join('');
+      const win = window.open('', '_blank');
+      if (!win) {
+        showToast('Yeni sekme engellendi. Tarayıcı açılır pencere izni verin.', 'warning');
+        return;
+      }
+      win.document.write(`
+      <html><head><meta charset="utf-8"><title>Taslak Satış Faturaları Raporu</title></head>
+      <body style="font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;">
+        <div style="background:#fef3c7;border:2px dashed #d97706;text-align:center;font-weight:800;padding:8px;margin-bottom:16px;">TASLAK RAPORU — MALİ DEĞERİ YOKTUR</div>
+        <h2>Giden Taslak Faturalar (${body.report?.totals?.outgoingCount || 0} belge)</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:#f3f4f6;">
+            <th style="padding:6px 8px;border:1px solid #ddd;">#</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Belge No</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Tarih</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Müşteri</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Toplam</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Durum</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" style="padding:8px;border:1px solid #ddd;text-align:center;">Taslak yok</td></tr>'}</tbody>
+        </table>
+        <p style="font-weight:700;">Toplam: ${Number(body.report?.totals?.outgoingTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</p>
+      </body></html>`);
+      win.document.close();
+    } catch (err: any) {
+      showToast(err.message || 'Rapor alınamadı.', 'error');
+    }
   };
 
   // Filter by E-Invoice status
@@ -404,6 +483,19 @@ export const InvoiceListView: React.FC = () => {
             <Printer size={13} color="var(--primary)" />
           </button>
 
+          {/* 2026-10-12: TASLAK PDF — gönderilmemiş faturanın yazdırılabilir
+              HTML'i (TASLAK damgalı). Gönderilmişte sunucu 409 döner. */}
+          {inv.eInvoiceStatus !== 'SENT' && inv.eInvoiceStatus !== 'DELIVERED' && inv.eInvoiceStatus !== 'ACCEPTED' && (
+            <button
+              className="btn btn-secondary btn-sm"
+              title="Taslak PDF (TASLAK damgalı önizleme)"
+              style={{ padding: '4px 6px' }}
+              onClick={() => handleDraftPdf(inv)}
+            >
+              <FileDown size={13} color="#d97706" />
+            </button>
+          )}
+
           <button
             className="btn btn-secondary btn-sm"
             title="Faturayı İptal Et"
@@ -459,6 +551,16 @@ export const InvoiceListView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* 2026-10-12: TASLAK RAPORU — giden taslakların özet listesi. */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleDraftReport}
+            title="Taslak faturaların özet raporu (TASLAK damgalı)"
+          >
+            <FileDown size={14} />
+            <span>Taslak Raporu</span>
+          </button>
           <button
             type="button"
             className="btn btn-secondary btn-sm"

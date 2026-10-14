@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '../../common/Modal';
-import type { Customer, Product, InvoiceItem, InvoiceProfile, InvoiceCategory } from '../../../types';
+import type { Customer, Product, InvoiceItem, InvoiceProfile, InvoiceCategory, InvoiceSeries } from '../../../types';
+import type { InvoiceDesignConfig } from '../../templates/invoiceDesignConfig';
+import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
@@ -38,9 +40,15 @@ const EXEMPTION_CODES = [
 
 export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClose, invoiceType }) => {
   const { showToast } = useToast();
-  const { triggerRefresh, openPrintModal } = useApp();
+  const { triggerRefresh, openPrintModal, setActiveView } = useApp();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  // 2026-10-12: Fiyat listesi mantığı tek kaynakta (bkz. hooks/usePriceListPricing).
+  const { priceLists, resolvePrice, trackProduct, repriceItems } = usePriceListPricing({
+    isOpen,
+    customer: selectedCustomer,
+    isPurchase: invoiceType === 'PURCHASE',
+  });
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [maturityDate, setMaturityDate] = useState('');
   const [paymentType, setPaymentType] = useState<'OPEN_ACCOUNT' | 'CASH' | 'CREDIT_CARD' | 'BANK_TRANSFER'>('OPEN_ACCOUNT');
@@ -50,6 +58,15 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
   // Advanced E-Invoice / E-Transformation state
   const [invoiceProfile, setInvoiceProfile] = useState<InvoiceProfile>('TICARIFATURA');
   const [invoiceCategory, setInvoiceCategory] = useState<InvoiceCategory>('SATIS');
+  // 2026-10-12: Sekmeli vergi seçimi (Genel / e-Devlet / Diğer) + Diğer sekmesi alanları.
+  const [taxTab, setTaxTab] = useState<'GENEL' | 'EDEVLET' | 'DIGER'>('GENEL');
+  const [replacesDespatch, setReplacesDespatch] = useState(false);
+  const [ettnNo, setEttnNo] = useState('');
+  // 2026-10-12: SERİ + TASARIM seçimi (fatura kayıt ekranı).
+  const [invoiceSeries, setInvoiceSeries] = useState<InvoiceSeries[]>([]);
+  const [selectedSeriesId, setSelectedSeriesId] = useState('');
+  const [designs, setDesigns] = useState<InvoiceDesignConfig[]>([]);
+  const [selectedDesignId, setSelectedDesignId] = useState('');
   const [withholdingCode, setWithholdingCode] = useState('');
   const [withholdingRate, setWithholdingRate] = useState<number>(0);
   const [exemptionCode, setExemptionCode] = useState('');
@@ -85,9 +102,28 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
   useEffect(() => {
     if (isOpen) {
       resetForm();
+      // 2026-10-12: Seri + tasarım listeleri (yükleme hatası faturayı ENGELLEMEZ;
+      // liste yoksa seri seçimi gizlenir, tasarım varsayılanla yazdırılır).
+      api.getInvoiceSeries({ type: invoiceType === 'PURCHASE' ? 'PURCHASE' : 'SALES', activeOnly: true })
+        .then(res => {
+          if (res.success) {
+            setInvoiceSeries(res.invoiceSeries);
+            const def = res.invoiceSeries.find(s => s.isDefault) || res.invoiceSeries[0];
+            setSelectedSeriesId(def?.id || '');
+          }
+        })
+        .catch(err => console.error(err));
+      api.getInvoiceDesigns()
+        .then(res => {
+          if (res.success && Array.isArray(res.invoiceDesigns)) {
+            setDesigns(res.invoiceDesigns);
+            const def = res.invoiceDesigns.find((d: any) => d.isDefault) || res.invoiceDesigns[0];
+            setSelectedDesignId(def?.id || '');
+          }
+        })
+        .catch(err => console.error(err));
     }
   }, [isOpen, invoiceType]);
-
   // Handle Taxpayer Check when Customer changes
   useEffect(() => {
     let active = true;
@@ -166,7 +202,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, selectedCustomer, items, date, maturityDate, paymentType, notes, invoiceProfile, invoiceCategory, withholdingCode, withholdingRate, exemptionCode, currency, exchangeRate, taxpayerInfo, taxpayerError, isTaxpayerChecking]);
+  }, [isOpen, selectedCustomer, items, date, maturityDate, paymentType, notes, invoiceProfile, invoiceCategory, withholdingCode, withholdingRate, exemptionCode, currency, exchangeRate, taxpayerInfo, taxpayerError, isTaxpayerChecking, taxTab, replacesDespatch, ettnNo]);
 
   const resetForm = () => {
     setSelectedCustomer(null);
@@ -184,21 +220,34 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
     setCurrency('TRY');
     setExchangeRate(1);
     setTaxpayerInfo(null);
+    setSelectedSeriesId('');
+    setSelectedDesignId('');
+    setTaxTab('GENEL');
+    setReplacesDespatch(false);
+    setEttnNo('');
   };
 
-  const handleSelectCustomer = (cust: Customer) => {
-    setSelectedCustomer(cust);
+  const handleSelectCustomer = (cust: Customer) => {    setSelectedCustomer(cust);
     const mat = new Date(new Date(date).getTime() + (cust.maturityDays || 30) * 24 * 3600 * 1000)
       .toISOString()
       .split('T')[0];
     setMaturityDate(mat);
   };
 
-  const handleAddProductToItems = (product: Product) => {
-    const unitPrice = invoiceType === 'PURCHASE' ? product.purchasePrice : product.salePrice;
+  const handleAddProductToItems = (product: Product, variant?: import('../../../types').ProductVariant) => {
+    // 2026-10-12: Fiyat artık carinin fiyat listesine + VARYANTA göre çözülür.
+    // Cari seçili değilse veya listede fiyat yoksa ürünün taban fiyatına düşer;
+    // varyant fiyatı varsa o geçerlidir (bkz. utils/priceResolver).
+    const resolved = resolvePrice(product, variant);
+    const unitPrice = resolved.unitPrice;
     const vatRate = product.vatRate || 20;
+    const label = variant ? `${product.name} (${variant.name})` : product.name;
 
-    const existingIndex = items.findIndex(it => it.productId === product.id);
+    // Aynı ürün + AYNI varyant tekrar eklenirse miktar artar. Farklı varyant
+    // AYRI satır olur (stok ve fiyat varyanta aittir).
+    const existingIndex = items.findIndex(
+      it => it.productId === product.id && (it.variantId || undefined) === (variant?.id || undefined)
+    );
     if (existingIndex >= 0) {
       const updated = [...items];
       const existing = updated[existingIndex];
@@ -213,15 +262,18 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         lineGrandTotal: discounted + vAmount,
       };
       setItems(updated);
-      showToast(`"${product.name}" miktarı artırıldı: ${newQty} ${product.unit}`, 'info');
+      showToast(`"${label}" miktarı artırıldı: ${newQty} ${product.unit}`, 'info');
       return;
     }
 
     const newItem: InvoiceItem = {
       productId: product.id,
+      // 2026-10-12: Varyant izi (sunucu stok düşüşünü buradan yapar).
+      variantId: variant?.id,
+      variantName: variant?.name,
       productCode: product.code,
-      productName: product.name,
-      barcode: product.barcode,
+      productName: label,
+      barcode: variant?.barcode || product.barcode,
       quantity: 1,
       unit: product.unit,
       unitPrice,
@@ -231,13 +283,42 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
       vatRate,
       vatAmount: unitPrice * (vatRate / 100),
       vatIncluded: false,
+      // 2026-10-12: Fiyatın hangi listeden geldiğinin izi (taban fiyatsa undefined).
+      priceListId: resolved.priceListId,
       lineTotal: unitPrice,
       lineGrandTotal: unitPrice * (1 + vatRate / 100),
     };
 
     setItems(prev => [...prev, newItem]);
-    showToast(`"${product.name}" faturaya eklendi.`, 'success');
+    // Fiyat listesi değişiminde yeniden fiyatlayabilmek için ürünü ve
+    // "el değmemiş" fiyatı hatırla (bkz. cari değişim effect'i).
+    trackProduct(product, unitPrice, variant);
+    showToast(`"${label}" faturaya eklendi.`, 'success');
   };
+
+  /**
+   * 2026-10-12: Cari (veya carinin fiyat listesi) değişince mevcut satırları
+   * yeniden fiyatla. Elle düzenlenmiş satırlara DOKUNULMAZ; kural tek yerde
+   * (usePriceListPricing) yaşar ki tüm belgeler aynı davransın.
+   */
+  useEffect(() => {
+    setItems(prevItems =>
+      repriceItems(prevItems, (item, unitPrice, priceListId) => {
+        const qty = item.quantity || 1;
+        const afterDisc = qty * unitPrice * (1 - (item.discount1 || 0) / 100) * (1 - (item.discount2 || 0) / 100);
+        const vatAmt = afterDisc * (item.vatRate / 100);
+        return {
+          ...item,
+          unitPrice,
+          priceListId,
+          discountAmount: qty * unitPrice - afterDisc,
+          lineTotal: afterDisc,
+          vatAmount: vatAmt,
+          lineGrandTotal: afterDisc + vatAmt,
+        };
+      })
+    );
+  }, [selectedCustomer, priceLists, repriceItems]);
 
   // Fast Barcode Scan Handler
   const handleBarcodeScan = async (e: React.FormEvent) => {
@@ -345,6 +426,9 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
       const res = await api.createInvoice({
         type: invoiceType,
         customerId: selectedCustomer.id,
+        // 2026-10-12: Seri seçildiyse numara o seriden gelir; seçilmediyse
+        // sunucu eski tek sayacı kullanır. Tasarım seçimi yazdırma önizlemesine taşınır.
+        invoiceSeriesId: selectedSeriesId || undefined,
         date,
         maturityDate,
         paymentType,
@@ -366,7 +450,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         showToast(res.message, 'success');
         triggerRefresh();
         onClose();
-        openPrintModal('A4_INVOICE', `${res.invoice.invoiceNo} Faturası`, res.invoice);
+        openPrintModal('A4_INVOICE', `${res.invoice.invoiceNo} Faturası`, res.invoice, selectedDesignId || undefined);
       }
     } catch (err: any) {
       showToast(err.message || 'Fatura kaydedilemedi.', 'error');
@@ -524,42 +608,197 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Fatura Senaryosu</label>
-                <select
-                  className="form-select"
-                  value={invoiceProfile}
-                  onChange={e => setInvoiceProfile(e.target.value as any)}
-                >
-                  <option value="TICARIFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Ticari Fatura (Kabul/Red)</option>
-                  <option value="TEMELFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Temel Fatura (Doğrudan Kabul)</option>
-                  <option value="EARSIVFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === true}>e-Arşiv Fatura (Bireysel/GİB)</option>
-                  <option value="IHRACAT">İhracat Faturası (GÇB)</option>
-                  <option value="KAMU">Kamu Faturası</option>
-                  <option value="HAL">Hal Faturası</option>
-                </select>
-              </div>
+              {/* 2026-10-12: SERİ + TASARIM seçimi. Seri YOKSA bu iki alan
+                  gizlenir (eski tek sayaç + varsayılan tasarım kullanılır). */}
+              {invoiceSeries.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Belge Serisi</label>
+                  <select
+                    className="form-select"
+                    value={selectedSeriesId}
+                    onChange={e => setSelectedSeriesId(e.target.value)}
+                    title={invoiceSeries.find(s => s.id === selectedSeriesId)?.nextPreview
+                      ? `Sıradaki: ${invoiceSeries.find(s => s.id === selectedSeriesId)?.nextPreview}`
+                      : undefined}
+                  >
+                    <option value="">Otomatik (varsayılan sayaç)</option>
+                    {invoiceSeries.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.prefix}){s.nextPreview ? ` — Sıradaki: ${s.nextPreview}` : ''}{s.isDefault ? ' ★' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-              <div className="form-group">
-                <label className="form-label">Fatura Tipi / Türü</label>
-                <select
-                  className="form-select"
-                  value={invoiceCategory}
-                  onChange={e => handleCategoryChange(e.target.value as any)}
-                >
-                  <option value="SATIS">Satış Faturası</option>
-                  <option value="IADE">İade Faturası</option>
-                  <option value="TEVKIFAT">Tevkifatlı Fatura</option>
-                  <option value="ISTISNA">İstisna Faturası (0 KDV)</option>
-                  <option value="OZELMATRAH">Özel Matrah</option>
-                  <option value="IHRACKAYITLI">İhraç Kayıtlı Teslim</option>
-                </select>
+              {designs.length > 1 && (
+                <div className="form-group">
+                  <label className="form-label">e-Belge Tasarımı</label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <select
+                      className="form-select"
+                      style={{ flex: 1 }}
+                      value={selectedDesignId}
+                      onChange={e => setSelectedDesignId(e.target.value)}
+                    >
+                      {designs.map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}{d.isDefault ? ' (Varsayılan)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      title="Tasarımı düzenle (Ayarlar > Fatura Tasarımı)"
+                      onClick={() => {
+                        setActiveView('ayarlar');
+                        onClose();
+                        showToast('Ayarlar > Fatura Tasarımı bölümünden tasarımı düzenleyebilirsiniz.', 'info');
+                      }}
+                    >
+                      Düzenle
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 2026-10-12: SEKMELİ VERGİ SEÇİMİ (Genel / e-Devlet / Diğer).
+                  e-Devlet sekmesinde senaryo + GİB fatura tipi seçilir. */}
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <div style={{ display: 'flex', gap: '16px', borderBottom: '1px solid var(--border-color)', marginBottom: '10px' }}>
+                  {(['GENEL', 'EDEVLET', 'DIGER'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setTaxTab(tab)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '6px 2px',
+                        fontSize: '12px',
+                        fontWeight: taxTab === tab ? 700 : 400,
+                        color: taxTab === tab ? 'var(--primary)' : 'var(--text-muted)',
+                        borderBottom: taxTab === tab ? '2px solid var(--primary)' : '2px solid transparent',
+                        marginBottom: '-1px',
+                      }}
+                    >
+                      {tab === 'GENEL' ? 'Genel' : tab === 'EDEVLET' ? 'e-Devlet' : 'Diğer'}
+                    </button>
+                  ))}
+                </div>
+
+                {taxTab === 'GENEL' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label className="form-label">Fatura Tipi / Türü</label>
+                      <select
+                        className="form-select"
+                        value={['SATIS', 'IADE'].includes(invoiceCategory) ? invoiceCategory : 'SATIS'}
+                        onChange={e => handleCategoryChange(e.target.value as any)}
+                      >
+                        <option value="SATIS">Satış Faturası</option>
+                        <option value="IADE">İade Faturası</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Para Birimi</label>
+                      <select
+                        className="form-select"
+                        value={currency}
+                        onChange={e => setCurrency(e.target.value as any)}
+                      >
+                        <option value="TRY">TRY (Türk Lirası)</option>
+                        <option value="USD">USD (Amerikan Doları)</option>
+                        <option value="EUR">EUR (Euro)</option>
+                        <option value="GBP">GBP (İngiliz Sterlini)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {taxTab === 'EDEVLET' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label className="form-label">Senaryo</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value="Ticari Fatura"
+                        disabled
+                        title="Senaryo alıcının mükellefiyetine göre otomatik belirlenir"
+                      />
+                      <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--text-muted)' }}>
+                        Senaryo: {invoiceProfile === 'TICARIFATURA' ? 'Ticari Fatura' : invoiceProfile === 'TEMELFATURA' ? 'Temel Fatura' : 'e-Arşiv'}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="form-label">GİB Fatura Tipi</label>
+                      <select
+                        className="form-select"
+                        value={invoiceCategory}
+                        onChange={e => handleCategoryChange(e.target.value as any)}
+                      >
+                        <option value="SATIS">Satış</option>
+                        <option value="IADE">İade</option>
+                        <option value="TEVKIFAT">Tevkifat</option>
+                        <option value="ISTISNA">İstisna (0 KDV)</option>
+                        <option value="OZELMATRAH">Özel Matrah</option>
+                        <option value="IHRACKAYITLI">İhraç Kayıtlı</option>
+                        <option value="KONAKLAMA">Konaklama Vergisi</option>
+                        <option value="SGK">SGK</option>
+                      </select>
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <label className="form-label">Fatura Senaryosu (detay)</label>
+                      <select
+                        className="form-select"
+                        value={invoiceProfile}
+                        onChange={e => setInvoiceProfile(e.target.value as any)}
+                      >
+                        <option value="TICARIFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Ticari Fatura (Kabul/Red)</option>
+                        <option value="TEMELFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === false}>Temel Fatura (Doğrudan Kabul)</option>
+                        <option value="EARSIVFATURA" disabled={invoiceType === 'SALES' && taxpayerInfo?.isEInvoiceUser === true}>e-Arşiv Fatura (Bireysel/GİB)</option>
+                        <option value="IHRACAT">İhracat Faturası (GÇB)</option>
+                        <option value="KAMU">Kamu Faturası</option>
+                        <option value="HAL">Hal Faturası</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {taxTab === 'DIGER' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label className="form-label">İrsaliye Yerine Geçer</label>
+                      <select
+                        className="form-select"
+                        value={replacesDespatch ? 'EVET' : 'HAYIR'}
+                        onChange={e => setReplacesDespatch(e.target.value === 'EVET')}
+                      >
+                        <option value="HAYIR">Hayır</option>
+                        <option value="EVET">Evet</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">ETTN No</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={ettnNo}
+                        onChange={e => setEttnNo(e.target.value)}
+                        placeholder="Otomatik (kaydederken üretilir)"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* 2. TEVKİFAT, İSTİSNA & DÖVİZ EK AYAR PANELİ (Şarta Bağlı) */}
-          {(invoiceCategory === 'TEVKIFAT' || invoiceCategory === 'ISTISNA' || currency !== 'TRY') && (
+          {/* 2. TEVKİFAT, İSTİSNA, ÖZEL MATRAH, KONAKLAMA, SGK & DÖVİZ EK AYAR PANELİ (Şarta Bağlı) */}
+          {(invoiceCategory === 'TEVKIFAT' || invoiceCategory === 'ISTISNA' || invoiceCategory === 'OZELMATRAH' || invoiceCategory === 'KONAKLAMA' || invoiceCategory === 'SGK' || currency !== 'TRY') && (
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 14px', display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '12px' }}>
               {invoiceCategory === 'TEVKIFAT' && (
                 <div className="form-group" style={{ margin: 0 }}>
@@ -593,6 +832,22 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
                       </option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* 2026-10-12: Yeni GİB tipleri bilgi paneli (hesap mantığı değişmez;
+                  tip `InvoiceTypeCode` alanına yazılır, KDV/matrah hesabı aynı kalır). */}
+              {(invoiceCategory === 'OZELMATRAH' || invoiceCategory === 'KONAKLAMA' || invoiceCategory === 'SGK' || invoiceCategory === 'IHRACKAYITLI') && (
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ color: '#166534', fontWeight: 700 }}>
+                    {invoiceCategory === 'OZELMATRAH' ? 'Özel Matrah' : invoiceCategory === 'KONAKLAMA' ? 'Konaklama Vergisi' : invoiceCategory === 'SGK' ? 'SGK' : 'İhraç Kayıtlı Teslim'}
+                  </label>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '8px 10px' }}>
+                    {invoiceCategory === 'OZELMATRAH' && 'GİB tipi "Özel Matrah" olarak işlenir. Matrah ve KDV hesabı mevcut kalem tutarlarından yapılır.'}
+                    {invoiceCategory === 'KONAKLAMA' && 'GİB tipi "Konaklama Vergisi" olarak işlenir. Konaklama vergisi kalem tutarlarına dahildir.'}
+                    {invoiceCategory === 'SGK' && 'GİB tipi "SGK" olarak işlenir. SGK kesintisi ayrıca hesaplanmaz, brüt tutar korunur.'}
+                    {invoiceCategory === 'IHRACKAYITLI' && 'GİB tipi "İhraç Kayıtlı" olarak işlenir. İhracat istisnası ayrıca belge gerektirir.'}
+                  </div>
                 </div>
               )}
 

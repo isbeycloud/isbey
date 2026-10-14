@@ -219,9 +219,12 @@
 
   /* ─── Layout Dimensions ─── */
   --header-height:             56px;
-  --ribbon-height:             96px;
+  /* 2026-10-12: içerik 68px iken buton (52px) + grup başlığı (~16px) + dikey
+     padding (10px) = ~78px sığmıyor, grup başlıkları ("Tasarım &
+     Yapılandırma", "Multi-Tenant & Güvenlik") alttan kesiliyordu. */
+  --ribbon-height:             108px;
   --ribbon-tab-height:         28px;
-  --ribbon-content-height:     68px;
+  --ribbon-content-height:     80px;
   --sidebar-width:             250px;
   --sidebar-collapsed-width:   60px;
   --statusbar-height:          26px;

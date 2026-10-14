@@ -126,8 +126,10 @@ interface AppContextType {
   setSelectedEInvoiceInvoiceId: (id: string | null) => void;
 
   // Print modal
-  printData: { open: boolean; type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT'; title: string; payload: any } | null;
-  openPrintModal: (type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT', title: string, payload: any) => void;
+  // 2026-10-12: `designId` — önizlemede hangi e-belge tasarımının seçili
+  // geleceği (fatura ekranından taşınır; yoksa varsayılan kullanılır).
+  printData: { open: boolean; type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT'; title: string; payload: any; designId?: string } | null;
+  openPrintModal: (type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT', title: string, payload: any, designId?: string) => void;
   closePrintModal: () => void;
 
   // Data refresh trigger
@@ -198,7 +200,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   const [isEInvoiceModalOpen, setIsEInvoiceModalOpen] = useState(false);
   const [selectedEInvoiceInvoiceId, setSelectedEInvoiceInvoiceId] = useState<string | null>(null);
 
-  const [printData, setPrintData] = useState<{ open: boolean; type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT'; title: string; payload: any } | null>(null);
+  const [printData, setPrintData] = useState<{ open: boolean; type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT'; title: string; payload: any; designId?: string } | null>(null);
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -248,8 +250,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
     setRefreshKey(prev => prev + 1);
   };
 
-  const openPrintModal = (type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT', title: string, payload: any) => {
-    setPrintData({ open: true, type, title, payload });
+  const openPrintModal = (type: 'A4_INVOICE' | 'THERMAL_80MM' | 'STATEMENT' | 'QUOTE' | 'WAYBILL' | 'REPORT', title: string, payload: any, designId?: string) => {
+    setPrintData({ open: true, type, title, payload, designId });
   };
 
 

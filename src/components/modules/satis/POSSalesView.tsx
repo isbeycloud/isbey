@@ -23,6 +23,7 @@ import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
 import { soundFX } from '../../../utils/sound';
+import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { CustomerSelectorModal } from '../../common/CustomerSelectorModal';
 import { QuickCustomerCreateModal } from '../../common/QuickCustomerCreateModal';
 import { ProductImageEditModal } from '../../common/ProductImageEditModal';
@@ -86,6 +87,13 @@ export const POSSalesView: React.FC = () => {
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId) || null;
 
+  // 2026-10-12: POS'ta da carinin fiyat listesi geçerlidir. POS kalıcı bir
+  // ekran olduğu için `isOpen` daima true'dur; liste bir kez yüklenir.
+  const { resolvePrice, trackProduct, repriceItems } = usePriceListPricing({
+    isOpen: true,
+    customer: selectedCustomer,
+  });
+
   const handleSelectCustomer = (customer: Customer) => {
     setSelectedCustomerId(customer.id);
     if (!customers.some(c => c.id === customer.id)) {
@@ -95,6 +103,29 @@ export const POSSalesView: React.FC = () => {
     showToast(`Cari seçildi: ${customer.title}`, 'info');
     focusBarcodeInput();
   };
+
+  /**
+   * 2026-10-12: Cari değişince sepetteki elle dokunulmamış satırları yeniden
+   * fiyatla. POS'ta tüm tutarlar KDV DAHİL olduğundan dönüşüm burada yapılır;
+   * elle düzenlenmiş satırlara dokunulmaz (kural: usePriceListPricing).
+   */
+  useEffect(() => {
+    setBasket(prevItems =>
+      repriceItems(prevItems, (item, unitPrice, priceListId) => {
+        const qty = Number(item.quantity) || 1;
+        const lineGross = qty * unitPrice * (1 - (Number(item.discount1) || 0) / 100);
+        const lineNet = lineGross / (1 + (Number(item.vatRate) || 0) / 100);
+        return {
+          ...item,
+          unitPrice,
+          priceListId,
+          vatAmount: Math.round((lineGross - lineNet) * 100) / 100,
+          lineTotal: Math.round(lineNet * 100) / 100,
+          lineGrandTotal: Math.round(lineGross * 100) / 100,
+        };
+      })
+    );
+  }, [selectedCustomerId, repriceItems]);
 
   const handleQuickCustomerCreated = (customer: Customer) => {
     setCustomers(prev => [customer, ...prev]);
@@ -115,15 +146,23 @@ export const POSSalesView: React.FC = () => {
   };
 
   // Add Product to Basket (or increment if already exists)
-  const addProductToBasket = (product: Product) => {
+  // 2026-10-12: Varyantlı üründe varyant ayrı satır olur (stok+fiyat varyanta ait).
+  const addProductToBasket = (product: Product, variant?: import('../../../types').ProductVariant) => {
     soundFX.playBeep();
-    if (product.currentStock <= 0) {
-      showToast(`Uyarı: "${product.name}" için mevcut stok 0'dır!`, 'warning');
+    const available = variant ? Number(variant.currentStock) || 0 : product.currentStock;
+    const label = variant ? `${product.name} (${variant.name})` : product.name;
+    if (available <= 0) {
+      showToast(`Uyarı: "${label}" için mevcut stok 0'dır!`, 'warning');
     }
 
+    // Fiyat, sepet güncelleyicisinin DIŞINDA bir kez çözülür: state
+    // güncelleyicisi saf kalmalı ve StrictMode'da iki kez çalışabilir.
+    const resolved = resolvePrice(product, variant);
 
     setBasket(prev => {
-      const existingIndex = prev.findIndex(item => item.productId === product.id);
+      const existingIndex = prev.findIndex(
+        item => item.productId === product.id && (item.variantId || undefined) === (variant?.id || undefined)
+      );
       if (existingIndex > -1) {
         // Increment quantity
         const updated = [...prev];
@@ -142,15 +181,19 @@ export const POSSalesView: React.FC = () => {
       } else {
         // Add new line
         const vatRate = product.vatRate || 20;
-        const unitPrice = product.salePrice;
+        // 2026-10-12: POS fiyatı da carinin listesinden gelir; liste yoksa
+        // ürünün taban salePrice'ına düşer (mevcut perakende davranışı).
+        const unitPrice = resolved.unitPrice;
         const lineGross = unitPrice;
         const lineNet = lineGross / (1 + vatRate / 100);
 
         const newItem: InvoiceItem = {
           productId: product.id,
+          variantId: variant?.id,
+          variantName: variant?.name,
           productCode: product.code,
-          productName: product.name,
-          barcode: product.barcode,
+          productName: label,
+          barcode: variant?.barcode || product.barcode,
           quantity: 1,
           unit: product.unit,
           unitPrice,
@@ -160,6 +203,7 @@ export const POSSalesView: React.FC = () => {
           vatRate,
           vatAmount: Math.round((lineGross - lineNet) * 100) / 100,
           vatIncluded: true,
+          priceListId: resolved.priceListId,
           lineTotal: Math.round(lineNet * 100) / 100,
           lineGrandTotal: Math.round(lineGross * 100) / 100,
         };
@@ -167,7 +211,8 @@ export const POSSalesView: React.FC = () => {
       }
     });
 
-    showToast(`"${product.name}" sepete eklendi.`, 'success');
+    trackProduct(product, resolved.unitPrice, variant);
+    showToast(`"${label}" sepete eklendi.`, 'success');
   };
 
   // Barcode enter trigger
@@ -176,12 +221,24 @@ export const POSSalesView: React.FC = () => {
     if (!barcodeInput.trim()) return;
 
     const query = barcodeInput.trim().toLowerCase();
-    const product = products.find(
-      p => p.barcode === query || p.code.toLowerCase() === query || p.name.toLowerCase().includes(query)
-    );
+    // 2026-10-12: Varyant barkodları da aranır.
+    let foundProduct: Product | undefined;
+    let foundVariant: import('../../../types').ProductVariant | undefined;
+    for (const p of products) {
+      if (p.barcode === query || p.code.toLowerCase() === query) {
+        foundProduct = p;
+        break;
+      }
+      const v = (p.variants || []).find(vv => vv.barcode === query);
+      if (v) {
+        foundProduct = p;
+        foundVariant = v;
+        break;
+      }
+    }
 
-    if (product) {
-      addProductToBasket(product);
+    if (foundProduct) {
+      addProductToBasket(foundProduct, foundVariant);
       setBarcodeInput('');
     } else {
       showToast(`"${barcodeInput}" barkoduna sahip ürün bulunamadı.`, 'error');

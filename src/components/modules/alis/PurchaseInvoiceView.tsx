@@ -19,6 +19,7 @@ import {
   RefreshCw,
   CheckCircle2,
   DownloadCloud,
+  FileDown,
 } from 'lucide-react';
 
 export const PurchaseInvoiceView: React.FC = () => {
@@ -65,6 +66,92 @@ export const PurchaseInvoiceView: React.FC = () => {
   const handlePrint = (inv: Invoice) => {
     setViewingInvoice(inv);
     setIsViewerModalOpen(true);
+  };
+
+  /**
+   * 2026-10-12: TASLAK PDF (giden alış taslağı) + GELEN havuz belgesi PDF'i.
+   * Sunucudan yazdırılabilir HTML alınır, yeni sekmede açılır.
+   */
+  const handleDraftPdf = async (inv: Invoice) => {
+    try {
+      const token = localStorage.getItem('isbey_token');
+      const res = await fetch(`/api/v1/draft-pdfs/outgoing/${encodeURIComponent(inv.id)}/html`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: 'Taslak PDF alınamadı.' }));
+        throw new Error(body.message || 'Taslak PDF alınamadı.');
+      }
+      const win = window.open('', '_blank');
+      if (!win) {
+        showToast('Yeni sekme engellendi. Tarayıcı açılır pencere izni verin.', 'warning');
+        return;
+      }
+      win.document.write(await res.text());
+      win.document.close();
+    } catch (err: any) {
+      showToast(err.message || 'Taslak PDF alınamadı.', 'error');
+    }
+  };
+
+  /**
+   * 2026-10-12: GELEN + GİDEN taslak raporu (alış ekranından iki yönlü).
+   */
+  const handleDraftReport = async () => {
+    try {
+      const token = localStorage.getItem('isbey_token');
+      const res = await fetch('/api/v1/draft-pdfs/report?kind=ALL', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = await res.json();
+      if (!res.ok || !body.success) throw new Error(body.message || 'Rapor alınamadı.');
+      const row = (r: any, i: number) => `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${i + 1}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.documentNo}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.date}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.counterparty}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${Number(r.grandTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${r.currency}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;">${r.status}</td>
+        </tr>`;
+      const win = window.open('', '_blank');
+      if (!win) {
+        showToast('Yeni sekme engellendi. Tarayıcı açılır pencere izni verin.', 'warning');
+        return;
+      }
+      win.document.write(`
+      <html><head><meta charset="utf-8"><title>Taslak Faturalar Raporu (Gelen + Giden)</title></head>
+      <body style="font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;">
+        <div style="background:#fef3c7;border:2px dashed #d97706;text-align:center;font-weight:800;padding:8px;margin-bottom:16px;">TASLAK RAPORU — MALİ DEĞERİ YOKTUR</div>
+        <h2>Giden Taslaklar (${body.report?.totals?.outgoingCount || 0} belge — ${Number(body.report?.totals?.outgoingTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺)</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px;">
+          <thead><tr style="background:#f3f4f6;">
+            <th style="padding:6px 8px;border:1px solid #ddd;">#</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Belge No</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Tarih</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Karşı Taraf</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Toplam</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Durum</th>
+          </tr></thead>
+          <tbody>${(body.report?.outgoing || []).map(row).join('') || '<tr><td colspan="6" style="padding:8px;border:1px solid #ddd;text-align:center;">Taslak yok</td></tr>'}</tbody>
+        </table>
+        <h2>Gelen Taslaklar (${body.report?.totals?.incomingCount || 0} belge — ${Number(body.report?.totals?.incomingTotal || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺)</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:#f3f4f6;">
+            <th style="padding:6px 8px;border:1px solid #ddd;">#</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Belge No</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Tarih</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Karşı Taraf</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Toplam</th>
+            <th style="padding:6px 8px;border:1px solid #ddd;">Durum</th>
+          </tr></thead>
+          <tbody>${(body.report?.incoming || []).map(row).join('') || '<tr><td colspan="6" style="padding:8px;border:1px solid #ddd;text-align:center;">Taslak yok</td></tr>'}</tbody>
+        </table>
+      </body></html>`);
+      win.document.close();
+    } catch (err: any) {
+      showToast(err.message || 'Rapor alınamadı.', 'error');
+    }
   };
 
   const handleDelete = async (inv: Invoice) => {
@@ -254,6 +341,15 @@ export const PurchaseInvoiceView: React.FC = () => {
           >
             <Printer size={13} />
           </button>
+          {/* 2026-10-12: TASLAK PDF (TASLAK damgalı). */}
+          <button
+            className="btn btn-secondary btn-sm"
+            title="Taslak PDF (TASLAK damgalı önizleme)"
+            style={{ padding: '4px 6px' }}
+            onClick={() => handleDraftPdf(inv)}
+          >
+            <FileDown size={13} color="#d97706" />
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             title="İptal Et"
@@ -276,6 +372,16 @@ export const PurchaseInvoiceView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* 2026-10-12: GELEN + GİDEN taslak raporu. */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleDraftReport}
+            title="Gelen + giden taslakların özet raporu (TASLAK damgalı)"
+          >
+            <FileDown size={14} />
+            <span>Taslak Raporu</span>
+          </button>
           <button
             type="button"
             className="btn btn-secondary"

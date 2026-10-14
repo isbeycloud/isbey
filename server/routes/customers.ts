@@ -87,7 +87,7 @@ customersRouter.get('/:id/statement', requirePermission(PERMISSIONS.CUSTOMERS_VI
 
 // Create Customer
 customersRouter.post('/', requirePermission(PERMISSIONS.CUSTOMERS_CREATE), async (req, res) => {
-  const { title, contactName, taxNumber, taxOffice, phone, email, address, city, district, iban, type, riskLimit, maturityDays, notes } = req.body;
+  const { title, contactName, taxNumber, taxOffice, phone, email, address, city, district, iban, type, riskLimit, maturityDays, notes, priceListId } = req.body;
 
   if (!title || !phone) {
     return res.status(400).json({ success: false, message: 'Ünvan ve Telefon alanları zorunludur.' });
@@ -113,6 +113,9 @@ customersRouter.post('/', requirePermission(PERMISSIONS.CUSTOMERS_CREATE), async
         district: district || '',
         iban: iban || '',
         type: type || 'CUSTOMER',
+        // 2026-10-12: Carinin satış fiyat listesi. Boş/verilmemişse belge satırı
+        // ürünün taban `salePrice`'ına düşer (mevcut davranış korunur).
+        priceListId: priceListId || undefined,
         riskLimit: Number(riskLimit) || 100000,
         maturityDays: Number(maturityDays) || 30,
         notes: notes || '',
@@ -147,7 +150,7 @@ customersRouter.post('/', requirePermission(PERMISSIONS.CUSTOMERS_CREATE), async
 // Update Customer
 customersRouter.put('/:id', requirePermission(PERMISSIONS.CUSTOMERS_UPDATE), async (req, res) => {
   const { id } = req.params;
-  const fields = ['title', 'contactName', 'taxNumber', 'taxOffice', 'phone', 'email', 'address', 'city', 'district', 'iban', 'type', 'riskLimit', 'maturityDays', 'notes', 'active'];
+  const fields = ['title', 'contactName', 'taxNumber', 'taxOffice', 'phone', 'email', 'address', 'city', 'district', 'iban', 'type', 'priceListId', 'riskLimit', 'maturityDays', 'notes', 'active'];
   const updateData = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(req.body, key)).map(key => [key, req.body[key]]));
   if (!storage.getState().customers.some(c => c.id === id && c.tenantId === req.tenantId)) {
     return res.status(404).json({ success: false, message: 'Cari kart bulunamadı.' });

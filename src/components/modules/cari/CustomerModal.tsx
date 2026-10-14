@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../../common/Modal';
-import type { Customer, CustomerType } from '../../../types';
+import type { Customer, CustomerType, PriceList } from '../../../types';
 import { api } from '../../../services/api';
 
 import { useToast } from '../../../context/ToastContext';
@@ -16,6 +16,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({ isOpen, onClose, c
   const { showToast } = useToast();
   const { triggerRefresh } = useApp();
 
+  // 2026-10-12: Carinin bağlanabileceği satış fiyat listeleri.
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
+
   const [formData, setFormData] = useState({
     title: '',
     contactName: '',
@@ -28,10 +31,20 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({ isOpen, onClose, c
     city: 'İstanbul',
     district: '',
     iban: '',
+    priceListId: '',
     riskLimit: 100000,
     maturityDays: 30,
     notes: '',
   });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Fiyat listesi yükleme hatası cari kaydını ENGELLEMEZ: liste seçimi
+    // isteğe bağlıdır, uç düşse bile taban fiyatla çalışmaya devam edilir.
+    api.getPriceLists({ activeOnly: true })
+      .then(res => { if (res.success) setPriceLists(res.priceLists); })
+      .catch(err => console.error(err));
+  }, [isOpen]);
 
   useEffect(() => {
     if (customerToEdit) {
@@ -47,6 +60,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({ isOpen, onClose, c
         city: customerToEdit.city || 'İstanbul',
         district: customerToEdit.district || '',
         iban: customerToEdit.iban || '',
+        priceListId: customerToEdit.priceListId || '',
         riskLimit: customerToEdit.riskLimit || 100000,
         maturityDays: customerToEdit.maturityDays || 30,
         notes: customerToEdit.notes || '',
@@ -64,6 +78,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({ isOpen, onClose, c
         city: 'İstanbul',
         district: '',
         iban: '',
+        priceListId: '',
         riskLimit: 100000,
         maturityDays: 30,
         notes: '',
@@ -155,6 +170,24 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({ isOpen, onClose, c
               value={formData.phone}
               onChange={e => setFormData({ ...formData, phone: e.target.value })}
             />
+          </div>
+
+          {/* 2026-10-12: Carinin satış fiyat listesi. Belge satırı bu listenin
+              fiyatını otomatik getirir; boşsa ürünün taban fiyatı kullanılır. */}
+          <div className="form-group">
+            <label className="form-label">Satış Fiyat Listesi</label>
+            <select
+              className="form-select"
+              value={formData.priceListId}
+              onChange={e => setFormData({ ...formData, priceListId: e.target.value })}
+            >
+              <option value="">Taban Fiyat (liste yok)</option>
+              {priceLists.map(list => (
+                <option key={list.id} value={list.id}>
+                  {list.name}{list.isDefault ? ' (Varsayılan)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-group">

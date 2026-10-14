@@ -1,5 +1,6 @@
 import { BrandLogo } from '../common/BrandLogo';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { api } from '../../services/api';
 // 2026-09-13 (ölü kod temizliği): LayoutDashboard, Wallet, Calendar, Sparkles
 // burada içe aktarılıyordu ama hiçbir modül meta verisinde kullanılmıyordu.
 import {
@@ -47,6 +48,46 @@ interface ModuleMeta {
   icon: React.ReactNode;
   badge?: string;
   badgeColor?: string;
+}
+
+/**
+ * 2026-10-12: Kullanıcı kapsamı → sidebar modül eşlemesi. Kapsam menüleri
+ * muhasebeci ekranındaki adlardır; burada uygulamanın modül kimliklerine
+ * çevrilir. Eşlenmeyen modül KISITLANMAZ (varsayılan-açık).
+ */
+const SCOPE_TO_MODULES: Record<string, string[]> = {
+  'dashboard': ['dashboard'],
+  'maas': ['personel'],
+  'vergi': ['vergi'],
+  'finansal-tablolar': ['muhasebe', 'raporlar'],
+  'alis-faturalari': ['alis', 'faturalar'],
+  'satis-faturalari': ['satis', 'faturalar'],
+  'cekler': ['ceksenet'],
+  'senetler': ['ceksenet'],
+  'masraflar': ['gider'],
+  'kdv-detaylari': ['vergi', 'muhasebe'],
+  'ba-bs': ['muhasebe', 'raporlar'],
+  'vadesi-gecenler': ['cari', 'raporlar'],
+  'stok-durum': ['stok'],
+  'banka-hareketleri': ['kasa', 'banka'],
+  'musteri-listesi': ['cari'],
+};
+
+/**
+ * Kapsam menüsü kapalıysa ilgili modülleri gizler. Kapsam YOKSA (null) veya
+ * menü belirtilmemişse modül AÇIK kalır.
+ */
+function scopeAllowsModule(
+  scopeMenus: Partial<Record<string, boolean>> | null,
+  moduleId: string
+): boolean {
+  if (!scopeMenus) return true;
+  for (const [scopeKey, visible] of Object.entries(scopeMenus)) {
+    if (visible === false && (SCOPE_TO_MODULES[scopeKey] || []).includes(moduleId)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ─── Tüm Modüllerin Meta Verisi (SÖZLEŞME: değişmedi — M3 reskin yalnız görsel) ──
@@ -117,8 +158,22 @@ export const Sidebar: React.FC = () => {
 
   const userRole = user?.role || 'employee';
 
+  // 2026-10-12: Kullanıcı görünürlük KAPSAMI (muhasebeci yetki kısıtlaması).
+  // Kapsamı olan kullanıcıda kapalı menüler sidebar'dan gizlenir. Yükleme
+  // hatası menüleri ENGELLEMEZ (kapsam yok sayılır, tam görünüm).
+  const [scopeMenus, setScopeMenus] = useState<Partial<Record<string, boolean>> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getMyScope()
+      .then(res => {
+        if (!cancelled && res.success && res.scope) setScopeMenus(res.scope.menus || {});
+      })
+      .catch(() => { /* kapsam okunamazsa tam görünüm */ });
+    return () => { cancelled = true; };
+  }, []);
+
   // FAZ 17: Role-based sidebar modüllerini al (SÖZLEŞME: aynen korunur)
-  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id)) }));
+  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id) && scopeAllowsModule(scopeMenus, id)) }));
   sidebarGroups.push({ groupLabel: 'HİZMETLER', moduleIds: ['hizmetler'] });
 
   const handleNav = (id: AppView, ribbonTab: RibbonTab) => {

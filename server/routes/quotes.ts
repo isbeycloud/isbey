@@ -58,7 +58,7 @@ router.post('/', async (req: Request, res: Response) => {
         subTotal += lineTotal;
         totalDiscount += discAmount;
         totalVat += vatAmount;
-        return { id: 'qi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, productCode: item.productCode || product?.code || '', productName: item.productName || product?.name || '', quantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, vatAmount, lineTotal, lineGrandTotal };
+        return { id: 'qi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, productCode: item.productCode || product?.code || '', productName: item.productName || product?.name || '', quantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, vatAmount, lineTotal, lineGrandTotal, priceListId: typeof item.priceListId === 'string' && item.priceListId.trim() ? item.priceListId.trim() : undefined };
       });
       const grandTotal = Math.round((subTotal + totalVat) * 100) / 100;
       const newQuote: Quote = { id: 'quote-' + Date.now(), quoteNo, type, customerId, customerCode: customer.code, customerTitle: customer.title, date, validUntil: validUntil || new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0], subTotal: Math.round(subTotal * 100) / 100, totalDiscount: Math.round(totalDiscount * 100) / 100, totalVat: Math.round(totalVat * 100) / 100, grandTotal, status: 'SENT', termsAndConditions, paymentTerms, deliveryTerms, notes, items: processedItems, userId: 'usr-1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -213,7 +213,7 @@ router.post('/orders', async (req: Request, res: Response) => {
         subTotal += lineTotal;
         totalDiscount += baseTotal - afterDisc;
         totalVat += vatAmount;
-        return { id: 'oi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, productCode: item.productCode || product?.code || '', productName: item.productName || product?.name || '', orderedQuantity: qty, shippedQuantity: 0, remainingQuantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, vatAmount, lineTotal, lineGrandTotal };
+        return { id: 'oi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, productCode: item.productCode || product?.code || '', productName: item.productName || product?.name || '', orderedQuantity: qty, shippedQuantity: 0, remainingQuantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, vatAmount, lineTotal, lineGrandTotal, priceListId: typeof item.priceListId === 'string' && item.priceListId.trim() ? item.priceListId.trim() : undefined };
       });
       const grandTotal = Math.round((subTotal + totalVat) * 100) / 100;
       const newOrder: Order = { id: 'ord-' + Date.now(), orderNo, type, customerId, customerCode: customer.code, customerTitle: customer.title, date, deliveryDate: deliveryDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0], subTotal: Math.round(subTotal * 100) / 100, totalDiscount: Math.round(totalDiscount * 100) / 100, totalVat: Math.round(totalVat * 100) / 100, grandTotal, status: 'CONFIRMED', warehouseId, notes, items: processedItems, userId: 'usr-1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };

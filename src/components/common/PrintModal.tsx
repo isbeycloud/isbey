@@ -19,6 +19,10 @@ export const PrintModal: React.FC = () => {
   const [templateSettings, setTemplateSettings] = useState<DocumentTemplateSettings | undefined>(undefined);
   // FAZ 25.3-A3: varsayılan fatura tasarımı (varsa) — yazdırma/önizlemeye uygulanır
   const [invoiceDesign, setInvoiceDesign] = useState<InvoiceDesignConfig | undefined>(undefined);
+  // 2026-10-12: Önizlemede tasarım SEÇİMİ (fatura ekranından gelen seçim).
+  // Yalnız A4 fatura çıktısında kullanılır; seçim yoksa varsayılan geçerli.
+  const [designList, setDesignList] = useState<InvoiceDesignConfig[]>([]);
+  const [selectedDesignId, setSelectedDesignId] = useState<string>('');
 
   useEffect(() => {
     if (printData?.open) {
@@ -32,8 +36,13 @@ export const PrintModal: React.FC = () => {
       api.getInvoiceDesigns().then(res => {
         if (res.success && Array.isArray(res.invoiceDesigns)) {
           const designs = res.invoiceDesigns.map((d: any) => d);
-          const def = designs.find((d: any) => d.isDefault) || designs[0];
-          if (def) setInvoiceDesign(def);
+          setDesignList(designs);
+          // 2026-10-12: Fatura ekranından seçim geldiyse o kullanılır.
+          const wanted = (printData as any)?.designId;
+          const chosen = (wanted && designs.find((d: any) => d.id === wanted)) ||
+            designs.find((d: any) => d.isDefault) || designs[0];
+          setSelectedDesignId(chosen?.id || '');
+          if (chosen) setInvoiceDesign(chosen);
           else setInvoiceDesign(undefined);
         }
       }).catch(() => {
@@ -41,7 +50,12 @@ export const PrintModal: React.FC = () => {
           const raw = localStorage.getItem('isbey_invoice_designs_v1');
           if (raw) {
             const list = JSON.parse(raw) as InvoiceDesignConfig[];
-            setInvoiceDesign(list.find(d => d.isDefault) || list[0]);
+            setDesignList(list);
+            const wanted = (printData as any)?.designId;
+            const chosen = (wanted && list.find(d => d.id === wanted)) ||
+              list.find(d => d.isDefault) || list[0];
+            setSelectedDesignId(chosen?.id || '');
+            setInvoiceDesign(chosen);
           }
         } catch { /* sessiz — varsayılan tema kullanılır */ }
       });
@@ -152,6 +166,27 @@ export const PrintModal: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* 2026-10-12: Önizlemede e-belge TASARIM SEÇİMİ (yalnız A4 fatura).
+                Fatura ekranından seçim geldiyse o ön seçilidir. */}
+            {type === 'A4_INVOICE' && designList.length > 1 && (
+              <select
+                className="form-select"
+                style={{ maxWidth: '220px', fontSize: '12px' }}
+                value={selectedDesignId}
+                onChange={e => {
+                  setSelectedDesignId(e.target.value);
+                  const chosen = designList.find(d => d.id === e.target.value);
+                  if (chosen) setInvoiceDesign(chosen);
+                }}
+                title="e-Belge tasarımını seçin"
+              >
+                {designList.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}{d.isDefault ? ' (Varsayılan)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
             {/* SEÇENEK 1: TARAYICI İLE YAZDIR */}
             <button
               className="btn btn-secondary btn-sm"

@@ -77,6 +77,43 @@ const suites = [
   // arama terimi sanip TUM kayitlari eliyordu. buildQuery yalniz dolu degerleri gecirir.
   // Aga CIKMAZ (saf fonksiyon + router filtresinin kopyasi).
   'hizliQueryParamSanitizeTest.mjs',
+  // 2026-10-12: İSİMLİ SATIŞ FİYAT LİSTELERİ (Perakende/Toptan/Bayi…).
+  // Ürün başına tek `salePrice` alanına ek olarak liste bazlı fiyatlar,
+  // carinin listeye bağlanması ve belge satırının o listeye göre fiyatlanması.
+  // Bu dosya şunları ölçer: liste CRUD + tek varsayılan kuralı, liste SİLİNMEZ
+  // (pasife alınır — bağlı cariler korunur), tenant izolasyonu (IDOR),
+  // geçersiz fiyat girdilerinin diske yazılmaması (NaN tutar koruması),
+  // kısmi güncellemede fiyatların korunması, "ne taban ne liste fiyatı yoksa
+  // ürün açılmaz" kapısı, salePrice=0'ın geçerli olması ve GERİYE DÖNÜK UYUM
+  // (listesiz üründe salePrice AYNEN kalır). Ağa ÇIKMAZ.
+  'priceListContractTest.ts',
+  // 2026-10-12: ÜRÜN VARYANTLARI + SUNUCU GÖRSEL YÜKLEME. Özellik tanımları
+  // (Renk/Ebat…), ürün varyantları (kendi stoğu/barkodu/fiyatı), belge satırında
+  // varyant zorunluluğu ve `data/uploads/products/` altına görsel kaydetme.
+  // Bu dosya şunları ölçer: özellik CRUD + pasife alma, değer kimliği koruması,
+  // tenant izolasyonu (IDOR), geçersiz varyant atılması, varyantsız üründe
+  // davranışın korunması, varyant stok düşüşü ve toplam formülünün değişmemesi,
+  // görsel mime/boyut kapıları ve tenant klasörü dışına erişilememesi. Ağa ÇIKMAZ.
+  'variantContractTest.ts',
+  // 2026-10-12: KULLANICI GÖRÜNÜRLÜK KAPSAMI (muhasebeci yetkilendirme).
+  // Menü anahtarları + kasa/banka/personel/vergi kapsamı ve bu kapsamın VERİ
+  // uçlarında (kasa/banka listeleme) gerçekten uygulanması. Kapsam yoksa tam
+  // görünüm, boş liste kısıtlama değil, IDOR koruması ve audit kaydı ölçülür.
+  // Ağa ÇIKMAZ.
+  'userScopeContractTest.ts',
+  // 2026-10-12: FATURA SERİLERİ (A/B Serisi…). Seri seçimi, sayaç ilerlemesi,
+  // yabancı/pasif seri reddi, sayaç geri alınamaz, tenant izolasyonu ve
+  // serisiz faturada eski sayaca düşüş (geriye dönük uyum). Ağa ÇIKMAZ.
+  'invoiceSeriesContractTest.ts',
+  // 2026-10-12: TASLAK FATURA PDF (gelen + giden). Sunucu yazdırılabilir HTML
+  // üretir (TASLAK damgalı), istemci PDF'e çevirir. Gönderilmiş/işlenmiş belge
+  // buradan alınamaz, TASLAK bandı zorunlu, tutarlar ERP kaydıyla birebir.
+  // Ağa ÇIKMAZ (sunucuda PDF motoru yoktur).
+  'draftPdfContractTest.ts',
+  // 2026-10-12: GİB FATURA TİPLERİ (sekmeli vergi seçimi). 8 geçerli tip
+  // (KONAKLAMA + SGK dahil) aynen saklanır, geçersiz tip 400, hesap formülü
+  // değişmez. Ağa ÇIKMAZ.
+  'invoiceTaxTypeContractTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {

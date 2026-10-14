@@ -8,14 +8,21 @@ export const banksRouter = Router();
 banksRouter.use(requireAuth);
 banksRouter.use(resolveTenant);
 
-// List all bank accounts (Tenant Isolated)
+// List all bank accounts (Tenant Isolated + KAPSAM filtresi)
 banksRouter.get('/', (req, res) => {
   const db = storage.getState();
   const tenantId = req.tenantId || 'tnt-isbey';
-  const bankAccounts = (db.bankAccounts || []).filter(b => 
+  const bankAccounts = (db.bankAccounts || []).filter(b =>
     b.id.includes(tenantId) || tenantId === 'tnt-isbey' || b.isDefault
   );
-  res.json({ success: true, bankAccounts: bankAccounts.length > 0 ? bankAccounts : db.bankAccounts });
+  // 2026-10-12: Kullanıcı kapsamı DOLU ise yalnız listedeki hesaplar döner.
+  const scope = (db.userScopes || []).find(
+    s => s.userId === String((req as any).user?.id || '') && s.tenantId === tenantId
+  );
+  const visible = (scope && scope.bankAccountIds.length > 0)
+    ? bankAccounts.filter(b => scope.bankAccountIds.includes(b.id))
+    : bankAccounts;
+  res.json({ success: true, bankAccounts: visible.length > 0 ? visible : (scope?.bankAccountIds.length ? visible : db.bankAccounts) });
 });
 
 // List bank transactions (Tenant Isolated)

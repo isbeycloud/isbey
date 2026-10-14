@@ -48,17 +48,28 @@ router.post('/', async (req: Request, res: Response) => {
         const afterDisc = qty * unitPrice * (1 - disc1 / 100) * (1 - disc2 / 100);
         const lineTotal = Math.round(afterDisc * 100) / 100;
         const lineGrandTotal = Math.round(afterDisc * (1 + vatRate / 100) * 100) / 100;
+        // 2026-10-12: Varyant kontrolü — varyantlı üründe satır varyantsız
+        // geçemez (hangi varyanttan düşüleceği belirsiz olurdu).
+        let variant: import('../db/schema').ProductVariant | undefined;
+        const variantId = typeof item.variantId === 'string' && item.variantId.trim() ? item.variantId.trim() : undefined;
+        if (product && Array.isArray(product.variants) && product.variants.length > 0) {
+          if (!variantId) throw new Error('Varyant seçimi zorunlu: ' + product.name + ' için bir varyant seçin.');
+          variant = product.variants.find(v => v.id === variantId && v.active !== false);
+          if (!variant) throw new Error('Varyant bulunamadı: ' + product.name);
+        }
         // Stock check for outbound
         if (type === 'SALES_DESPATCH' && product) {
-          if (product.currentStock < qty) throw new Error('Yetersiz stok: ' + product.name + ' (Mevcut: ' + product.currentStock + ', Istenen: ' + qty + ')');
+          const available = variant ? Number(variant.currentStock) || 0 : product.currentStock;
+          const label = variant ? product.name + ' (' + variant.name + ')' : product.name;
+          if (available < qty) throw new Error('Yetersiz stok: ' + label + ' (Mevcut: ' + available + ', Istenen: ' + qty + ')');
         }
-        return { id: 'wi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, productCode: item.productCode || product?.code || '', productName: item.productName || product?.name || '', quantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, lineTotal, lineGrandTotal };
+        return { id: 'wi-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: item.productId, variantId: variant?.id, variantName: variant?.name, productCode: item.productCode || product?.code || '', productName: variant ? (item.productName || product?.name || '') + ' (' + variant.name + ')' : (item.productName || product?.name || ''), quantity: qty, unit: item.unit || product?.unit || 'Adet', unitPrice, discount1: disc1, discount2: disc2, vatRate, lineTotal, lineGrandTotal, priceListId: typeof item.priceListId === 'string' && item.priceListId.trim() ? item.priceListId.trim() : undefined };
       });
       const newWaybill: Waybill = { id: waybillId, waybillNo, type, customerId, customerCode: customer.code, customerTitle: customer.title, date, shipmentDate, warehouseId, status: 'PENDING', carrierTitle, plateNumber, driverName, notes, items: processedItems, userId: 'usr-1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       draft.waybills.unshift(newWaybill);
       // Immediate stock movements
       for (const wi of processedItems) {
-        draft.stockMovements.push({ id: 'sm-wb-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: wi.productId, productCode: wi.productCode, productName: wi.productName, warehouseId, documentNo: waybillNo, documentId: waybillId, documentType: 'WAYBILL', movementType: type === 'SALES_DESPATCH' ? 'WAYBILL_OUT' : 'WAYBILL_IN', quantity: wi.quantity, direction: type === 'SALES_DESPATCH' ? 'OUT' : 'IN', unitPrice: wi.unitPrice, totalAmount: wi.lineTotal, date: shipmentDate, notes: 'Irsaliye: ' + waybillNo, userId: 'usr-1', createdAt: new Date().toISOString() });
+        draft.stockMovements.push({ id: 'sm-wb-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4), productId: wi.productId, variantId: (wi as any).variantId, variantName: (wi as any).variantName, productCode: wi.productCode, productName: wi.productName, warehouseId, documentNo: waybillNo, documentId: waybillId, documentType: 'WAYBILL', movementType: type === 'SALES_DESPATCH' ? 'WAYBILL_OUT' : 'WAYBILL_IN', quantity: wi.quantity, direction: type === 'SALES_DESPATCH' ? 'OUT' : 'IN', unitPrice: wi.unitPrice, totalAmount: wi.lineTotal, date: shipmentDate, notes: 'Irsaliye: ' + waybillNo, userId: 'usr-1', createdAt: new Date().toISOString() });
       }
       storage.addAuditLog({ userId: 'usr-1', username: 'admin', action: 'CREATE', module: 'IRSALIYE', documentNo: waybillNo, ipAddress: '127.0.0.1', details: waybillNo + ' - ' + customer.title + ' irsaliyesi olusturuldu.' });
       return newWaybill;

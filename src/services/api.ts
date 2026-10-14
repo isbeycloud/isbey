@@ -2,6 +2,11 @@ import type {
   User,
   Customer,
   Product,
+  PriceList,
+  VariantOption,
+  VariantOptionValue,
+  UserVisibilityScope,
+  InvoiceSeries,
   Invoice,
   Quote,
   Order,
@@ -361,6 +366,56 @@ export const api = {
   adjustStock: (data: any) => request<{ success: boolean; movement: any; message: string }>('/products/adjust', { method: 'POST', body: JSON.stringify(data) }),
   transferStock: (data: any) => request<{ success: boolean; message: string }>('/products/transfer', { method: 'POST', body: JSON.stringify(data) }),
 
+  // ── Fiyat Listeleri (2026-10-12) ─────────────────────────────────────────
+  // İsimli satış fiyat listeleri: Perakende, Toptan, Bayi, Proje…
+  // Silme ucu YOKTUR; `deletePriceList` listeyi pasife alır (bkz. sunucu rotası).
+  getPriceLists: (params?: { activeOnly?: boolean }) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; priceLists: PriceList[] }>(`/v1/price-lists${query}`);
+  },
+  createPriceList: (data: Partial<PriceList>) =>
+    request<{ success: boolean; priceList: PriceList; message: string }>('/v1/price-lists', { method: 'POST', body: JSON.stringify(data) }),
+  updatePriceList: (id: string, data: Partial<PriceList>) =>
+    request<{ success: boolean; priceList: PriceList; message: string }>(`/v1/price-lists/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deletePriceList: (id: string) =>
+    request<{ success: boolean; priceList: PriceList; message: string }>(`/v1/price-lists/${id}`, { method: 'DELETE' }),
+
+  // ── Varyant Özellikleri (2026-10-12) ─────────────────────────────────
+  // Silme ucu YOKTUR; `deleteVariantOption` pasife alır (ürün atıfları korunur).
+  getVariantOptions: (params?: { activeOnly?: boolean }) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; variantOptions: VariantOption[] }>(`/v1/variant-options${query}`);
+  },
+  createVariantOption: (data: Omit<Partial<VariantOption>, 'values'> & { values?: Array<Partial<VariantOptionValue>> }) =>
+    request<{ success: boolean; variantOption: VariantOption; message: string }>('/v1/variant-options', { method: 'POST', body: JSON.stringify(data) }),
+  updateVariantOption: (id: string, data: Omit<Partial<VariantOption>, 'values'> & { values?: Array<Partial<VariantOptionValue>> }) =>
+    request<{ success: boolean; variantOption: VariantOption; message: string }>(`/v1/variant-options/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteVariantOption: (id: string) =>
+    request<{ success: boolean; variantOption: VariantOption; message: string }>(`/v1/variant-options/${id}`, { method: 'DELETE' }),
+
+  // ── Ürün Görseli Yükleme (2026-10-12) ─────────────────────────────────
+  // Dosya sunucuya kaydedilir (`data/uploads/products/<tenant>/`); dış URL
+  // zorunluluğu kalkar. 5 MB + 4096px kapıları sunucuda zorlanır.
+  uploadProductImage: async (file: File): Promise<{ success: boolean; url: string; width?: number; height?: number; needsResize?: boolean; message: string }> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    // FormData gönderiminde Content-Type BAŞLIĞI KONULMAZ — tarayıcı boundary
+    // ile kendisi üretir; elle JSON başlığı konulursa sunucu gövdeyi okuyamaz.
+    const token = localStorage.getItem('isbey_token');
+    const res = await fetch(`${API_BASE}/v1/product-images`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const body = await res.json().catch(() => ({ success: false, message: 'Sunucu yanıtı okunamadı.' }));
+    if (!res.ok || !body.success) {
+      throw new Error(body.message || 'Görsel yüklenemedi.');
+    }
+    return body;
+  },
+  deleteProductImage: (url: string) =>
+    request<{ success: boolean; message: string }>('/v1/product-images', { method: 'DELETE', body: JSON.stringify({ url }) }),
+
   // Invoices & Sales
   getInvoices: (params?: { type?: string; customerId?: string; status?: string; search?: string; startDate?: string; endDate?: string }) => {
     const query = buildQuery(params as Record<string, unknown>);
@@ -478,6 +533,31 @@ export const api = {
   createUser: (data: any) => request<{ success: boolean; user: User; message: string }>('/users', { method: 'POST', body: JSON.stringify(data) }),
   updateUser: (id: string, data: any) => request<{ success: boolean; user: User; message: string }>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteUser: (id: string) => request<{ success: boolean; message: string }>(`/users/${id}`, { method: 'DELETE' }),
+
+  // ── Kullanıcı Görünürlük Kapsamı (2026-10-12) ─────────────────────────
+  // Muhasebeci/personel için menü + hesap kısıtlaması. Kayıt yoksa her şey görünür.
+  getUserScope: (userId: string) =>
+    request<{ success: boolean; scope: UserVisibilityScope | null }>(`/v1/user-scopes?userId=${encodeURIComponent(userId)}`),
+  getMyScope: () =>
+    request<{ success: boolean; scope: UserVisibilityScope | null }>('/v1/user-scopes/me'),
+  updateUserScope: (userId: string, data: Partial<UserVisibilityScope>) =>
+    request<{ success: boolean; scope: UserVisibilityScope; message: string }>(`/v1/user-scopes/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteUserScope: (userId: string) =>
+    request<{ success: boolean; message: string }>(`/v1/user-scopes/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+
+  // ── Fatura Serileri (2026-10-12) ─────────────────────────────────────
+  // Fatura ekranında seri seçilir; numara o seriden gelir. Seri seçilmezse
+  // eski tek sayaç kullanılır. Silme ucu YOKTUR; pasife alır.
+  getInvoiceSeries: (params?: { type?: 'SALES' | 'PURCHASE'; activeOnly?: boolean }) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; invoiceSeries: InvoiceSeries[] }>(`/v1/invoice-series${query}`);
+  },
+  createInvoiceSeries: (data: Partial<InvoiceSeries>) =>
+    request<{ success: boolean; invoiceSeries: InvoiceSeries; message: string }>('/v1/invoice-series', { method: 'POST', body: JSON.stringify(data) }),
+  updateInvoiceSeries: (id: string, data: Partial<InvoiceSeries>) =>
+    request<{ success: boolean; invoiceSeries: InvoiceSeries; message: string }>(`/v1/invoice-series/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteInvoiceSeries: (id: string) =>
+    request<{ success: boolean; invoiceSeries: InvoiceSeries; message: string }>(`/v1/invoice-series/${id}`, { method: 'DELETE' }),
 
   // E-Invoice & E-Arşiv
   getEInvoiceXml: (invoiceId: string) => fetchXmlText(`/efatura/${invoiceId}/xml`, 'Fatura XML'),

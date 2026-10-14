@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
-import type { Customer, CustomerType } from '../../types';
+import type { Customer, CustomerType, PriceList } from '../../types';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { UserPlus, Save, Building, Phone, Mail, MapPin, Hash, ShieldAlert } from 'lucide-react';
@@ -33,6 +33,10 @@ export const QuickCustomerCreateModal: React.FC<QuickCustomerCreateModalProps> =
   const [city, setCity] = useState('İstanbul');
   const [maturityDays, setMaturityDays] = useState<number>(30);
   const [riskLimit, setRiskLimit] = useState<number>(50000);
+  // 2026-10-12: Hızlı cari de fiyat listesine bağlanabilir; aksi hâlde buradan
+  // açılan cariler liste seçeneğinden yoksun kalırdı (tutarsız davranış).
+  const [priceListId, setPriceListId] = useState('');
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -48,6 +52,11 @@ export const QuickCustomerCreateModal: React.FC<QuickCustomerCreateModalProps> =
       setCity('İstanbul');
       setMaturityDays(30);
       setRiskLimit(50000);
+      setPriceListId('');
+      // Liste yükleme hatası hızlı cari oluşturmayı ENGELLEMEZ.
+      api.getPriceLists({ activeOnly: true })
+        .then(res => { if (res.success) setPriceLists(res.priceLists); })
+        .catch(err => console.error(err));
     }
   }, [isOpen, initialTitle, defaultType]);
 
@@ -70,6 +79,7 @@ export const QuickCustomerCreateModal: React.FC<QuickCustomerCreateModalProps> =
         email: email.trim(),
         address: address.trim(),
         city: city.trim(),
+        priceListId: priceListId || undefined,
         maturityDays: Number(maturityDays) || 30,
         riskLimit: Number(riskLimit) || 50000,
         balance: 0,
@@ -133,6 +143,23 @@ export const QuickCustomerCreateModal: React.FC<QuickCustomerCreateModalProps> =
                 placeholder="CAR-XXXX"
               />
             </div>
+          </div>
+
+          {/* 2026-10-12: Satış fiyat listesi (isteğe bağlı) */}
+          <div className="form-group">
+            <label className="form-label">Satış Fiyat Listesi</label>
+            <select
+              className="form-select"
+              value={priceListId}
+              onChange={e => setPriceListId(e.target.value)}
+            >
+              <option value="">Taban Fiyat (liste yok)</option>
+              {priceLists.map(list => (
+                <option key={list.id} value={list.id}>
+                  {list.name}{list.isDefault ? ' (Varsayılan)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

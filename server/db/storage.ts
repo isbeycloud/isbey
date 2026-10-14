@@ -342,6 +342,23 @@ class StorageManager {
           ...initialDatabaseState,
           ...parsed,
           costCenters: parsed.costCenters || initialDatabaseState.costCenters || [],
+          // 2026-10-12: İsimli satış fiyat listeleri (Perakende, Toptan, Bayi…).
+          // Eski DB dosyalarında bu alan yoktur; `|| []` ile geriye dönük
+          // uyumlu okunur. Liste TANIMI tenant verisidir, bu yüzden varsayılan
+          // liste TOHUMLANMAZ — firma kendi listelerini Ayarlar > Fiyat
+          // Listeleri'nden açar. Liste yokken belge satırı ürünün taban
+          // `salePrice`'ından fiyatlanır, yani mevcut davranış bozulmaz.
+          priceLists: parsed.priceLists || [],
+          // 2026-10-12: Varyant ÖZELLİK tanımları (Renk, Ebat…). Eski DB'de
+          // yoktur; `|| []` ile geriye dönük uyumlu okunur. Ürünün varyantları
+          // ürün içinde GÖMÜLÜ tutulduğundan burada ayrı birleştirme gerekmez.
+          variantOptions: parsed.variantOptions || [],
+          // 2026-10-12: Kullanıcı görünürlük kapsamları (muhasebeci yetki
+          // kısıtlaması). Eski DB'de yoktur. Kayıt yoksa kullanıcı her şeyi
+          // görür (mevcut davranış korunur).
+          userScopes: parsed.userScopes || [],
+          // 2026-10-12: Fatura serileri (A/B Serisi…). Eski DB'de yoktur.
+          invoiceSeries: parsed.invoiceSeries || [],
           quotes: parsed.quotes || initialDatabaseState.quotes || [],
           orders: parsed.orders || initialDatabaseState.orders || [],
           waybills: parsed.waybills || initialDatabaseState.waybills || [],
@@ -1666,11 +1683,40 @@ class StorageManager {
       const mvs = state.stockMovements.filter(m => m.productId === prod.id);
       if (mvs.length > 0) {
         let inQty = 0, outQty = 0;
+        // 2026-10-12: Varyant bazlı toplamlar. Varyantlı harekette (variantId
+        // dolu) varyant satırı güncellenir; varyantsız harekette ürünün kendi
+        // stoğu hesaplanır. Her çağrı tam yeniden hesap yapar (idempotent).
+        const variantDelta = new Map<string, number>();
         for (const m of mvs) {
-          if (m.direction === 'IN') inQty += Number(m.quantity || 0);
-          else outQty += Number(m.quantity || 0);
+          const qty = Number(m.quantity || 0);
+          if (m.direction === 'IN') inQty += qty;
+          else outQty += qty;
+          if (m.variantId) {
+            const prev = variantDelta.get(m.variantId) || 0;
+            variantDelta.set(m.variantId, prev + (m.direction === 'IN' ? qty : -qty));
+          }
         }
         prod.currentStock = Math.max(0, Math.round((inQty - outQty) * 1000) / 1000);
+
+        // Varyantlı üründe ürün stoğu = varyant stoklarının toplamıdır.
+        // Varyant satırları hareketlerden hesaplanır; varyantsız hareketler
+        // (eski kayıtlar) ürün toplamına dahildir ama varyanta DAĞITILMAZ.
+        if (Array.isArray(prod.variants) && prod.variants.length > 0) {
+          let variantTotal = 0;
+          for (const v of prod.variants) {
+            const delta = variantDelta.get(v.id);
+            if (delta !== undefined) {
+              v.currentStock = Math.max(0, Math.round(delta * 1000) / 1000);
+            }
+            variantTotal += Number(v.currentStock || 0);
+          }
+          const unassigned = Math.max(0, Math.round((inQty - outQty - variantTotal) * 1000) / 1000);
+          // Eski (varyantsız) hareketler varsa ürün toplamı korunur; yoksa
+          // toplam varyant toplamına eşitlenir.
+          prod.currentStock = unassigned > 0
+            ? Math.max(0, Math.round((variantTotal + unassigned) * 1000) / 1000)
+            : Math.max(0, Math.round(variantTotal * 1000) / 1000);
+        }
       }
     }
 
