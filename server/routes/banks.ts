@@ -2,6 +2,14 @@ import { Router } from 'express';
 import { storage } from '../db/storage';
 import { BankTransaction, CurrentTransaction } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
+// 2026-10-17: Sahiplik kararı TEK KAYNAKTAN (kimlik dizesi kanıt değildir).
+import {
+  bankAccountIdOf,
+  filterOwned,
+  isOwnedBy,
+  isOwnedByParent,
+  ownedFields,
+} from '../security/tenantOwnership';
 
 export const banksRouter = Router();
 
@@ -12,9 +20,7 @@ banksRouter.use(resolveTenant);
 banksRouter.get('/', (req, res) => {
   const db = storage.getState();
   const tenantId = req.tenantId || 'tnt-isbey';
-  const bankAccounts = (db.bankAccounts || []).filter(b =>
-    b.id.includes(tenantId) || tenantId === 'tnt-isbey' || b.isDefault
-  );
+  const bankAccounts = filterOwned(db.bankAccounts, tenantId);
   // 2026-10-12: Kullanıcı kapsamı DOLU ise yalnız listedeki hesaplar döner.
   const scope = (db.userScopes || []).find(
     s => s.userId === String((req as any).user?.id || '') && s.tenantId === tenantId
@@ -22,7 +28,9 @@ banksRouter.get('/', (req, res) => {
   const visible = (scope && scope.bankAccountIds.length > 0)
     ? bankAccounts.filter(b => scope.bankAccountIds.includes(b.id))
     : bankAccounts;
-  res.json({ success: true, bankAccounts: visible.length > 0 ? visible : (scope?.bankAccountIds.length ? visible : db.bankAccounts) });
+  // 2026-10-17: Eski kod `visible` boşken `db.bankAccounts`'a (TÜM firmalar)
+  // düşüyordu. Düşüş KALDIRILDI: kapsam dışıysa boş liste döner.
+  res.json({ success: true, bankAccounts: visible });
 });
 
 // List bank transactions (Tenant Isolated)
@@ -31,8 +39,9 @@ banksRouter.get('/transactions', (req, res) => {
   const db = storage.getState();
   const tenantId = req.tenantId || 'tnt-isbey';
 
-  let list = (db.bankTransactions || []).filter(t => 
-    t.bankAccountId.includes(tenantId) || tenantId === 'tnt-isbey' || !t.bankAccountId.startsWith('bnk-tnt-')
+  // Sahiplik: açık alan, yoksa bağlı olduğu HESAP üzerinden (geçiş kayıtları).
+  let list = (db.bankTransactions || []).filter(t =>
+    isOwnedByParent(t, tenantId, db.bankAccounts, bankAccountIdOf)
   );
 
   if (bankAccountId && bankAccountId !== 'ALL') {
@@ -65,9 +74,11 @@ banksRouter.post('/transaction', async (req, res) => {
   }
 
   try {
+    const tenantId = req.tenantId || 'tnt-isbey';
     const result = await storage.runTransaction(draft => {
       const bank = draft.bankAccounts.find(b => b.id === bankAccountId);
-      if (!bank) throw new Error('Banka hesabı bulunamadı.');
+      // IDOR: yalnız KENDİ firmasının hesabı hedeflenebilir.
+      if (!bank || !isOwnedBy(bank, tenantId)) throw new Error('Banka hesabı bulunamadı.');
 
       const isOut = type === 'HAVALE_EFT_OUT' || type === 'EXPENSE' || type === 'TRANSFER_TO_CASH';
       if (isOut && bank.balance < amt) {
@@ -79,12 +90,13 @@ banksRouter.post('/transaction', async (req, res) => {
 
       let customerTitle = '';
       if (customerId) {
-        const cust = draft.customers.find(c => c.id === customerId);
+        const cust = draft.customers.find(c => c.id === customerId && isOwnedBy(c, tenantId));
         if (cust) {
           customerTitle = cust.title;
           // Cari hareket oluştur
           const curTx: CurrentTransaction = {
             id: `ctx-${Date.now()}`,
+            ...ownedFields(tenantId),
             customerId: cust.id,
             customerCode: cust.code,
             customerTitle: cust.title,
@@ -103,8 +115,10 @@ banksRouter.post('/transaction', async (req, res) => {
         }
       }
 
+      // 2026-10-17: Kayıt AÇIK sahiplikle yazılır (önce tenantId atanmıyordu).
       const tx: BankTransaction = {
         id: `bx-${Date.now()}`,
+        ...ownedFields(tenantId),
         bankAccountId: bank.id,
         bankAccountName: bank.accountName,
         documentNo: docNo,
@@ -151,10 +165,14 @@ banksRouter.post('/transfer-to-cash', async (req, res) => {
   }
 
   try {
+    const tenantId = req.tenantId || 'tnt-isbey';
     const result = await storage.runTransaction(draft => {
       const bank = draft.bankAccounts.find(b => b.id === bankAccountId);
       const cash = draft.cashRegisters.find(c => c.id === cashRegisterId);
-      if (!bank || !cash) throw new Error('Banka veya Kasa bulunamadı.');
+      // IDOR: HER İKİ uç da kendi firmasının olmalı.
+      if (!bank || !cash || !isOwnedBy(bank, tenantId) || !isOwnedBy(cash, tenantId)) {
+        throw new Error('Banka veya Kasa bulunamadı.');
+      }
 
       if (bank.balance < amt) {
         throw new Error(`Bankada yetersiz bakiye! Mevcut: ${bank.balance.toLocaleString('tr-TR')} ₺`);
@@ -166,6 +184,7 @@ banksRouter.post('/transfer-to-cash', async (req, res) => {
       // Banka Çıkışı
       draft.bankTransactions.push({
         id: `bx-${Date.now()}`,
+        ...ownedFields(tenantId),
         bankAccountId: bank.id,
         bankAccountName: bank.accountName,
         documentNo: docNo,
@@ -184,6 +203,7 @@ banksRouter.post('/transfer-to-cash', async (req, res) => {
       // Kasa Girişi
       draft.cashTransactions.push({
         id: `cx-${Date.now()}`,
+        ...ownedFields(tenantId),
         cashRegisterId: cash.id,
         cashRegisterName: cash.name,
         documentNo: docNo,

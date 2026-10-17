@@ -15,7 +15,7 @@ interface AuthContextType {
   isLoading: boolean;
   showOnboardingWizard: boolean;
   setShowOnboardingWizard: (show: boolean) => void;
-  login: (credentials: { username?: string; email?: string; password: string }) => Promise<{ success: boolean; message?: string }>;
+  login: (credentials: { username?: string; email?: string; password: string }) => Promise<{ success: boolean; message?: string; trialDecisionRequired?: boolean }>;
   register: (data: {
     fullName: string;
     email: string;
@@ -26,6 +26,18 @@ interface AuthContextType {
     city?: string;
     password: string;
   }) => Promise<{ success: boolean; message?: string; isFirstLogin?: boolean }>;
+  // 2026-10-16 (kayıt akışı): VKN ile self-servis kayıt. Firma bilgisi Hızlı
+  // Bilişim'den çekilir, 14 gün deneme açılır, geçici şifre e-posta ile gider.
+  // Kaynakta şifre alanı YOKTUR — kullanıcı şifreyi mailden alır.
+  registerByVkn: (data: {
+    vknTckn: string;
+    fullName: string;
+    email: string;
+    phone?: string;
+  }) => Promise<{ success: boolean; message?: string; username?: string; mailStatus?: string; trialDays?: number }>;
+  // 2026-10-16: aktif firmanın deneme durumu (AuthContext dışında karar ekranı
+  // da okur; giriş sonrası `decisionRequired` ise kullanıcı hizmetlere yönlenir).
+  trial: { state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean } | null;
   logout: () => void;
   switchCompany: (tenantId: string) => Promise<boolean>;
   refreshProfile: () => Promise<void>;
@@ -47,6 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
   const [registrationLanding, setRegistrationLanding] = useState(false);
+  const [trial, setTrial] = useState<{ state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean } | null>(null);
 
   const refreshProfile = async () => {
     try {
@@ -55,6 +68,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(res.user);
         if (res.activeTenant) setActiveTenant(res.activeTenant);
         if (res.allowedTenants) setAllowedTenants(res.allowedTenants);
+        // 2026-10-16: karar durumu profil yanıtından okunur (sunucu `trial`
+        // alanını login/register/me yanıtlarında döner; yoksa eski değer korunur).
+        if ((res as any).trial) setTrial((res as any).trial);
       }
     } catch (err) {
       console.warn('[AUTH] Session check fallback');
@@ -85,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
 
-  const login = async (credentials: { username?: string; email?: string; password: string }): Promise<{ success: boolean; message?: string }> => {
+  const login = async (credentials: { username?: string; email?: string; password: string }): Promise<{ success: boolean; message?: string; trialDecisionRequired?: boolean }> => {
     try {
       const res = await api.login(credentials);
       if (res.success && res.user) {
@@ -94,12 +110,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setUser(res.user);
         if (res.activeTenant) setActiveTenant(res.activeTenant);
+        // 2026-10-16: giriş engellenmez; süresi dolmuş deneme + verilmemiş karar
+        // giriş yanıtında BİLDİRİLİR, kullanıcı karar için içeri alınır.
+        const gateTrial = (res as any).trial;
+        if (gateTrial) setTrial(gateTrial);
         await refreshProfile();
-        return { success: true, message: res.message };
+        return { success: true, message: res.message, trialDecisionRequired: gateTrial?.decisionRequired === true };
       }
       return { success: false, message: res.message || 'Giriş başarısız.' };
     } catch (err: any) {
       return { success: false, message: err.message || 'Giriş yapılamadı.' };
+    }
+  };
+
+  const registerByVkn = async (data: {
+    vknTckn: string;
+    fullName: string;
+    email: string;
+    phone?: string;
+  }): Promise<{ success: boolean; message?: string; username?: string; mailStatus?: string; trialDays?: number }> => {
+    try {
+      const res = await api.registerByVkn(data);
+      if (res.success && res.user) {
+        if (res.token) {
+          localStorage.setItem('isbey_token', res.token);
+        }
+        setUser(res.user);
+        if (res.tenant) setActiveTenant(res.tenant);
+        setRegistrationLanding(true);
+        await refreshProfile();
+        return { success: true, message: res.message, username: res.username, mailStatus: res.mailStatus, trialDays: res.trialDays };
+      }
+      return { success: false, message: res.message || 'Kayıt başarısız.' };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Kayıt işlemi başarısız.' };
     }
   };
 
@@ -175,8 +219,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const userWorkspace: UserWorkspace = user ? getUserWorkspace(user.role) : 'ERP';
 
   // FAZ 17: Login sonrası başlangıç view
+  // 2026-10-16: deneme kararı BEKLİYORSA kullanıcı hizmetlere yönlenir — karar
+  // ekranı oradadır (veri görünümleri sunucuda kilitlidir, istemci yalnız yönlendirir).
   const getInitialView = (): AppView => {
     if (!user) return 'dashboard';
+    if (trial?.decisionRequired) return 'hizmetler';
     if (registrationLanding) return 'hizmetler';
     if (user.serviceMenuIds != null) return 'hizmetler';
     if (!menuAllowsView(user.allowedMenuIds, getInitialViewForRole(user.role))) return 'dashboard';
@@ -195,6 +242,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setShowOnboardingWizard,
         login,
         register,
+        registerByVkn,
+        trial,
         logout,
         switchCompany,
         refreshProfile,

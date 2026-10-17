@@ -3,6 +3,7 @@ import { api } from '../../../services/api';
 import { useAuth } from '../../../context/AuthContext';
 import type { SubscriptionPlan } from '../../../types';
 import { EServiceApplications } from '../edonusum/EServiceApplications';
+import { TrialDecisionPanel } from './TrialDecisionPanel';
 
 export function ServiceCatalogView() {
   const { user, activeTenant, refreshProfile } = useAuth();
@@ -39,6 +40,9 @@ export function ServiceCatalogView() {
     return () => { current = false; };
   }, []);
   return <div className="view-content-container" style={{ overflowY: 'auto', padding: 24 }}>
+    {/* 2026-10-16 (kayıt akışı): deneme kararı bu görünümde verilir (kilitliyken
+        açık kalan uçlar). Karar paneli en üsttedir — kullanıcı önce kararını görür. */}
+    <TrialDecisionPanel />
     <section className="e-service-panel">
       <h2>Hizmetler ve Paketler</h2>
       <p>{activeTenant?.name} için ERP paketlerini ve e-dönüşüm hizmetlerini inceleyin.</p>

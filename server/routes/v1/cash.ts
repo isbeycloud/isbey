@@ -31,45 +31,51 @@ v1CashRouter.get('/', requirePermission(PERMISSIONS.CASH_VIEW), (req: Request, r
 v1CashRouter.post('/', requirePermission(PERMISSIONS.CASH_CREATE), (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
-  const db = storage.getState();
 
   const { name, code, currency = 'TRY', openingBalance = 0, description } = req.body;
   if (!name) return res.status(400).json({ success: false, message: 'Kasa adı zorunludur.' });
 
-  const finalCode = code || `KASA-${String((db.cashRegisters?.length || 0) + 1).padStart(3, '0')}`;
   const now = new Date().toISOString();
 
-  const newCash: CashRegister = {
-    id: `cash-${Date.now()}`,
-    tenantId,
-    name,
-    code: finalCode,
-    isDefault: (db.cashRegisters || []).filter(k => k.tenantId === tenantId).length === 0,
-    openingBalance,
-    balance: openingBalance,
-    currency,
-    description,
-    status: 'ACTIVE',
-    active: true,
-    createdAt: now,
-    updatedAt: now,
-  };
+  // 2026-10-17: bkz. orders.ts — bayat referans tuzağı. Burada `getNextSequence`
+  // YOKTU, bu yüzden kayıp henüz oluşmuyordu; ancak `addAuditLog` `update()`
+  // tetiklediği için `db` push'tan sonra ölü kalıyordu (kırılgan tesadüf).
+  // Kayıt + denetim izi tek güncellemede; varsayılan kasa kararı da draft üzerinden.
+  let newCash!: CashRegister;
+  storage.update(draft => {
+    if (!draft.cashRegisters) draft.cashRegisters = [];
+    const finalCode = code || `KASA-${String(draft.cashRegisters.length + 1).padStart(3, '0')}`;
+    newCash = {
+      id: `cash-${Date.now()}`,
+      tenantId,
+      name,
+      code: finalCode,
+      isDefault: draft.cashRegisters.filter(k => k.tenantId === tenantId).length === 0,
+      openingBalance,
+      balance: openingBalance,
+      currency,
+      description,
+      status: 'ACTIVE',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    draft.cashRegisters.push(newCash);
 
-  if (!db.cashRegisters) db.cashRegisters = [];
-  db.cashRegisters.push(newCash);
-
-  storage.addAuditLog({
-    userId: user.id,
-    username: user.fullName || user.username,
-    companyId: tenantId,
-    action: 'CASH_ACCOUNT_CREATED',
-    module: 'CASH',
-    documentNo: finalCode,
-    ipAddress: req.ip || '127.0.0.1',
-    details: `'${name}' (${finalCode}) kasası açıldı. Bakiye: ${openingBalance} ${currency}`,
+    draft.auditLogs.unshift({
+      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      userId: user.id,
+      username: user.fullName || user.username,
+      companyId: tenantId,
+      action: 'CASH_ACCOUNT_CREATED',
+      module: 'CASH',
+      documentNo: finalCode,
+      ipAddress: req.ip || '127.0.0.1',
+      details: `'${name}' (${finalCode}) kasası açıldı. Bakiye: ${openingBalance} ${currency}`,
+      timestamp: now,
+    } as any);
   });
 
-  storage.save();
   res.status(201).json({ success: true, cashRegister: newCash });
 });
 

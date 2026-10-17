@@ -1,7 +1,7 @@
 import { BrandLogo } from '../components/common/BrandLogo';
 import { ProductPreview } from '../components/common/ProductPreview';
 import React, { useState } from 'react';
-import { User, Mail, Phone, Building2, Lock, ArrowRight, ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Phone, ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface RegisterPageProps {
@@ -11,36 +11,30 @@ interface RegisterPageProps {
 }
 
 export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLandingClick, onSuccessRegister }) => {
-  const { register } = useAuth();
+  // 2026-10-16 (kayıt akışı): firma bilgisi Hızlı Bilişim'den VKN ile ÇEKİLİR —
+  // kullanıcı firma ünvanı/şifre YAZMAZ. Geçici şifre e-posta ile gider.
+  // Eski manuel kayıt (`register`) korunur ama bu formda kullanılmaz.
+  const { registerByVkn } = useAuth();
+  const [vknTckn, setVknTckn] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [taxNumber, setTaxNumber] = useState('');
-  const [taxOffice, setTaxOffice] = useState('');
-  const [city, setCity] = useState('İstanbul');
-  const [password, setPassword] = useState('');
-  const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successInfo, setSuccessInfo] = useState<{ username: string; mailStatus: string; trialDays: number } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !companyName || !password) {
-      setErrorMessage('Lütfen zorunlu alanları (Ad Soyad, E-Posta, Firma Ünvanı ve Şifre) doldurunuz.');
+    const vkn = vknTckn.replace(/\D/g, '');
+    if (!vkn || !fullName.trim() || !email.trim()) {
+      setErrorMessage('Lütfen zorunlu alanları (VKN/TCKN, Ad Soyad ve E-Posta) doldurunuz.');
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMessage('Şifreniz en az 6 karakter olmalıdır.');
-      return;
-    }
-
-    if (password !== passwordConfirm) {
-      setErrorMessage('Girdiğiniz şifreler birbiriyle eşleşmiyor.');
+    if (!/^\d{10,11}$/.test(vkn)) {
+      setErrorMessage('Geçerli bir VKN (10 hane) veya TCKN (11 hane) giriniz.');
       return;
     }
 
@@ -53,23 +47,24 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
     setErrorMessage('');
 
     try {
-      const res = await register({
-        fullName,
-        email,
-        phone,
-        companyName,
-        taxNumber,
-        taxOffice,
-        city,
-        password,
+      const res = await registerByVkn({
+        vknTckn: vkn,
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
       });
 
       if (res.success) {
+        // Başarıda form KAPANIR, bilgi ekranı açılır: kullanıcı adı + mail durumu.
+        // Şifre ASLA ekranda gösterilmez — e-posta ile gider.
+        setSuccessInfo({ username: res.username || email.trim(), mailStatus: res.mailStatus || 'QUEUED', trialDays: res.trialDays || 14 });
         onSuccessRegister();
       } else {
         setErrorMessage(res.message || 'Kayıt sırasında bir hata oluştu.');
       }
     } catch (err: any) {
+      // Sunucu hata kodu korunur (ApiError.code): VKN bulunamadı / Hızlı Bilişim
+      // hatası / mükerrer kayıt ayrımı kullanıcıya AYNEN taşınır.
       setErrorMessage(err.message || 'Kayıt sırasında bir hata oluştu.');
     } finally {
       setIsLoading(false);
@@ -161,8 +156,50 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
             </div>
           )}
 
+          {successInfo ? (
+            <div role="status" style={{ background: 'var(--success-bg)', border: '1px solid var(--success-border, var(--border-color))', color: 'var(--text-main)', padding: '16px', borderRadius: 'var(--radius-md, 8px)', fontSize: 'var(--fs-base, 13px)', lineHeight: 1.6 }}>
+              <strong>Hesabınız oluşturuldu.</strong>
+              <br />
+              Kullanıcı adınız: <strong>{successInfo.username}</strong>
+              <br />
+              Geçici şifreniz e-posta adresinize gönderildi
+              {successInfo.mailStatus !== 'SENT' ? ' (e-posta kuyruğa alındı, kısa süre içinde ulaşacak)' : ''}.
+              <br />
+              {successInfo.trialDays} gün boyunca ön muhasebeyi hemen kullanabilirsiniz.
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* 1. Sıra: Ad Soyad & Telefon */}
+            {/* 1. Sıra: VKN / TCKN — firma Hızlı Bilişim'den ÇEKİLİR, yazılmaz */}
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                VKN / TCKN *
+              </label>
+              <input
+                type="text"
+                required
+                inputMode="numeric"
+                value={vknTckn}
+                onChange={e => setVknTckn(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                placeholder="10 veya 11 hane"
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-pill, 9999px)',
+                  background: 'var(--bg-surface-secondary)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-main)',
+                  fontSize: 'var(--fs-base, 13px)',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+              />
+              <p style={{ fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                Firma bilgileriniz vergi numaranızla otomatik alınır; ayrıca firma adı yazmanız gerekmez.
+              </p>
+            </div>
+            {/* 2. Sıra: Ad Soyad & Telefon */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
@@ -252,172 +289,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
               </div>
             </div>
 
-            {/* 3. Sıra: Firma Ünvanı */}
-            <div>
-              <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                Firma Ticari Ünvanı *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Building2 size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                  type="text"
-                  required
-                  value={companyName}
-                  onChange={e => setCompanyName(e.target.value)}
-                  placeholder="ABC Teknoloji Ltd. Şti."
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px 10px 38px',
-                    borderRadius: 'var(--radius-pill, 9999px)',
-                    background: 'var(--bg-surface-secondary)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 'var(--fs-base, 13px)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                  onFocus={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                />
-              </div>
-            </div>
-
-            {/* 4. Sıra: VKN / TCKN & Şehir */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  VKN / TCKN
-                </label>
-                <input
-                  type="text"
-                  value={taxNumber}
-                  onChange={e => setTaxNumber(e.target.value)}
-                  placeholder="10 veya 11 hane"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-pill, 9999px)',
-                    background: 'var(--bg-surface-secondary)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 'var(--fs-base, 13px)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                  onFocus={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Şehir
-                </label>
-                <select
-                  value={city}
-                  onChange={e => setCity(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-pill, 9999px)',
-                    background: 'var(--bg-surface-secondary)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    fontSize: 'var(--fs-base, 13px)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <option value="İstanbul">İstanbul</option>
-                  <option value="Ankara">Ankara</option>
-                  <option value="İzmir">İzmir</option>
-                  <option value="Bursa">Bursa</option>
-                  <option value="Antalya">Antalya</option>
-                  <option value="Adana">Adana</option>
-                  <option value="Gaziantep">Gaziantep</option>
-                  <option value="Konya">Konya</option>
-                  <option value="Kocaeli">Kocaeli</option>
-                  <option value="Diğer">Diğer</option>
-                </select>
-              </div>
-            </div>
-
-            {/* 5. Sıra: Şifre & Tekrar */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Şifre (Min 6 Karakter) *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    style={{
-                      width: '100%',
-                      padding: '10px 38px 10px 38px',
-                      borderRadius: 'var(--radius-pill, 9999px)',
-                      background: 'var(--bg-surface-secondary)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-main)',
-                      fontSize: 'var(--fs-base, 13px)',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      position: 'absolute',
-                      right: '14px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Şifre Tekrar *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={passwordConfirm}
-                    onChange={e => setPasswordConfirm(e.target.value)}
-                    placeholder="••••••••"
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px 10px 38px',
-                      borderRadius: 'var(--radius-pill, 9999px)',
-                      background: 'var(--bg-surface-secondary)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-main)',
-                      fontSize: 'var(--fs-base, 13px)',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                    }}
-                    onFocus={e => e.currentTarget.style.borderColor = 'var(--primary)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                  />
-                </div>
-              </div>
+            {/* 3. Sıra: bilgi notu — şifre e-posta ile gider, formda şifre YOK */}
+            <div style={{ background: 'var(--bg-surface-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md, 8px)', padding: '10px 14px', fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Şifrenizi siz belirlemezsiniz: güvenli bir geçici şifre üretilip e-posta adresinize gönderilir. İlk girişte değiştirebilirsiniz.
             </div>
 
             {/* Onay Kutusu */}
@@ -461,6 +335,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onLoginClick, onLand
               {!isLoading && <ArrowRight size={17} />}
             </button>
           </form>
+          )}
 
           {/* Giriş Yap Yönlendirmesi */}
           <div style={{ textAlign: 'center', marginTop: '16px', fontSize: 'var(--fs-base, 13px)', color: 'var(--text-muted)' }}>

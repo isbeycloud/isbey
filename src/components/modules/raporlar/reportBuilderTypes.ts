@@ -61,7 +61,27 @@ export interface ReportDesign {
   fields: ReportFieldId[];
   columns?: string[];
   kpis?: ReportKpiId[];
-  filters?: { dateFrom?: string; dateTo?: string; customerIds?: string[]; warehouseIds?: string[] };
+  /**
+   * Rapor oluşturucu filtreleri (2026-10-17 genişletmesi).
+   * ÖNCE yalnız tarih/cari/depo vardı; varyant, ürün, durum ve TUTAR ARALIĞI
+   * eklenince "özel rapor kurma" gerçekten kapsamlı oldu. Tüm alanlar
+   * OPSİYONELDİR: tanımsız filtre satırı hiç elenmez.
+   */
+  filters?: {
+    dateFrom?: string;
+    dateTo?: string;
+    customerIds?: string[];
+    warehouseIds?: string[];
+    productIds?: string[];
+    /** Yalnız ürünün varyantlarından en az biri seçiliyse satır geçer. */
+    variantIds?: string[];
+    /** Kaynak kodları: ACTIVE/PASSIVE (stok), PAID/PARTIAL/UNPAID (fatura). */
+    statuses?: string[];
+    minAmount?: number;
+    maxAmount?: number;
+  };
+  /** Grafik/tablo gruplaması; yoksa ilk tarih dışı alan kullanılır. */
+  groupBy?: ReportFieldId;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -73,6 +93,22 @@ export const NEW_REPORT_DESIGN: Omit<ReportDesign, 'id'> = {
   chartType: 'BAR',
   fields: ['date', 'customer', 'product', 'vat'],
   kpis: ['revenue', 'count', 'growth'],
+  // Filtre nesnesi boş başlar: kaydederken `hasDesignFilters` yalnız DOLU
+  // alanları yazar, boş `{}` diske düşmez.
+  filters: {},
+};
+
+/** Kaynak bazında SEÇİLEBİLİR durum kodları (rapor oluşturucu durum filtresi). */
+export const SOURCE_STATUSES: Partial<Record<ReportDataSource, { id: string; label: string }[]>> = {
+  SALES: [
+    { id: 'PAID', label: 'Ödendi' }, { id: 'PARTIAL', label: 'Kısmi Ödendi' },
+    { id: 'UNPAID', label: 'Ödenmedi' }, { id: 'DRAFT', label: 'Taslak' },
+  ],
+  PURCHASE: [
+    { id: 'PAID', label: 'Ödendi' }, { id: 'PARTIAL', label: 'Kısmi Ödendi' },
+    { id: 'UNPAID', label: 'Ödenmedi' }, { id: 'DRAFT', label: 'Taslak' },
+  ],
+  STOCK: [{ id: 'ACTIVE', label: 'Aktif' }, { id: 'PASSIVE', label: 'Pasif' }],
 };
 
 // ─── Kolon tanımları (Alan → başlık) ────────────────────────────────────────
@@ -94,6 +130,11 @@ export interface ReportRow {
   customer?: string;
   customerId?: string;   // filtre eşleştirmesi için (filters.customerIds)
   product?: string;
+  productId?: string;    // filtre eşleştirmesi için (filters.productIds)
+  /** Satırın bağlı olduğu varyant(lar) — filters.variantIds için. */
+  variantIds?: string[];
+  /** Ham durum kodu (ACTIVE/PASSIVE/PAID/PARTIAL/UNPAID…) — filters.statuses için. */
+  status?: string;
   vat?: number;
   employee?: string;
   region?: string;
@@ -185,20 +226,84 @@ export function orderedFields(fields: ReportFieldId[]): ReportFieldId[] {
   return REPORT_FIELDS.map(f => f.id).filter(id => fields.includes(id));
 }
 
-/** Tasarım filtrelerini satır kümesine uygula (tarih + cari + depo) */
+/**
+ * Tasarım filtrelerini satır kümesine uygula.
+ *
+ * Kural: tanımsız/boş filtre satırı ELEMEZ. "Seçili değil" ile "hiçbiriyle
+ * eşleşmiyor" ayrımı korunur — boş liste gönderilirse filtre yok sayılır.
+ * Tarih karşılaştırması YYYY-AA-GG metin sırasıyla yapılır (aynı biçim,
+ * aynı sonuç); tutar karşılaştırması sayısaldır.
+ */
 export function applyFilters(rows: ReportRow[], filters: ReportDesign['filters'] | undefined): ReportRow[] {
   if (!filters) return rows;
   const dateFrom = filters.dateFrom ? filters.dateFrom.slice(0, 10) : '';
   const dateTo = filters.dateTo ? filters.dateTo.slice(0, 10) : '';
-  const customerSet = filters.customerIds && filters.customerIds.length > 0 ? new Set(filters.customerIds) : null;
-  const warehouseSet = filters.warehouseIds && filters.warehouseIds.length > 0 ? new Set(filters.warehouseIds) : null;
+  const setOf = (list?: string[]) => (list && list.length > 0 ? new Set(list) : null);
+  const customerSet = setOf(filters.customerIds);
+  const warehouseSet = setOf(filters.warehouseIds);
+  const productSet = setOf(filters.productIds);
+  const variantSet = setOf(filters.variantIds);
+  const statusSet = setOf(filters.statuses);
+  const hasMin = typeof filters.minAmount === 'number' && Number.isFinite(filters.minAmount);
+  const hasMax = typeof filters.maxAmount === 'number' && Number.isFinite(filters.maxAmount);
+
   return rows.filter(r => {
     if (dateFrom && r.date && r.date.slice(0, 10) < dateFrom) return false;
     if (dateTo && r.date && r.date.slice(0, 10) > dateTo) return false;
-    if (customerSet && r.customerId && !customerSet.has(r.customerId)) return false;
-    if (warehouseSet && r.warehouseId && !warehouseSet.has(r.warehouseId)) return false;
+    // DEĞER FİLTRELERİ KATIDIR: alanı taşımayan satır da ELENİR. Neden: kullanıcı
+    // "A Cari" seçtiğinde carisi belli olmayan bir satırın sonuca sızması
+    // filtrenin çalışmadığı izlenimini verir. SADECE TARİH filtresi esnektir —
+    // çünkü stok gibi kaynaklarda satırda tarih alanı hiç yoktur ve katı
+    // davranış o raporu tümden boşaltırdı.
+    if (customerSet && !(r.customerId && customerSet.has(r.customerId))) return false;
+    if (warehouseSet && !(r.warehouseId && warehouseSet.has(r.warehouseId))) return false;
+    if (productSet && !(r.productId && productSet.has(r.productId))) return false;
+    // Varyant: satırın varyantlarından EN AZ BİRİ seçiliyse geçer.
+    if (variantSet && !(r.variantIds && r.variantIds.some(v => variantSet.has(v)))) return false;
+    if (statusSet && !(r.status && statusSet.has(r.status))) return false;
+    const amount = Math.abs(Number(r.amount) || 0);
+    if (hasMin && amount < filters.minAmount!) return false;
+    if (hasMax && amount > filters.maxAmount!) return false;
     return true;
   });
+}
+
+/** Filtre tanımı BOŞ mu? (Kaydetme sırasında anlamsız nesne yazmamak için.) */
+export function hasDesignFilters(filters: ReportDesign['filters'] | undefined): boolean {
+  if (!filters) return false;
+  return Object.values(filters).some(
+    v => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+  );
+}
+
+/**
+ * Gruplama: alan değerine göre toplam tutar. Grafik ve özet tablo aynı
+ * fonksiyonu kullanır ki iki görünüm BİRBİRİYLE ÇELİŞMESİN.
+ * `null` döner → gruplanabilir alan yok.
+ */
+export function groupTotals(
+  rows: ReportRow[], field: ReportFieldId | undefined, limit = 20,
+): { labels: string[]; values: number[]; counts: number[]; totals: { sum: number; count: number; avg: number } } | null {
+  if (!field) return null;
+  const buckets = new Map<string, { sum: number; count: number }>();
+  for (const r of rows) {
+    const raw = r[field];
+    const key = typeof raw === 'number' ? String(raw) : (raw || '(boş)');
+    const prev = buckets.get(key) || { sum: 0, count: 0 };
+    buckets.set(key, { sum: prev.sum + (Number(r.amount) || 0), count: prev.count + 1 });
+  }
+  const entries = [...buckets.entries()].sort((a, b) => b[1].sum - a[1].sum).slice(0, limit);
+  const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return {
+    labels: entries.map(([k]) => k),
+    values: entries.map(([, v]) => Math.round(v.sum * 100) / 100),
+    counts: entries.map(([, v]) => v.count),
+    totals: {
+      sum: Math.round(sum * 100) / 100,
+      count: rows.length,
+      avg: rows.length > 0 ? Math.round((sum / rows.length) * 100) / 100 : 0,
+    },
+  };
 }
 
 /** Alanın bu veri kaynağında veriye sahip olup olmadığı (UI ipucu) */

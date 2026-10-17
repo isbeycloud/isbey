@@ -125,8 +125,13 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   if (electronicService && !allowsElectronicService(identity.serviceModuleIds, electronicService)) return res.status(403).json({ success: false, code: 'SERVICE_ACCESS_DENIED', message: 'Bu e-hizmet seçili paketlerinizde bulunmuyor.' });
   if (!menuAllowsPath(identity.allowedMenuIds, path)) return res.status(403).json({ success: false, code: 'MENU_ACCESS_DENIED', message: 'Bu menü için erişim yetkiniz kapalı.' });
   const sessionOperation = /\/auth\/(switch-company|logout)$/.test(path) || /\/companies\/[^/]+\/switch$/.test(path);
+  // 2026-10-16: e-Dönüşüm KARAR uçları abonelik yazı bloğundan muaftır. Deneme
+  // süresi gerçekten dolmuş firmada abonelik EXPIRED olur; karar uçları kapalı
+  // olsaydı kullanıcı kararını VEREMEZ ve kilit hiç açılmazdı (ölü kilit).
+  // Bu uçlar iş verisi yazmaz — yalnız karar/başvuru kaydı (tenant kapsamlı).
+  const decisionOperation = /^\/api\/v1\/e-donusum\/(choice|applications)(\/|$)/.test(path);
   if (!identity.roleSlugs.includes('platform_admin') && subscription !== 'ACTIVE'
-      && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sessionOperation) {
+      && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sessionOperation && !decisionOperation) {
     return res.status(403).json({ success: false, code: `ERP_SUBSCRIPTION_${subscription}`, message: 'ERP aboneliği etkin değil. Görüntüleme açık; yeni kayıt ve değişiklik için abonelik yenilenmeli.' });
   }
   tenantContext.run(resolvedTenantId, next);

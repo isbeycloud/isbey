@@ -65,7 +65,6 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
   const now = new Date().toISOString();
-  const orderNo = storage.getNextSequence('ORDER');
   const orderId = `order-${Date.now()}`;
 
   let subTotal = 0;
@@ -112,11 +111,10 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 
   const grandTotal = subTotal + totalVat;
 
-  const newOrder: Order = {
+  const orderBase = {
     id: orderId,
     tenantId,
-    orderNo,
-    type: 'SALES_ORDER',
+    type: 'SALES_ORDER' as const,
     customerId: customer.id,
     customerCode: customer.code,
     customerTitle: customer.title,
@@ -126,7 +124,7 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     totalDiscount: Math.round(totalDiscount * 100) / 100,
     totalVat: Math.round(totalVat * 100) / 100,
     grandTotal: Math.round(grandTotal * 100) / 100,
-    status: 'PENDING',
+    status: 'PENDING' as const,
     warehouseId: warehouseId || 'wh-default',
     notes,
     items: formattedItems,
@@ -135,21 +133,33 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     updatedAt: now,
   };
 
-  if (!db.orders) db.orders = [];
-  db.orders.push(newOrder);
-
-  storage.addAuditLog({
-    userId: user.id,
-    username: user.fullName || user.username,
-    companyId: tenantId,
-    action: 'ORDER_CREATED',
-    module: 'ORDERS',
-    documentNo: orderNo,
-    ipAddress: req.ip || '127.0.0.1',
-    details: `${customer.title} adına ${grandTotal} TL tutarında sipariş (${orderNo}) alındı.`,
+  // 2026-10-17: `storage.getState()` CANLI `this.db`'ye referans verir; ama
+  // `storage.update()`/`getNextSequence()` içeride KLON yapıp `this.db`'yi
+  // değiştirir. Önce `getNextSequence` çağrılıp SONRA `db.orders.push(...)`
+  // denildiğinde push ÖLÜ nesneye gidiyordu: uç 201 dönüyor, sipariş hiçbir
+  // yere yazılmıyordu (sessiz veri kaybı). Doğrusu: numara üretimi + kayıt +
+  // denetim izi TEK güncelleme içinde; `draft` her zaman güncel kopyadır.
+  let newOrder!: Order;
+  storage.update(draft => {
+    if (!draft.orders) draft.orders = [];
+    const orderNo = storage.nextSequenceInTransaction(draft, 'ORDER');
+    newOrder = { ...orderBase, orderNo };
+    draft.orders.push(newOrder);
+    // Denetim izi addAuditLog ile AYNI yere ve AYNI sıraya yazılır (en yeni başta).
+    draft.auditLogs.unshift({
+      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      userId: user.id,
+      username: user.fullName || user.username,
+      companyId: tenantId,
+      action: 'ORDER_CREATED',
+      module: 'ORDERS',
+      documentNo: orderNo,
+      ipAddress: req.ip || '127.0.0.1',
+      details: `${customer.title} adına ${grandTotal} TL tutarında sipariş (${orderNo}) alındı.`,
+      timestamp: now,
+    } as any);
   });
 
-  storage.save();
   res.status(201).json({ success: true, order: newOrder });
 });
 

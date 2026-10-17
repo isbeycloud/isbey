@@ -29,6 +29,10 @@ const PUBLIC_ROUTES: PublicRoute[] = [
   // P1-P2: Kimlik doğrulama giriş noktaları
   { method: 'POST', pattern: '/api/auth/login' },
   { method: 'POST', pattern: '/api/auth/register' },
+  // 2026-10-15: VKN ile self-servis kayıt. Public'tir çünkü henüz hesabı
+  // olmayan müşteri buradan başlar; hız sınırı (registerRateLimit) ve zorunlu
+  // Hızlı Bilişim mükellef doğrulaması ile korunur.
+  { method: 'POST', pattern: '/api/auth/register-by-vkn' },
 
   // P3: Sağlık kontrolü (LB/monitör)
   { method: 'GET', pattern: '/api/health' },

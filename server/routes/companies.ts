@@ -1,6 +1,8 @@
 import { validSubscriptionDates } from '../security/erpSubscription';
 import { migrateMemberships } from '../security/memberships';
 import { redactSecretsDeep } from '../security/credentialMask';
+// 2026-10-17: Şirket açılışında üretilen kasa/banka/depo AÇIK sahiplikle yazılır.
+import { ownedFields } from '../security/tenantOwnership';
 import { switchCompany } from './auth';
 import { isPlatformUser, membershipFor, companyIdentity } from '../security/memberships';
 import { Router, Request, Response } from 'express';
@@ -314,8 +316,11 @@ companiesRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
       draft.tenants.push(newTenant);
 
       // 4. Default Warehouse
+      // 2026-10-17: AÇIK sahiplik (`ownedFields`). Kimlik `wh-<Date.now()>`
+      // tenant taşımadığı için sahiplik yalnız alandan okunabilir.
       const newWh: Warehouse = {
         id: `wh-${Date.now()}`,
+        ...ownedFields(companyId),
         name: `${name.trim()} Ana Depo`,
         code: 'DEP-01',
         isDefault: true,
@@ -326,6 +331,7 @@ companiesRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
       // 5. Default Cash Register
       const newCash: CashRegister = {
         id: `cash-${Date.now()}`,
+        ...ownedFields(companyId),
         name: 'Merkez TL Kasası',
         code: 'KAS-01',
         isDefault: true,
@@ -339,6 +345,7 @@ companiesRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
       // 6. Default Bank Account
       const newBank: BankAccount = {
         id: `bnk-${Date.now()}`,
+        ...ownedFields(companyId),
         bankName: 'T.C. Ziraat Bankası',
         accountName: `${name.trim()} Ticari TL`,
         accountNo: '12345678-5001',

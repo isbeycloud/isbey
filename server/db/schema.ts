@@ -1334,6 +1334,45 @@ export interface Tenant {
     password?: string;
     [key: string]: any;
   };
+  /**
+   * 2026-10-15: Deneme (TRIAL) ön muhasebe akışı. Kayıt sırasında kullanıcıya
+   * e-Dönüşüm seçimi SORULMAZ; 14 gün boyunca ön muhasebe serbestçe kullanılır.
+   * Deneme bitince seçim ZORUNLU hâle gelir (`trialGate` kapısı) — seçim
+   * yapılmadan veri uçları açılmaz. Alanlar OPTIONAL'dır: eski DB dosyalarında
+   * yoktur, storage merge bloğunda `|| []`/undefined ile korunur.
+   */
+  edonusumChoice?: 'ON_MUHASEBE' | 'E_DONUSUM';
+  edonusumChoiceAt?: string;
+  /** Deneme başlangıcı — `expiresAt` bitişi taşır (mevcut alan korunur). */
+  trialStartedAt?: string;
+  /** Kayıt Hızlı Bilişim'den çekildiyse kaynak VKN (denetim amaçlı). */
+  registrationVkn?: string;
+}
+
+/**
+ * 2026-10-15: E-posta kuyruğu (outbox).
+ *
+ * NEDEN: Otomatik şifre maili, kayıt akışının parçasıdır ama SMTP erişilemezse
+ * kaydın kendisi geri alınmamalıdır. Kayıt ile gönderim ayrıştırılır: kayıt
+ * tamamlanır, mail kuyruğa yazılır, ardından denenir. Gönderim başarısızsa
+ * kayıt "GÖNDERİLDİ" işaretlenmez — gerçek durum saklanır (CLAUDE.md md.1:
+ * sahte/simüle başarılı response YASAK).
+ */
+export interface EmailOutboxItem {
+  id: string;
+  tenantId?: string;
+  to: string;
+  subject: string;
+  /** Düz metin gövde. HTML gövde ayrı alanda tutulur. */
+  text: string;
+  html?: string;
+  /** İş amacı: kayıt şifresi, davet, hatırlatma... */
+  kind: 'REGISTRATION_PASSWORD' | 'TRIAL_EXPIRY' | 'EDONUSUM_CHOICE' | 'OTHER';
+  status: 'QUEUED' | 'SENT' | 'FAILED';
+  attempts: number;
+  lastError?: string;
+  sentAt?: string;
+  createdAt: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1884,6 +1923,12 @@ export interface DatabaseState {
   plans?: PlanCatalogItem[];
   sessions?: UserSession[];
   passwordResetTokens?: PasswordResetToken[];
+  /**
+   * 2026-10-15: Kayıt otomatik şifre maili / deneme bilgilendirme kuyruğu.
+   * OPTIONAL: eski DB dosyalarında yoktur, storage merge bloğunda `|| []` ile
+   * korunur.
+   */
+  emailOutbox?: EmailOutboxItem[];
   externalCustomers?: ExternalCustomer[];
   integrationSyncLogs?: IntegrationSyncLog[];
   hizliBilisimSettings?: HizliBilisimSettings;

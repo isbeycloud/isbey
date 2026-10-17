@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { storage } from '../db/storage';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
+import {
+  DEFAULT_TENANT_ID,
+  bankAccountIdOf,
+  cashRegisterIdOf,
+  filterOwned,
+  isOwnedByParent,
+} from '../security/tenantOwnership';
 
 export const dashboardRouter = Router();
 
@@ -14,14 +21,19 @@ dashboardRouter.get('/summary', (req, res) => {
   const currentMonthPrefix = todayStr.substring(0, 7); // YYYY-MM
 
   // Tenant-scoped datasets
-  const customers = (db.customers || []).filter(c => c.tenantId === tenantId || (!c.tenantId && tenantId === 'tnt-isbey'));
-  const products = (db.products || []).filter(p => p.tenantId === tenantId || (!p.tenantId && tenantId === 'tnt-isbey'));
-  const invoices = (db.invoices || []).filter(i => !i.isDeleted && (i.tenantId === tenantId || (!i.tenantId && tenantId === 'tnt-isbey')));
-  const cashRegisters = (db.cashRegisters || []).filter(c => (c.id || '').includes(tenantId) || tenantId === 'tnt-isbey' || c.isDefault);
-  const bankAccounts = (db.bankAccounts || []).filter(b => (b.id || '').includes(tenantId) || tenantId === 'tnt-isbey' || b.isDefault);
-  const cashTransactions = (db.cashTransactions || []).filter(t => (t.cashRegisterId || '').includes(tenantId) || tenantId === 'tnt-isbey' || !(t.cashRegisterId || '').startsWith('cash-tnt-'));
-  const bankTransactions = (db.bankTransactions || []).filter(t => (t.bankAccountId || '').includes(tenantId) || tenantId === 'tnt-isbey' || !(t.bankAccountId || '').startsWith('bnk-tnt-'));
-  const expenses = (db.expenses || []).filter(e => !e.deletedAt && ((e.id || '').includes(tenantId) || tenantId === 'tnt-isbey'));
+  // 2026-10-17: Kasa/banka/gider satırları kimlik dizesine göre süzülüyordu
+  // (`id.includes(tenantId)`, `!id.startsWith('cash-tnt-')`) → başka firmanın
+  // kasa/banka bakiyesi ve gideri özete SIZIYORDU. Sahiplik tek kaynaktan.
+  const customers = (db.customers || []).filter(c => c.tenantId === tenantId || (!c.tenantId && tenantId === DEFAULT_TENANT_ID));
+  const products = (db.products || []).filter(p => p.tenantId === tenantId || (!p.tenantId && tenantId === DEFAULT_TENANT_ID));
+  const invoices = (db.invoices || []).filter(i => !i.isDeleted && (i.tenantId === tenantId || (!i.tenantId && tenantId === DEFAULT_TENANT_ID)));
+  const cashRegisters = filterOwned(db.cashRegisters, tenantId);
+  const bankAccounts = filterOwned(db.bankAccounts, tenantId);
+  const cashTransactions = (db.cashTransactions || []).filter(t =>
+    isOwnedByParent(t, tenantId, db.cashRegisters, cashRegisterIdOf));
+  const bankTransactions = (db.bankTransactions || []).filter(t =>
+    isOwnedByParent(t, tenantId, db.bankAccounts, bankAccountIdOf));
+  const expenses = filterOwned(db.expenses, tenantId).filter(e => !e.deletedAt);
 
   // 1. Toplam Alacak (Pozitif bakiye: müşterilerin bize borcu)
   const totalReceivables = customers
@@ -72,25 +84,29 @@ dashboardRouter.get('/summary', (req, res) => {
     .filter(t => t.date === todayStr && t.direction === 'IN')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const todayCashOut = db.cashTransactions
+  // 2026-10-17: Aşağıdaki satırlar da (bugünkü nakit/banka akışı, vadesi geçen
+  // cari, kritik stok, en borçlu cari, aylık trend) filtresiz `db.*` okuyordu —
+  // özet KPI'ları düzeltilse bile bu alanlar başka firmanın verisini sızdırırdı.
+  // Hepsi yukarıdaki tenant kapsamlı değişkenlere bağlandı.
+  const todayCashOut = cashTransactions
     .filter(t => t.date === todayStr && t.direction === 'OUT')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const todayCollections = todayCashIn + db.bankTransactions
+  const todayCollections = todayCashIn + bankTransactions
     .filter(t => t.date === todayStr && t.direction === 'IN')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const todayPayments = todayCashOut + db.bankTransactions
+  const todayPayments = todayCashOut + bankTransactions
     .filter(t => t.date === todayStr && t.direction === 'OUT')
     .reduce((sum, t) => sum + t.amount, 0);
 
   // VADESİ GEÇEN CARİLER (TODAY > VadeTarihi)
   const now = new Date();
-  const overdueCustomers = db.customers
+  const overdueCustomers = customers
     .filter(c => c.balance > 0)
     .map(cust => {
       // Find past unpaid transactions
-      const unpaidInvoices = db.invoices.filter(
+      const unpaidInvoices = invoices.filter(
         inv => !inv.isDeleted && inv.customerId === cust.id && inv.paymentStatus !== 'PAID'
       );
       
@@ -128,7 +144,7 @@ dashboardRouter.get('/summary', (req, res) => {
     .sort((a, b) => b.overdueDays - a.overdueDays);
 
   // KRİTİK STOK SEVİYELERİ
-  const criticalProducts = db.products
+  const criticalProducts = products
     .filter(p => p.active && p.currentStock <= p.criticalStock)
     .map(p => ({
       id: p.id,
@@ -146,7 +162,7 @@ dashboardRouter.get('/summary', (req, res) => {
     .sort((a, b) => (a.currentStock / a.criticalStock) - (b.currentStock / b.criticalStock));
 
   // EN BORÇLU 5 MÜŞTERİ
-  const topDebtors = db.customers
+  const topDebtors = customers
     .filter(c => c.balance > 0)
     .sort((a, b) => b.balance - a.balance)
     .slice(0, 5)
@@ -160,7 +176,7 @@ dashboardRouter.get('/summary', (req, res) => {
 
   // EN ÇOK SATAN ÜRÜNLER
   const productSaleCounts: Record<string, { name: string; quantity: number; revenue: number }> = {};
-  db.invoices
+  invoices
     .filter(inv => !inv.isDeleted && (inv.type === 'SALES' || inv.type === 'RETAIL_POS'))
     .forEach(inv => {
       inv.items.forEach(item => {
@@ -187,23 +203,23 @@ dashboardRouter.get('/summary', (req, res) => {
     const prefix = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     const monthNames = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
     const monthLabel = monthNames[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2);
-    const satis = db.invoices
+    const satis = invoices
       .filter(inv => !inv.isDeleted && (inv.type === 'SALES' || inv.type === 'RETAIL_POS') && (inv.date || '').startsWith(prefix))
       .reduce((s, inv) => s + inv.grandTotal, 0);
-    const tahsilat = db.cashTransactions
+    const tahsilat = cashTransactions
       .filter(t => (t.date || '').startsWith(prefix) && t.direction === 'IN' && t.type === 'COLLECTION')
       .reduce((s, t) => s + t.amount, 0) +
-      db.bankTransactions
+      bankTransactions
         .filter(t => (t.date || '').startsWith(prefix) && t.direction === 'IN')
         .reduce((s, t) => s + t.amount, 0);
     let cost = 0;
-    db.invoices
+    invoices
       .filter(inv => !inv.isDeleted && (inv.type === 'SALES' || inv.type === 'RETAIL_POS') && (inv.date || '').startsWith(prefix))
       .forEach(inv => inv.items.forEach(item => {
-        const prod = db.products.find(p => p.id === item.productId);
+        const prod = products.find(p => p.id === item.productId);
         cost += (prod?.purchasePrice || item.unitPrice * 0.6) * item.quantity;
       }));
-    const gider = (db.expenses || []).filter(e => !e.deletedAt && (e.date || '').startsWith(prefix)).reduce((s, e) => s + e.totalAmount, 0);
+    const gider = expenses.filter(e => (e.date || '').startsWith(prefix)).reduce((s, e) => s + e.totalAmount, 0);
     const kar = Math.max(0, satis - cost - gider);
     // NOT: `gider` zaten yukarıda hesaplanıyordu; yalnızca yanıta eklenmiyordu.
     // Dashboard grafiğinin gerçek veriyle çizilebilmesi için döndürülür.

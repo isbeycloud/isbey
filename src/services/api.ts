@@ -121,10 +121,15 @@ export function buildQuery(params?: Record<string, unknown>): string {
 
 export class ApiError extends Error {
   status?: number;
-  constructor(message: string, status?: number) {
+  // 2026-10-16 (kayıt akışı): sunucu hata `code` alanını taşır (VKN_NOT_FOUND,
+  // HIZLI_*, DECISION_NOT_REQUIRED, CHOICE_ALREADY_MADE, EDONUSUM_REQUIRES_APPLICATION…).
+  // Karar ekranı ve kayıt formu mesaja göre değil koda göre dallanır; kod kaybolmamalı.
+  code?: string;
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -261,7 +266,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
     const data = await res.json();
     if (!res.ok || data.success === false) {
-      throw new ApiError(humanizeHttpError(res.status, data.message), res.status);
+      // Sunucu hem `code` hem `message` döner — ikisi de korunur. Mesaj boşsa
+      // kullanıcı dostu Türkçe yedeğe düşülür (FAZ 25.3-F kuralı aynen sürer).
+      const code = typeof data.code === 'string' && data.code ? data.code : undefined;
+      throw new ApiError(humanizeHttpError(res.status, data.message), res.status, code);
     }
     return data;
   } catch (error: any) {
@@ -280,7 +288,7 @@ export const api = {
   deleteUserMembership: (id: string, tenantId: string) => request<{ success: boolean; message: string }>(`/users/${id}/memberships/${tenantId}`, { method: 'DELETE' }),
   // Auth
   login: (credentials: { username?: string; email?: string; password: string }) =>
-    request<{ success: boolean; user: any; token: string; activeTenant?: any; message?: string }>('/auth/login', {
+    request<{ success: boolean; user: any; token: string; activeTenant?: any; message?: string; trial?: { state: string; expiresAt: string; daysRemaining: number; decisionRequired: boolean } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     }),
@@ -301,7 +309,7 @@ export const api = {
     }),
 
   getMe: () =>
-    request<{ success: boolean; user: any; activeTenant?: any; allowedTenants?: any[] }>('/auth/me'),
+    request<{ success: boolean; user: any; activeTenant?: any; allowedTenants?: any[]; trial?: { state: string; expiresAt: string; daysRemaining: number; decisionRequired: boolean } }>('/auth/me'),
 
   switchCompany: (targetTenantId: string) =>
     request<{ success: boolean; message: string; token: string; user: any; activeTenant: any }>('/auth/switch-company', {
@@ -480,6 +488,33 @@ export const api = {
   getVatReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; rows: any[]; totals: any }>(`/reports/vat-report${query}`); },
   getExpenseReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; rows: any[]; byCategory: any[]; totals: any }>(`/reports/expense-report${query}`); },
   getCollectionReport: (params?: any) => { const query = buildQuery(params as Record<string, unknown>); return request<{ success: boolean; data: any; details: any }>(`/reports/collection-report${query}`); },
+
+  // 2026-10-17: KAPSAMLI FİLTRELİ DETAY RAPORLARI (`/api/v1/reports/detail/*`).
+  // Geçersiz filtre sunucuda 400 döner ve `request` bunu ApiError'a çevirir;
+  // burada sessizce yutulmaz (kullanıcı "veri yok" ile "filtre bozuk"u ayırır).
+  getReportFilterOptions: () => request<{
+    success: boolean;
+    customers: { id: string; code: string; title: string; type?: string }[];
+    products: { id: string; code: string; name: string; unit?: string }[];
+    variants: { id: string; name: string; productId: string; productName: string; barcode?: string }[];
+    warehouses: { id: string; code: string; name: string }[];
+    cashRegisters: { id: string; code: string; name: string; currency?: string }[];
+    bankAccounts: { id: string; name: string; bankName?: string; currency?: string }[];
+    statuses: string[];
+    types: string[];
+  }>('/v1/reports/filter-options'),
+  getCustomerDetailReport: (params?: any) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; appliedFilters: any; rows: any[]; totals: any }>(`/v1/reports/detail/customer${query}`);
+  },
+  getStockDetailReport: (params?: any) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; appliedFilters: any; rows: any[]; totals: any }>(`/v1/reports/detail/stock${query}`);
+  },
+  getCashBankDetailReport: (params?: any) => {
+    const query = buildQuery(params as Record<string, unknown>);
+    return request<{ success: boolean; appliedFilters: any; cash: any; bank: any; transactions: any[]; totals: any }>(`/v1/reports/detail/cash-bank${query}`);
+  },
 
   // Cost Centers
   getCostCenters: () => request<{ success: boolean; costCenters: any[] }>('/cost-centers'),
@@ -1504,6 +1539,26 @@ export const api = {
     ),
   getTestXml: (scenario: string) =>
     fetchXmlText(`/document-templates/test-xml/${encodeURIComponent(scenario)}`, 'Test XML'),
+
+  // 2026-10-16: VKN ile self-servis kayıt + deneme kararı (kayıt akışı).
+  // Firma bilgisi Hızlı Bilişim'den çekilir; 14 gün deneme açılır; rastgele
+  // şifre e-posta ile gönderilir. Deneme bitince e-Dönüşüm kararı zorunludur.
+  registerByVkn: (data: { vknTckn: string; fullName: string; email: string; phone?: string }) =>
+    request<{ success: boolean; message?: string; code?: string; token: string; user: any; tenant: any; username: string; mailStatus: string; mailMessage?: string; isFirstLogin: boolean; trialDays: number; edonusumDecisionRequired: boolean }>('/auth/register-by-vkn', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getEDonusumChoice: () =>
+    request<{ success: boolean; choice: 'ON_MUHASEBE' | 'E_DONUSUM' | null; choiceAt: string | null; trial: { state: string; expiresAt: string; daysRemaining: number; decisionRequired: boolean }; options: { value: string; label: string }[] }>('/v1/e-donusum/choice'),
+  submitEDonusumChoice: (choice: 'ON_MUHASEBE' | 'E_DONUSUM') =>
+    request<{ success: boolean; message?: string; code?: string; choice?: string; choiceAt?: string; applicationUrl?: string }>('/v1/e-donusum/choice', {
+      method: 'POST',
+      body: JSON.stringify({ choice }),
+    }),
+  getEDonusumApplications: () =>
+    request<{ success: boolean; choice: 'ON_MUHASEBE' | 'E_DONUSUM' | null; trial: { state: string; expiresAt: string; daysRemaining: number; decisionRequired: boolean }; applications: import('../components/modules/edonusum/EServiceApplications').ServiceApplication[]; checkoutAvailable: boolean }>('/v1/e-donusum/applications'),
+  submitEDonusumApplication: (data: { contactName: string; email: string; phone: string; services: string[]; consent: boolean }) =>
+    request<{ success: boolean; application: import('../components/modules/edonusum/EServiceApplications').ServiceApplication }>('/v1/e-donusum/applications', { method: 'POST', body: JSON.stringify(data) }),
 
   // Hızlı Bilişim e-Connect Belgeler & İşlemler
   getCompanyInvoiceHistory: (startDate: string, endDate: string) => request<{ success: boolean; documents: import('../components/modules/edonusum/InvoiceHistory').HistoryDocument[] }>(`/e-services/invoice-history?${new URLSearchParams({ startDate, endDate })}`),

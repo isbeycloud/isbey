@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { storage } from '../db/storage';
 import { Product, ProductPriceEntry, StockMovement } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
+// 2026-10-17: Depo sahipliği TEK KAYNAKTAN (bkz. security/tenantOwnership.ts).
+import { filterOwned } from '../security/tenantOwnership';
 
 export const productsRouter = Router();
 
@@ -60,14 +62,16 @@ productsRouter.get('/meta/groups-warehouses', (req, res) => {
   const db = storage.getState();
   const tenantId = req.tenantId || 'tnt-isbey';
   
-  const warehouses = (db.warehouses || []).filter(w => 
-    w.id.includes(tenantId) || tenantId === 'tnt-isbey' || w.isDefault
-  );
+  // 2026-10-17: Sahiplik kimlik dizesinden ÇIKARILAMAZ. Eski filtre
+  // (`w.id.includes(tenantId) || tenantId === 'tnt-isbey' || w.isDefault`)
+  // hem her firmaya varsayılan depoyu açıyor hem de `warehouses` boş kalınca
+  // `db.warehouses`'a (TÜM firmalar) düşüyordu. Tek kaynak: sahiplik alanı.
+  const warehouses = filterOwned(db.warehouses, tenantId);
 
   res.json({
     success: true,
     groups: db.productGroups,
-    warehouses: warehouses.length > 0 ? warehouses : db.warehouses,
+    warehouses,
   });
 });
 

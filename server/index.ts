@@ -56,6 +56,7 @@ import { v1BanksRouter } from './routes/v1/banks';
 import { v1CollectionsRouter } from './routes/v1/collections';
 import { v1FinancialTransactionsRouter } from './routes/v1/financial-transactions';
 import { v1ReportsRouter } from './routes/v1/reports';
+import { v1ReportDetailRouter } from './routes/v1/report-detail';
 import { v1InvoicesRouter } from './routes/v1/invoices';
 import { v1QuotesRouter } from './routes/v1/quotes';
 import { v1OrdersRouter } from './routes/v1/orders';
@@ -63,6 +64,8 @@ import { v1WaybillsRouter } from './routes/v1/waybills';
 import { v1EDocumentsRouter } from './routes/v1/e-documents';
 import { v1TaxpayersRouter } from './routes/v1/taxpayers';
 import { v1EinvoiceSettingsRouter } from './routes/v1/e-invoice-settings';
+import { eDonusumRouter } from './routes/e-donusum';
+import { trialDecisionGate } from './middleware/trialGate';
 import { v1IntegrationsRouter } from './routes/v1/integrations';
 import { hizliIntegrationsRouter } from './routes/v1/hizli-integrations';
 import { plansRouter } from './routes/v1/plans';
@@ -168,6 +171,12 @@ app.use(express.urlencoded({ extended: true }));
 // Not: Tüm router mount'larından ÖNCE gelmelidir (bypass önleme — FAZ 25 planı §25.2).
 app.use('/api', defaultDeny);
 
+// 2026-10-15: Deneme Kararı Kapısı — deneme süresi dolmuş ve e-Dönüşüm kararı
+// verilmemiş firmaların VERİ uçları kapalıdır (kullanıcı kararı: "seçim
+// zorunlu"). `defaultDeny`'den SONRA gelir: `req.tenantId` yetkili JWT'den
+// çözülmüş olur; başlık (x-tenant-id) yetki kaynağı DEĞİLDİR.
+app.use('/api', trialDecisionGate);
+
 // FAZ 28: Request logger & API metrik kaydı
 app.use((req, res, next) => {
   const start = Date.now();
@@ -240,6 +249,9 @@ app.use('/api/v1/waybills', v1WaybillsRouter);
 app.use('/api/v1/e-documents', v1EDocumentsRouter);
 app.use('/api/v1/taxpayers', v1TaxpayersRouter);
 app.use('/api/v1/e-invoice', v1EinvoiceSettingsRouter);
+// 2026-10-15: Deneme sonu e-Dönüşüm tercih ucu. Deneme kapısı KİLİTLİYKEN de
+// erişilebilir olmalıdır (kullanıcı kararı buradan verir).
+app.use('/api/v1/e-donusum', eDonusumRouter);
 app.use('/api/v1/integrations', v1IntegrationsRouter);
 app.use('/api/admin/integrations/hizli-bilisim', hizliIntegrationsRouter);
 app.use('/api/v1/plans', plansRouter);
@@ -255,6 +267,12 @@ app.use('/api/v1/banks', v1BanksRouter);
 app.use('/api/v1/collections', v1CollectionsRouter);
 app.use('/api/v1/financial-transactions', v1FinancialTransactionsRouter);
 app.use('/api/v1/reports', v1ReportsRouter);
+// 2026-10-17: Kapsamlı filtre sözleşmesi + cari/stok(varyant)/kasa-banka detay
+// raporları (`/api/v1/reports/detail/*`, `/api/v1/reports/filter-options`).
+// Salt-okunur; sahiplik `security/tenantOwnership.ts`'ten okunur. Aynı yol
+// tabanına ikinci mount güvenlidir: `v1ReportsRouter`'ın catch-all'ı yoktur,
+// eşleşmeyen istek bu router'a düşer.
+app.use('/api/v1/reports', v1ReportDetailRouter);
 
 // FAZ 6: Mobil + Saha + POS + Banka Mutabakat + QR + Raporlama
 app.use('/api/v1/mobile', v1MobileRouter);

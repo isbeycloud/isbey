@@ -46,6 +46,10 @@ async function loadInvoiceRows(type: 'SALES' | 'PURCHASE' | 'RETAIL_POS', params
           customer: inv.customerTitle,
           customerId: inv.customerId,
           product: it.productName,
+          // 2026-10-17: ürün/varyant filtreleri için kimlikler taşınır.
+          productId: it.productId,
+          variantIds: it.variantId ? [it.variantId] : undefined,
+          status: inv.paymentStatus,
           vat: num(it.vatRate),
           warehouseId: inv.warehouseId,
           amount: num(it.lineGrandTotal ?? it.lineTotal),
@@ -56,6 +60,7 @@ async function loadInvoiceRows(type: 'SALES' | 'PURCHASE' | 'RETAIL_POS', params
         date: inv.date,
         customer: inv.customerTitle,
         customerId: inv.customerId,
+        status: inv.paymentStatus,
         warehouseId: inv.warehouseId,
         amount: num(inv.grandTotal),
       });
@@ -106,6 +111,11 @@ export async function loadReportRows(source: ReportDataSource, params: LoadParam
         const res = await api.getProducts();
         const rows: ReportRow[] = (res?.products || []).map(p => ({
           product: p.name,
+          productId: p.id,
+          // Varyant filtresi ürün satırında ANLAMLI olmalı: ürünün varyantları
+          // taşınmazsa `variantIds` filtresi stok raporunda hiç eşleşmez.
+          variantIds: (p.variants || []).map((v: any) => v.id),
+          status: p.active === false ? 'PASSIVE' : 'ACTIVE',
           warehouse: p.warehouseName || p.warehouseId,
           warehouseId: p.warehouseId,
           vat: num(p.vatRate),

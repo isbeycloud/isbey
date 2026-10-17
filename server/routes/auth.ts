@@ -9,7 +9,11 @@ import { Tenant, User } from '../db/schema';
 // FAZ 25.1: /auth/users uçları artık korumalı (RBAC)
 import { requireAuth } from '../middleware/authGuards';
 // FAZ 25.4: login brute-force rate limit
-import { loginRateLimit } from '../middleware/productionSecurity';
+import { loginRateLimit, registerRateLimit } from '../middleware/productionSecurity';
+// 2026-10-15: VKN ile self-servis kayıt (Hızlı Bilişim'den firma çekme + şifre maili)
+import { registerByVkn, TRIAL_DAYS } from '../services/registrationService';
+// 2026-10-15: Deneme süresi dolduğunda e-Dönüşüm kararı zorunludur
+import { evaluateTrialGate } from '../services/trialGateService';
 // FAZ 28: Monitoring & Observability auth izleme
 import { MonitoringService } from '../services/monitoringService';
 
@@ -100,6 +104,11 @@ authRouter.post('/login', loginRateLimit, (req: Request, res: Response) => {
   if (!activeTenantId) return res.status(403).json({ success: false, message: 'Erişilebilir aktif firma üyeliği bulunamadı.' });
   const tenant = (db.tenants || []).find(t => t.id === activeTenantId);
 
+  // 2026-10-15: Süresi dolmuş deneme + verilmemiş e-Dönüşüm kararı.
+  // GİRİŞ ENGELLENMEZ (kullanıcı karar vermek için içeri girmelidir); karar
+  // bekleyen istemciye açıkça bildirilir, veri uçları trialGate ile kapalıdır.
+  const trialGate = evaluateTrialGate(tenant || {});
+
   // Güncelle: Son giriş zamanı
   user.lastLoginAt = new Date().toISOString();
   user.lastLoginIp = req.ip || '127.0.0.1';
@@ -133,6 +142,12 @@ authRouter.post('/login', loginRateLimit, (req: Request, res: Response) => {
     message: `Hoş geldiniz, ${user.fullName}!`,
     token,
     user: safeUser,
+    trial: {
+      state: trialGate.state,
+      expiresAt: trialGate.expiresAt,
+      daysRemaining: trialGate.daysRemaining,
+      decisionRequired: trialGate.state === 'DECISION_REQUIRED',
+    },
     activeTenant: redactSecretsDeep(tenant) || {
       id: activeTenantId,
       name: user.companyName || 'İŞBEY',
@@ -286,13 +301,74 @@ authRouter.post('/register', async (req: Request, res: Response) => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
+// 2b. VKN İLE SELF-SERVİS KAYIT (2026-10-15)
+// Hızlı Bilişim portföyünden firma ÇEKİLİR, 14 günlük deneme açılır, rastgele
+// şifre üretilip e-posta ile gönderilir. Deneme boyunca e-Dönüşüm seçimi
+// SORULMAZ; süre bitince seçim zorunludur (server/middleware/trialGate.ts).
+//
+// Kayıt, mail gönderiminden BAĞIMSIZDIR: mail başarısız olsa da firma açılır ve
+// durum gerçek hâliyle bildirilir (sahte başarı yasak).
+// ──────────────────────────────────────────────────────────────────────────
+authRouter.post('/register-by-vkn', registerRateLimit, async (req: Request, res: Response) => {
+  const { vknTckn, fullName, email, phone } = req.body || {};
+
+  // Girdi tipi doğrulaması (FAZ 25.1 deseni): string dışı payload 400 ile reddedilir.
+  if (typeof vknTckn !== 'string' || typeof fullName !== 'string' || typeof email !== 'string') {
+    return res.status(400).json({ success: false, message: 'VKN/TCKN, yetkili ad soyad ve e-posta alanları zorunludur.' });
+  }
+
+  try {
+    const result = await registerByVkn({
+      vknTckn,
+      fullName,
+      email,
+      phone: typeof phone === 'string' ? phone : undefined,
+      loginUrl: `${req.protocol}://${req.get('host') || 'bey360.com'}`,
+    });
+
+    // Not: `!result.ok` yerine `=== false` — bu repoda `strict: false` olduğu için
+    // truthiness ile ayrık birlik (discriminated union) daraltması çalışmıyor.
+    if (result.ok === false) {
+      return res.status(result.status).json({ success: false, code: result.code, message: result.message });
+    }
+
+    const token = generateToken(result.user, result.tenant.id);
+    const safeUser = companyIdentity(storage.getState(), result.user, result.tenant.id);
+
+    return res.status(201).json({
+      success: true,
+      message: result.mailStatus === 'SENT'
+        ? 'Hesabınız oluşturuldu. Kullanıcı adı ve geçici şifreniz e-posta ile gönderildi.'
+        : 'Hesabınız oluşturuldu ancak bilgilendirme e-postası şu anda gönderilemedi. Kullanıcı adınız aşağıdadır; şifre sıfırlama ile yeni şifre alabilirsiniz.',
+      token,
+      user: safeUser,
+      tenant: result.tenant,
+      username: result.username,
+      mailStatus: result.mailStatus,
+      mailMessage: result.mailMessage,
+      isFirstLogin: true,
+      trialDays: TRIAL_DAYS,
+      edonusumDecisionRequired: false,
+    });
+  } catch (err: any) {
+    console.error('[AUTH REGISTER BY VKN ERROR]', err);
+    return res.status(500).json({ success: false, message: 'Kayıt sırasında bir hata oluştu.' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 // 3. GET ME (OTURUM PROFİLİ & AKTİF ŞİRKET)
 // ──────────────────────────────────────────────────────────────────────────
 authRouter.get('/me', requireAuth, (req: Request, res: Response) => {
   const db = storage.getState();
   const account = db.users.find(u => u.id === req.user.id)!;
-  res.json({ success: true, user: req.user, activeTenant: redactSecretsDeep(db.tenants.find(t => t.id === req.tenantId)),
-    allowedTenants: db.tenants.filter(t => canEnterCompany(db, account, t.id)).map(t => ({ id: t.id, name: t.name, title: t.title, status: t.status })) });
+  const tenant = db.tenants.find(t => t.id === req.tenantId);
+  // 2026-10-16: karar ekranı ve giriş-sonrası yönlendirme bu alandan beslenir.
+  // Kilitliyken de AÇIKTIR (trialGate allowlist) — kullanıcı durumunu görür.
+  const gate = evaluateTrialGate(tenant || {});
+  res.json({ success: true, user: req.user, activeTenant: redactSecretsDeep(tenant),
+    allowedTenants: db.tenants.filter(t => canEnterCompany(db, account, t.id)).map(t => ({ id: t.id, name: t.name, title: t.title, status: t.status })),
+    trial: { state: gate.state, expiresAt: gate.expiresAt, daysRemaining: gate.daysRemaining, decisionRequired: gate.state === 'DECISION_REQUIRED' } });
 });
 
 // ──────────────────────────────────────────────────────────────────────────

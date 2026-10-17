@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { storage } from '../db/storage';
+import { menusForChoice } from './trialGateService';
 
 export const E_SERVICES = ['EFATURA', 'EARSIV', 'EIRSALIYE', 'ESMM', 'EDEFTER'] as const;
 export interface EServiceApplication {
@@ -71,8 +72,23 @@ export async function completeServicePayment(input: { orderId: string; amountMin
       return application;
     }
     if (application.status !== 'QUOTED' || db.eServiceApplications?.some(a => a.providerReference === input.reference)) throw new Error('Ödeme referansı veya sipariş durumu geçersiz.');
-    Object.assign(application, { status: 'PAID', paidAt: new Date().toISOString(), providerReference: input.reference });
+    const now = new Date().toISOString();
+    Object.assign(application, { status: 'PAID', paidAt: now, providerReference: input.reference });
     // Payment does not activate the integrator service; provisioning requires a separate provider approval.
+    // 2026-10-16: e-Dönüşüm başvurusu ÖDENDİYSE karar kaydı oluşur — kilit açılır.
+    // Ödeme yokken karar verilmez (başvuru karar yerine geçmez; bkz. routes/e-donusum.ts).
+    // Kapsam E_DONUSUM yönüne hizalanır (`menusForChoice`: kısıt kalkar, rol
+    // belirler); muhasebe/stok/KDV mantığı DEĞİŞMEZ (CLAUDE.md md.3).
+    const tenant = db.tenants.find(t => t.id === application.tenantId);
+    if (tenant && !tenant.edonusumChoice) {
+      tenant.edonusumChoice = 'E_DONUSUM';
+      tenant.edonusumChoiceAt = now;
+      tenant.updatedAt = now;
+      for (const membership of db.tenantUsers || []) {
+        if (membership.tenantId !== application.tenantId) continue;
+        membership.allowedMenuIds = menusForChoice('E_DONUSUM');
+      }
+    }
     return application;
   });
 }

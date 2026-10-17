@@ -43,6 +43,7 @@ export type AppView =
   | 'odeme-linkleri'
   | 'gelismis-raporlar'
   | 'rapor-tasarimci'
+  | 'rapor-detay'
   | 'mobil-uygulama'
   | 'ai-merkezi'
   | 'document-ai'

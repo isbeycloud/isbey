@@ -7,11 +7,13 @@ import { useApp } from '../../../context/AppContext';
 import { BarChart3, TrendingUp, DollarSign, Package, Clock, Sliders, Download } from 'lucide-react';
 
 export const ReportsView: React.FC = () => {
-  const { openPrintModal } = useApp();
+  // 2026-10-15: firma değişiminde raporun eski firmanın verisinde takılı
+  // kalmaması için refreshKey + activeTenantId dinlenir (diğer ekranlardaki desen).
+  const { openPrintModal, refreshKey, activeTenantId } = useApp();
 
   const [activeTab, setActiveTab] = useState<'PROFIT_LOSS' | 'AGING' | 'STOCK_VALUATION'>('PROFIT_LOSS');
   const [costingMethod, setCostingMethod] = useState<'AVG_COST' | 'FIFO' | 'LAST_PRICE'>('AVG_COST');
-  
+
   const [profitLossData, setProfitLossData] = useState<any>(null);
   const [agingData, setAgingData] = useState<any[]>([]);
   const [stockValuationData, setStockValuationData] = useState<{ report: any[]; totals: any } | null>(null);
@@ -19,7 +21,7 @@ export const ReportsView: React.FC = () => {
 
   useEffect(() => {
     loadReport();
-  }, [activeTab, costingMethod]);
+  }, [activeTab, costingMethod, refreshKey, activeTenantId]);
 
   const loadReport = async () => {
     setLoading(true);

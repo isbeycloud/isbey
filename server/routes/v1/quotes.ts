@@ -65,7 +65,6 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
   const now = new Date().toISOString();
-  const quoteNo = storage.getNextSequence('QUOTE');
   const quoteId = `quote-${Date.now()}`;
 
   let subTotal = 0;
@@ -110,11 +109,10 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 
   const grandTotal = subTotal + totalVat;
 
-  const newQuote: Quote = {
+  const quoteBase = {
     id: quoteId,
     tenantId,
-    quoteNo,
-    type: 'SALES_QUOTE',
+    type: 'SALES_QUOTE' as const,
     customerId: customer.id,
     customerCode: customer.code,
     customerTitle: customer.title,
@@ -124,7 +122,7 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     totalDiscount: Math.round(totalDiscount * 100) / 100,
     totalVat: Math.round(totalVat * 100) / 100,
     grandTotal: Math.round(grandTotal * 100) / 100,
-    status: 'SENT',
+    status: 'SENT' as const,
     termsAndConditions,
     paymentTerms,
     deliveryTerms,
@@ -135,21 +133,28 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     updatedAt: now,
   };
 
-  if (!db.quotes) db.quotes = [];
-  db.quotes.push(newQuote);
-
-  storage.addAuditLog({
-    userId: user.id,
-    username: user.fullName || user.username,
-    companyId: tenantId,
-    action: 'QUOTE_CREATED',
-    module: 'QUOTES',
-    documentNo: quoteNo,
-    ipAddress: req.ip || '127.0.0.1',
-    details: `${customer.title} adına ${grandTotal} TL tutarında teklif (${quoteNo}) hazırlandı.`,
+  // 2026-10-17: bkz. orders.ts — `getNextSequence` bayat referans yaratıyordu;
+  // numara + kayıt + denetim izi TEK güncellemede.
+  let newQuote!: Quote;
+  storage.update(draft => {
+    if (!draft.quotes) draft.quotes = [];
+    const quoteNo = storage.nextSequenceInTransaction(draft, 'QUOTE');
+    newQuote = { ...quoteBase, quoteNo };
+    draft.quotes.push(newQuote);
+    draft.auditLogs.unshift({
+      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      userId: user.id,
+      username: user.fullName || user.username,
+      companyId: tenantId,
+      action: 'QUOTE_CREATED',
+      module: 'QUOTES',
+      documentNo: quoteNo,
+      ipAddress: req.ip || '127.0.0.1',
+      details: `${customer.title} adına ${grandTotal} TL tutarında teklif (${quoteNo}) hazırlandı.`,
+      timestamp: now,
+    } as any);
   });
 
-  storage.save();
   res.status(201).json({ success: true, quote: newQuote });
 });
 

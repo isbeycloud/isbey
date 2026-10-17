@@ -18,7 +18,26 @@ export function createEServicesRouter(provider?: EServicePaymentProvider) {
     if (!secret || secret.length < 32 || !/^[a-f0-9]{64}$/i.test(signature) || !Number.isSafeInteger(timestamp) || Math.abs(Date.now() - timestamp) > 300_000) return res.status(401).json({ success: false, message: 'Ödeme imzası geçersiz.' });
     const expected = createHmac('sha256', secret).update(JSON.stringify([orderId, amountMinor, currency, reference, timestamp])).digest();
     if (!timingSafeEqual(expected, Buffer.from(signature, 'hex'))) return res.status(401).json({ success: false, message: 'Ödeme imzası geçersiz.' });
-    try { await completeServicePayment({ orderId, amountMinor, currency, reference }); return res.json({ success: true }); }
+    try {
+      const application = await completeServicePayment({ orderId, amountMinor, currency, reference });
+      // 2026-10-16: e-Dönüşüm kararı ödeme onayıyla netleşir — denetim kaydı
+      // burada tutulur (ödeme anı = karar anı). Veren kullanıcı başvuru
+      // sahibidir (`createdBy`).
+      if (application.status === 'PAID') {
+        const tenant = storage.getState().tenants.find(t => t.id === application.tenantId);
+        storage.addAuditLog({
+          userId: application.createdBy,
+          username: application.contactName,
+          companyId: application.tenantId,
+          companyName: tenant?.name || application.companyName,
+          action: 'EDONUSUM_CHOICE',
+          module: 'AUTH',
+          ipAddress: req.ip || '127.0.0.1',
+          details: `e-Dönüşüm tercihi kaydedildi: E_DONUSUM (başvuru ödemesi onaylandı, başvuru ${application.id}).`,
+        });
+      }
+      return res.json({ success: true });
+    }
     catch { return res.status(400).json({ success: false, message: 'Ödeme siparişle eşleşmedi.' }); }
   });
   router.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'));

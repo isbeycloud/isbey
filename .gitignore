@@ -46,6 +46,10 @@ releases/
 .env.*
 !.env.example
 cookies.txt
+# Barındırma/sunucu notları: SSH kullanıcı adı, parola ve dağıtım yolları içerir.
+# Depo PUBLIC olduğu için ASLA commit edilmemeli (2026-10-17: untracked duruyordu,
+# `git add .` ile commit'e girecekti).
+hostinger.txt
 *.pem
 *.key
 *.p12

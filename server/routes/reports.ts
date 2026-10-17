@@ -1,15 +1,34 @@
 import { Router } from 'express';
 import { storage } from '../db/storage';
+import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../middleware/authGuards';
 
 export const reportsRouter = Router();
 
+reportsRouter.use(requireAuth);
+reportsRouter.use(resolveTenant);
+reportsRouter.use((req, res, next) => {
+  if (!req.tenantId) return res.status(403).json({ success: false, code: 'TENANT_REQUIRED', message: 'İşlem için firma seçimi zorunludur.' });
+  next();
+});
+
+/**
+ * 2026-10-15 tenant izolasyonu: `tenantId` alanı DOLU kayıtlar yalnız kendi
+ * tenant'ına görünür. `tenantId` alanı BOŞ kayıtlar yalnız varsayılan
+ * `tnt-isbey` tenant'ına görünür (eski veri ana firmada kalır).
+ */
+const DEFAULT_TENANT_ID = 'tnt-isbey';
+const ownedBy = <T extends { tenantId?: string; companyId?: string }>(tenantId: string) =>
+  (r: T) => (r.tenantId || r.companyId || DEFAULT_TENANT_ID) === tenantId;
+
 // 1. Kâr / Zarar Raporu (Profit & Loss with Costing Methods)
-reportsRouter.get('/profit-loss', (req, res) => {
+reportsRouter.get('/profit-loss', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const { startDate, endDate, costingMethod } = req.query;
   const db = storage.getState();
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
   const method = (costingMethod as string) || db.company.costingMethod || 'AVG_COST';
 
-  let salesInvoices = db.invoices.filter(i => !i.isDeleted && (i.type === 'SALES' || i.type === 'RETAIL_POS'));
+  let salesInvoices = db.invoices.filter(i => isOwned(i) && !i.isDeleted && (i.type === 'SALES' || i.type === 'RETAIL_POS'));
   if (startDate) salesInvoices = salesInvoices.filter(i => i.date >= String(startDate));
   if (endDate) salesInvoices = salesInvoices.filter(i => i.date <= String(endDate));
 
@@ -36,7 +55,7 @@ reportsRouter.get('/profit-loss', (req, res) => {
     totalVatCollected += inv.totalVat;
 
     inv.items.forEach(item => {
-      const prod = db.products.find(p => p.id === item.productId);
+      const prod = db.products.find(p => p.id === item.productId && isOwned(p));
       let unitCost = prod ? prod.purchasePrice : item.unitPrice * 0.65;
 
       if (method === 'LAST_PRICE' && prod) {
@@ -79,7 +98,7 @@ reportsRouter.get('/profit-loss', (req, res) => {
 
   // General Expenses
   const expenses = db.cashTransactions
-    .filter(t => t.type === 'EXPENSE')
+    .filter(t => isOwned(t) && t.type === 'EXPENSE')
     .reduce((sum, t) => sum + t.amount, 0);
 
   const netProfit = grossProfit - expenses;
@@ -102,13 +121,15 @@ reportsRouter.get('/profit-loss', (req, res) => {
 });
 
 // 2. Cari Yaşlandırma & Risk Raporu (Aging Report)
-reportsRouter.get('/aging', (req, res) => {
+reportsRouter.get('/aging', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const db = storage.getState();
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
   const now = new Date();
 
-  const report = db.customers.map(cust => {
+  const report = db.customers.filter(isOwned).map(cust => {
     const unpaidInvoices = db.invoices.filter(
-      i => !i.isDeleted && i.customerId === cust.id && i.paymentStatus !== 'PAID'
+      i => isOwned(i) && !i.isDeleted && i.customerId === cust.id && i.paymentStatus !== 'PAID'
     );
 
     let current = 0;      // Vadesi gelmemiş
@@ -161,10 +182,12 @@ reportsRouter.get('/aging', (req, res) => {
 });
 
 // 3. Stok Değerleme Raporu
-reportsRouter.get('/stock-valuation', (req, res) => {
+reportsRouter.get('/stock-valuation', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const db = storage.getState();
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
 
-  const report = db.products.map(p => {
+  const report = db.products.filter(isOwned).map(p => {
     const costValue = p.currentStock * p.purchasePrice;
     const saleValue = p.currentStock * p.salePrice;
     const potentialProfit = saleValue - costValue;
@@ -195,24 +218,26 @@ reportsRouter.get('/stock-valuation', (req, res) => {
 });
 
 // 4. Nakit Akışı Raporu (Cash Flow - Son 12 ay)
-reportsRouter.get('/cash-flow', (req, res) => {
+reportsRouter.get('/cash-flow', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const db = storage.getState();
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
   const months: { month: string; label: string; cashIn: number; cashOut: number; bankIn: number; bankOut: number; sales: number; expenses: number; netFlow: number }[] = [];
   const now = new Date();
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const prefix = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     const monthLabel = d.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' });
-    const cashIn = db.cashTransactions.filter(t => (t.date || '').startsWith(prefix) && t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
-    const cashOut = db.cashTransactions.filter(t => (t.date || '').startsWith(prefix) && t.direction === 'OUT').reduce((s, t) => s + t.amount, 0);
-    const bankIn = db.bankTransactions.filter(t => (t.date || '').startsWith(prefix) && t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
-    const bankOut = db.bankTransactions.filter(t => (t.date || '').startsWith(prefix) && t.direction === 'OUT').reduce((s, t) => s + t.amount, 0);
-    const sales = db.invoices.filter(inv => !inv.isDeleted && (inv.type === 'SALES' || inv.type === 'RETAIL_POS') && (inv.date || '').startsWith(prefix)).reduce((s, inv) => s + inv.grandTotal, 0);
-    const expenses = (db.expenses || []).filter(e => !e.deletedAt && (e.date || '').startsWith(prefix)).reduce((s, e) => s + e.totalAmount, 0);
+    const cashIn = db.cashTransactions.filter(t => isOwned(t) && (t.date || '').startsWith(prefix) && t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
+    const cashOut = db.cashTransactions.filter(t => isOwned(t) && (t.date || '').startsWith(prefix) && t.direction === 'OUT').reduce((s, t) => s + t.amount, 0);
+    const bankIn = db.bankTransactions.filter(t => isOwned(t) && (t.date || '').startsWith(prefix) && t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
+    const bankOut = db.bankTransactions.filter(t => isOwned(t) && (t.date || '').startsWith(prefix) && t.direction === 'OUT').reduce((s, t) => s + t.amount, 0);
+    const sales = db.invoices.filter(inv => isOwned(inv) && !inv.isDeleted && (inv.type === 'SALES' || inv.type === 'RETAIL_POS') && (inv.date || '').startsWith(prefix)).reduce((s, inv) => s + inv.grandTotal, 0);
+    const expenses = (db.expenses || []).filter(e => isOwned(e) && !e.deletedAt && (e.date || '').startsWith(prefix)).reduce((s, e) => s + e.totalAmount, 0);
     months.push({ month: prefix, label: monthLabel, cashIn: Math.round(cashIn*100)/100, cashOut: Math.round(cashOut*100)/100, bankIn: Math.round(bankIn*100)/100, bankOut: Math.round(bankOut*100)/100, sales: Math.round(sales*100)/100, expenses: Math.round(expenses*100)/100, netFlow: Math.round((cashIn + bankIn - cashOut - bankOut)*100)/100 });
   }
-  const totalCash = db.cashRegisters.reduce((s, c) => s + c.balance, 0);
-  const totalBank = db.bankAccounts.reduce((s, b) => s + b.balance, 0);
+  const totalCash = db.cashRegisters.filter(isOwned).reduce((s, c) => s + c.balance, 0);
+  const totalBank = db.bankAccounts.filter(isOwned).reduce((s, b) => s + b.balance, 0);
   res.json({ success: true, months, summary: { totalCash: Math.round(totalCash*100)/100, totalBank: Math.round(totalBank*100)/100, totalLiquidity: Math.round((totalCash + totalBank)*100)/100 } });
 });
 
@@ -238,12 +263,14 @@ const lineBase = (item: any): number =>
     ? item.lineTotal
     : (Number(item?.totalAmount) || 0) - (Number(item?.vatAmount) || 0);
 
-reportsRouter.get('/vat-report', (req, res) => {
+reportsRouter.get('/vat-report', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const { startDate, endDate } = req.query;
   const db = storage.getState();
-  let salesInvoices = db.invoices.filter(i => !i.isDeleted && (i.type === 'SALES' || i.type === 'RETAIL_POS') && i.status !== 'CANCELLED');
-  let purchaseInvoices = db.invoices.filter(i => !i.isDeleted && i.type === 'PURCHASE' && i.status !== 'CANCELLED');
-  let expensesTx = (db.expenses || []).filter(e => !e.deletedAt && e.vatRate > 0);
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
+  let salesInvoices = db.invoices.filter(i => isOwned(i) && !i.isDeleted && (i.type === 'SALES' || i.type === 'RETAIL_POS') && i.status !== 'CANCELLED');
+  let purchaseInvoices = db.invoices.filter(i => isOwned(i) && !i.isDeleted && i.type === 'PURCHASE' && i.status !== 'CANCELLED');
+  let expensesTx = (db.expenses || []).filter(e => isOwned(e) && !e.deletedAt && e.vatRate > 0);
   // NOT: `!i.isDeleted` filtresi `isDeleted` alanı olmayan kayıtları da geçirir
   // (undefined !== true). Gelen e-Fatura aktarımından doğan kayıtlarda bu alan yok;
   // satır okuma artık invoiceLines() ile güvenli olduğu için çökme engellendi.
@@ -259,10 +286,12 @@ reportsRouter.get('/vat-report', (req, res) => {
 });
 
 // 6. Gider Raporu (Masraf Merkezi Bazlı)
-reportsRouter.get('/expense-report', (req, res) => {
+reportsRouter.get('/expense-report', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const { startDate, endDate, costCenterId } = req.query;
   const db = storage.getState();
-  let expenses = (db.expenses || []).filter(e => !e.deletedAt);
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
+  let expenses = (db.expenses || []).filter(e => isOwned(e) && !e.deletedAt);
   if (startDate) expenses = expenses.filter(e => e.date >= String(startDate));
   if (endDate) expenses = expenses.filter(e => e.date <= String(endDate));
   if (costCenterId) expenses = expenses.filter(e => e.costCenterId === costCenterId);
@@ -283,18 +312,20 @@ reportsRouter.get('/expense-report', (req, res) => {
 });
 
 // 7. Tahsilat Performans Raporu
-reportsRouter.get('/collection-report', (req, res) => {
+reportsRouter.get('/collection-report', requirePermission(PERMISSIONS.REPORTS_VIEW), (req, res) => {
   const { startDate, endDate } = req.query;
   const db = storage.getState();
-  let collections = db.cashTransactions.filter(t => t.type === 'COLLECTION' || t.type === 'CHECK_COLLECTION');
+  const tenantId = req.tenantId!;
+  const isOwned = ownedBy(tenantId);
+  let collections = db.cashTransactions.filter(t => isOwned(t) && (t.type === 'COLLECTION' || t.type === 'CHECK_COLLECTION'));
   if (startDate) collections = collections.filter(t => t.date >= String(startDate));
   if (endDate) collections = collections.filter(t => t.date <= String(endDate));
-  let bankCollections = db.bankTransactions.filter(t => t.direction === 'IN' && (t.type === 'HAVALE_EFT_IN' || t.type === 'POS_COLLECTION' || t.type === 'CHECK_COLLECTION'));
+  let bankCollections = db.bankTransactions.filter(t => isOwned(t) && t.direction === 'IN' && (t.type === 'HAVALE_EFT_IN' || t.type === 'POS_COLLECTION' || t.type === 'CHECK_COLLECTION'));
   if (startDate) bankCollections = bankCollections.filter(t => t.date >= String(startDate));
   if (endDate) bankCollections = bankCollections.filter(t => t.date <= String(endDate));
   const cashTotal = collections.filter(t => t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
   const bankTotal = bankCollections.reduce((s, t) => s + t.amount, 0);
-  const overdueInvoices = db.invoices.filter(inv => !inv.isDeleted && inv.paymentStatus !== 'PAID' && inv.maturityDate < new Date().toISOString().split('T')[0]);
+  const overdueInvoices = db.invoices.filter(inv => isOwned(inv) && !inv.isDeleted && inv.paymentStatus !== 'PAID' && inv.maturityDate < new Date().toISOString().split('T')[0]);
   const overdueAmount = overdueInvoices.reduce((s, inv) => s + (inv.grandTotal - inv.paidAmount), 0);
   res.json({ success: true, data: { cashCollections: Math.round(cashTotal*100)/100, bankCollections: Math.round(bankTotal*100)/100, totalCollections: Math.round((cashTotal+bankTotal)*100)/100, overdueInvoiceCount: overdueInvoices.length, overdueAmount: Math.round(overdueAmount*100)/100 }, details: { cash: collections.filter(t=>t.direction==='IN').slice(0,20), bank: bankCollections.slice(0,20) } });
 });

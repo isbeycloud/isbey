@@ -13,7 +13,7 @@ export const ERP_MENUS = [
   { id: 'pos', label: 'Hızlı satış (POS)', views: ['pos'], paths: ['pos'] },
   { id: 'muhasebe', label: 'Muhasebe ve müşavir portföyü', views: ['muhasebe', 'mali-musavir', 'muhasebe-kontrol'], paths: ['accounting', 'accountant'] },
   { id: 'edonusum', label: 'e-Fatura ve e-Dönüşüm', views: ['edonusum', 'edonusummerkezi', 'gelen-belgeler'], paths: ['efatura', 'e-documents', 'e-invoice', 'taxpayers', 'edefter', 'hizli-bayi'] },
-  { id: 'raporlar', label: 'Raporlar ve beyanname', views: ['raporlar', 'vergi', 'rapor-tasarimci'], paths: ['reports', 'report-designs', 'tax'] },
+  { id: 'raporlar', label: 'Raporlar ve beyanname', views: ['raporlar', 'rapor-detay', 'vergi', 'rapor-tasarimci'], paths: ['reports', 'report-detail', 'report-designs', 'tax'] },
   { id: 'documents', label: 'Belge merkezi', views: ['documents'], paths: ['documents'] },
   { id: 'ai', label: 'AI asistan', views: ['ai', 'ai-merkezi'], paths: ['ai', 'ai-insights'] },
   { id: 'otomasyon', label: 'Otomasyon', views: ['otomasyon'], paths: ['automations'] },

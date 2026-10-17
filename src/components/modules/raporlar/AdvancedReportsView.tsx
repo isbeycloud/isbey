@@ -15,10 +15,14 @@ import {
 } from 'lucide-react';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
+import { useApp } from '../../../context/AppContext';
 import type { CustomerRiskScore, FieldAgentPerformance } from '../../../types';
 
 export const AdvancedReportsView: React.FC = () => {
   const { showToast } = useToast();
+  // 2026-10-17: firma değişince rapor ESKİ firmanın verisinde takılı kalıyordu
+  // (bağımlılık listesi boştu). Diğer ekranlardaki desen: refreshKey + activeTenantId.
+  const { refreshKey, activeTenantId } = useApp();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'field' | 'risk' | 'cashflow'>('dashboard');
 
   const [kpiData, setKpiData] = useState<any>(null);
@@ -29,7 +33,7 @@ export const AdvancedReportsView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [refreshKey, activeTenantId]);
 
   const loadData = async () => {
     setIsLoading(true);

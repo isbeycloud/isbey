@@ -142,7 +142,6 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
   const now = new Date().toISOString();
-  const waybillNo = storage.getNextSequence('WAYBILL');
   const waybillId = `wb-${Date.now()}`;
   const whId = warehouseId || 'wh-default';
 
@@ -177,10 +176,9 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
     };
   });
 
-  const newWaybill: Waybill = {
+  const waybillBase = {
     id: waybillId,
     tenantId,
-    waybillNo,
     type,
     customerId: customer.id,
     customerCode: customer.code,
@@ -188,7 +186,7 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
     date: now.slice(0, 10),
     shipmentDate: shipmentDate || now.slice(0, 10),
     warehouseId: whId,
-    status: 'PENDING',
+    status: 'PENDING' as const,
     carrierTitle,
     plateNumber,
     driverName,
@@ -199,59 +197,69 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
     updatedAt: now,
   };
 
-  if (!db.waybills) db.waybills = [];
-  db.waybills.push(newWaybill);
+  // 2026-10-17: bkz. orders.ts — `getNextSequence` bayat referans yaratıyordu.
+  // Burada kayıp DAHA AĞIRDI: irsaliye, STOK HAREKETİ ve ÜRÜN STOĞU da ölü
+  // nesneye yazılıyordu; uç 201 dönüp stok hiç düşmüyordu. İrsaliye + hareket +
+  // stok düşümü + denetim izi TEK güncellemede; hesaplama mantığı DEĞİŞMEDİ.
+  let newWaybill!: Waybill;
+  storage.update(draft => {
+    if (!draft.waybills) draft.waybills = [];
+    const waybillNo = storage.nextSequenceInTransaction(draft, 'WAYBILL');
+    newWaybill = { ...waybillBase, waybillNo };
+    draft.waybills.push(newWaybill);
 
-  // Fiili stok hareketi oluştur
-  const isSales = type === 'SALES_DESPATCH';
-  for (const item of formattedItems) {
-    const prod = (db.products || []).find(p => p.id === item.productId);
-    if (prod) {
-      if (isSales) {
-        prod.currentStock = (prod.currentStock || 0) - item.quantity;
-      } else {
-        prod.currentStock = (prod.currentStock || 0) + item.quantity;
+    // Fiili stok hareketi oluştur
+    const isSales = type === 'SALES_DESPATCH';
+    for (const item of formattedItems) {
+      const prod = (draft.products || []).find(p => p.id === item.productId);
+      if (prod) {
+        if (isSales) {
+          prod.currentStock = (prod.currentStock || 0) - item.quantity;
+        } else {
+          prod.currentStock = (prod.currentStock || 0) + item.quantity;
+        }
+        prod.updatedAt = now;
+
+        const sm: StockMovement = {
+          id: `sm-wb-${Date.now()}-${item.productId}`,
+          tenantId,
+          productId: prod.id,
+          productCode: prod.code,
+          productName: prod.name,
+          warehouseId: whId,
+          documentNo: waybillNo,
+          documentType: 'WAYBILL',
+          documentId: waybillId,
+          movementType: isSales ? 'WAYBILL_OUT' : 'WAYBILL_IN',
+          quantity: item.quantity,
+          direction: isSales ? 'OUT' : 'IN',
+          unitPrice: item.unitPrice,
+          totalAmount: item.lineTotal,
+          currency: 'TRY',
+          date: now.slice(0, 10),
+          userId: user.id,
+          createdBy: user.fullName || user.username,
+          createdAt: now,
+        };
+        if (!draft.stockMovements) draft.stockMovements = [];
+        draft.stockMovements.push(sm);
       }
-      prod.updatedAt = now;
-
-      const sm: StockMovement = {
-        id: `sm-wb-${Date.now()}-${item.productId}`,
-        tenantId,
-        productId: prod.id,
-        productCode: prod.code,
-        productName: prod.name,
-        warehouseId: whId,
-        documentNo: waybillNo,
-        documentType: 'WAYBILL',
-        documentId: waybillId,
-        movementType: isSales ? 'WAYBILL_OUT' : 'WAYBILL_IN',
-        quantity: item.quantity,
-        direction: isSales ? 'OUT' : 'IN',
-        unitPrice: item.unitPrice,
-        totalAmount: item.lineTotal,
-        currency: 'TRY',
-        date: now.slice(0, 10),
-        userId: user.id,
-        createdBy: user.fullName || user.username,
-        createdAt: now,
-      };
-      if (!db.stockMovements) db.stockMovements = [];
-      db.stockMovements.push(sm);
     }
-  }
 
-  storage.addAuditLog({
-    userId: user.id,
-    username: user.fullName || user.username,
-    companyId: tenantId,
-    action: 'WAYBILL_CREATED',
-    module: 'WAYBILLS',
-    documentNo: waybillNo,
-    ipAddress: req.ip || '127.0.0.1',
-    details: `${customer.title} adına ${type} irsaliyesi (${waybillNo}) düzenlendi.`,
+    draft.auditLogs.unshift({
+      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      userId: user.id,
+      username: user.fullName || user.username,
+      companyId: tenantId,
+      action: 'WAYBILL_CREATED',
+      module: 'WAYBILLS',
+      documentNo: waybillNo,
+      ipAddress: req.ip || '127.0.0.1',
+      details: `${customer.title} adına ${type} irsaliyesi (${waybillNo}) düzenlendi.`,
+      timestamp: now,
+    } as any);
   });
 
-  storage.save();
   res.status(201).json({ success: true, waybill: newWaybill });
 });
 
