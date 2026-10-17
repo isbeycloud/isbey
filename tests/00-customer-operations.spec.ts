@@ -1,16 +1,76 @@
 import { test, expect } from '@playwright/test';
 
-test('direct signup opens the service catalog and can request a plan', async ({ page }) => {
+test('direct signup opens the service catalog and can request a plan', async ({ page, request }) => {
+  // 2026-10-16 (VKN akışı): kayıt formunda şifre/firma ünvanı YOK; firma bilgisi
+  // Hızlı Bilişim'den çekilir. E2E'de Hızlı Bilişim ağı yok, bu yüzden:
+  //  - gerçek token + TAZE (paketsiz) tenant sunucudan (legacy /register) alınır,
+  //  - VKN çağrısı arayüz sözleşmesiyle yakalanıp doğrulanır,
+  //  - VKN backend mantığı server/tests/registrationTrialGateTest.ts'de koşar
+  //    (sahte başarı ASLA ürün koduna girmez).
+  const stamp = Date.now();
+  const reg = await request.post('/api/auth/register', {
+    data: {
+      fullName: 'Katalog Test Kullanıcısı',
+      email: `catalog-${stamp}@example.test`,
+      companyName: 'Katalog Test Firması',
+      taxNumber: '1234567890',
+      password: 'TestPassword123!',
+    },
+  });
+  expect(reg.status()).toBe(201);
+  const seeded = await reg.json();
+  expect(seeded.success).toBe(true);
+  expect(seeded.token).toBeTruthy();
+  expect(seeded.tenant?.id).toBeTruthy();
+
   await page.goto('/');
   await page.getByRole('button', { name: /Ücretsiz Deneyin|Ücretsiz Başla|Ücretsiz Dene/ }).first().click();
+
+  // VKN sözleşmesi: formda şifre alanı ve firma ünvanı alanı YOKTUR.
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.getByPlaceholder('ABC Teknoloji Ltd. Şti.')).toHaveCount(0);
+  await expect(page.getByText('Şifrenizi siz belirlemezsiniz', { exact: false })).toBeVisible();
+
+  const sentBodies: Record<string, unknown>[] = [];
+  await page.route('**/api/auth/register-by-vkn', route => {
+    sentBodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      status: 201,
+      json: {
+        success: true,
+        message: 'Hesabınız oluşturuldu.',
+        token: seeded.token,
+        user: seeded.user,
+        tenant: seeded.tenant,
+        username: seeded.user?.username || `catalog-${stamp}`,
+        mailStatus: 'QUEUED',
+        trialDays: 14,
+        isFirstLogin: true,
+        edonusumDecisionRequired: false,
+      },
+    });
+  });
+
   await page.getByPlaceholder('Ahmet Yılmaz').fill('Yeni ERP Kullanıcısı');
-  await page.getByPlaceholder('ornek@sirketiniz.com').fill(`catalog-${Date.now()}@example.test`);
-  await page.getByPlaceholder('ABC Teknoloji Ltd. Şti.').fill('Katalog Test Firması');
-  await page.getByPlaceholder('10 veya 11 hane').fill('1234567890');
-  await page.getByPlaceholder('••••••••', { exact: true }).nth(0).fill('TestPassword123!');
-  await page.getByPlaceholder('••••••••', { exact: true }).nth(1).fill('TestPassword123!');
+  await page.getByPlaceholder('ornek@sirketiniz.com').fill(`catalog-${stamp}@example.test`);
+  await page.getByPlaceholder('0532 000 00 00').fill('0532 000 00 00');
+  // 9 hane geçersizdir: istemci reddeder, sunucuya TEK çağrı bile gitmez.
+  await page.getByPlaceholder('10 veya 11 hane').fill('123456789');
   await page.getByRole('button', { name: '14 Günlük Ücretsiz Denemeyi Başlat' }).click();
+  await expect(page.getByText('Geçerli bir VKN (10 hane) veya TCKN (11 hane) giriniz.', { exact: true })).toBeVisible();
+  expect(sentBodies).toHaveLength(0);
+
+  await page.getByPlaceholder('10 veya 11 hane').fill('1234567890');
+  await page.getByRole('button', { name: '14 Günlük Ücretsiz Denemeyi Başlat' }).click();
+
+  // Kayıt → oturum token'ı yazılır, kullanıcı hizmet kataloğuna düşer.
+  expect(sentBodies).toHaveLength(1);
+  expect(sentBodies[0]).not.toHaveProperty('password');
+  expect(sentBodies[0]).not.toHaveProperty('companyName');
+  expect(sentBodies[0].vknTckn).toBe('1234567890');
+  expect(sentBodies[0].email).toBe(`catalog-${stamp}@example.test`);
   await expect(page.getByRole('heading', { name: 'Hizmetler ve Paketler', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('isbey_token'))).toBe(seeded.token);
   await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toBeVisible();
   await page.getByRole('button', { name: 'Paket talebi oluştur', exact: true }).first().click();
   await expect(page.getByText('paket talebiniz kaydedildi. Henüz ödeme alınmadı.', { exact: false })).toBeVisible();
