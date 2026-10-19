@@ -7,6 +7,7 @@ import {
   Unit,
   Warehouse,
 } from '../db/schema';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 
 export interface CreateProductParams {
   tenantId: string;
@@ -85,15 +86,30 @@ export class StockService {
     } = params;
 
     const db = storage.getState();
-    const existing = (db.products || []).find(
-      p => p.code === code && (!p.tenantId || p.tenantId === tenantId)
-    );
+    const existing = (db.products || []).find(p => p.code === code && isOwnedBy(p, tenantId));
     if (existing) throw new Error(`'${code}' ürün kodu bu firmada zaten kullanılıyor.`);
 
     const productId = `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
 
-    const whId = warehouseId || (db.warehouses && db.warehouses[0]?.id) || 'wh-default';
+    // 2026-10-17 GÜVENLİK: Eski hâl `warehouseId || db.warehouses[0]?.id || 'wh-default'` idi —
+    // istekteki depo SAHİPLİK kontrolünden geçmiyordu (yabancı depo kimliği ürüne
+    // yazılabiliyordu) ve `'wh-default'` canlıda VAR OLMAYAN bir kimlikti.
+    // Yeni kural: istekte depo verilmişse SAHİPLİK kapısından geçer; verilmemişse
+    // firmanın TEK deposu kullanılır; birden çok/ hiç yok + açılış stoğu varsa
+    // AÇIK HATA (sessizce başka depoya düşme yok). Açılış stoğu yoksa ürün
+    // deposuz kaydedilebilir (mevcut davranış).
+    const requestedWhId = typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+    const ownedWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    const whId: string | undefined = requestedWhId ?? (ownedWhs.length === 1 ? ownedWhs[0].id : undefined);
+    if (whId === undefined && initialStock > 0) {
+      // Açılış stoğu yazılacak ama hedef depo belirsiz → AÇIK HATA (fırlatır).
+      assertOwnedWarehouse(db.warehouses, undefined, tenantId);
+    }
+    // Açılış stoğu varsa depo kapısından geçmiş olmak ZORUNDA; yoksa ürün
+    // deposuz kaydedilebilir (kapı yalnız depo belirtildiğinde çalışır).
+    const openingWh: Warehouse | undefined =
+      whId !== undefined ? assertOwnedWarehouse(db.warehouses, whId, tenantId) : undefined;
 
     const newProduct: Product = {
       id: productId,
@@ -140,14 +156,14 @@ export class StockService {
     });
 
     // Açılış Stoğu varsa hareket oluştur
-    if (initialStock > 0) {
+    if (initialStock > 0 && openingWh) {
       const openMove: StockMovement = {
         id: `sm-open-${Date.now()}`,
-        tenantId,
+        // 2026-10-17: Doğrulanmış depo (tenantId + kimlik + ad) tek kaynaktan.
+        ...stockMovementOwnedFields(tenantId, openingWh),
         productId,
         productCode: code,
         productName: name,
-        warehouseId: whId,
         documentNo: `OPEN-${Date.now().toString().slice(-6)}`,
         documentType: 'OPENING',
         movementType: 'OPENING',
@@ -206,12 +222,23 @@ export class StockService {
     if (quantity === 0) throw new Error('Düzeltme miktarı 0 olamaz.');
 
     const db = storage.getState();
-    const product = (db.products || []).find(
-      p => p.id === productId && (!p.tenantId || p.tenantId === tenantId)
-    );
+    const product = (db.products || []).find(p => p.id === productId && isOwnedBy(p, tenantId));
     if (!product) throw new Error('Ürün bulunamadı veya yetkiniz yok.');
 
-    const whId = warehouseId || product.warehouseId || (db.warehouses && db.warehouses[0]?.id) || 'wh-default';
+    // 2026-10-17 GÜVENLİK: Eski hâl `warehouseId || product.warehouseId ||
+    // db.warehouses[0]?.id || 'wh-default'` idi: istekteki depo sahiplik
+    // kontrolünden geçmiyordu (yabancı depoda sayım düzeltmesi yazılabiliyordu)
+    // ve `db.warehouses[0]` başka firmanın deposu olabilirdi.
+    // Ürünün kendi `warehouseId`'si DB'de VAR OLMAYAN bir kimlikse (canlıdaki
+    // 'wh-default'/'wh-1' durumu) sessizce başka depoya DÜŞÜLMEZ → açık hata.
+    const requestedWhId = typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+    const productWhId =
+      !requestedWhId && typeof product.warehouseId === 'string' && product.warehouseId.trim() !== ''
+        ? product.warehouseId.trim()
+        : undefined;
+    const ownedWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    const fallbackWhId = ownedWhs.length === 1 ? ownedWhs[0].id : undefined;
+    const wh = assertOwnedWarehouse(db.warehouses, requestedWhId ?? productWhId ?? fallbackWhId, tenantId);
     const now = new Date().toISOString();
     const isIncrease = quantity > 0;
     const absQty = Math.abs(quantity);
@@ -220,11 +247,11 @@ export class StockService {
 
     const movement: StockMovement = {
       id: `sm-adj-${Date.now()}`,
-      tenantId,
+      // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+      ...stockMovementOwnedFields(tenantId, wh),
       productId: product.id,
       productCode: product.code,
       productName: product.name,
-      warehouseId: whId,
       documentNo: docNo,
       documentType: 'ADJUSTMENT',
       movementType: isIncrease ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT',
@@ -286,14 +313,14 @@ export class StockService {
     if (fromWarehouseId === toWarehouseId) throw new Error('Kaynak ve hedef depo aynı olamaz.');
 
     const db = storage.getState();
-    const product = (db.products || []).find(
-      p => p.id === productId && (!p.tenantId || p.tenantId === tenantId)
-    );
+    const product = (db.products || []).find(p => p.id === productId && isOwnedBy(p, tenantId));
     if (!product) throw new Error('Ürün bulunamadı.');
 
-    const fromWh = (db.warehouses || []).find(w => w.id === fromWarehouseId);
-    const toWh = (db.warehouses || []).find(w => w.id === toWarehouseId);
-    if (!fromWh || !toWh) throw new Error('Kaynak veya hedef depo bulunamadı.');
+    // 2026-10-17 GÜVENLİK: Kaynak/hedef depo eskiden SAHİPLİK FİLTRESİZ aranıyordu;
+    // başka firmanın deposuna stok transfer edilebiliyordu (yazma IDOR'u).
+    // Artık ikisi de depo kapısından geçer. Fırlatan API → strict kapalıyken de güvenli.
+    const fromWh = assertOwnedWarehouse(db.warehouses, fromWarehouseId, tenantId);
+    const toWh = assertOwnedWarehouse(db.warehouses, toWarehouseId, tenantId);
 
     const now = new Date().toISOString();
     const docNo = `WH-TRF-${Date.now()}`;
@@ -301,12 +328,11 @@ export class StockService {
 
     const outMove: StockMovement = {
       id: `sm-out-${Date.now()}`,
-      tenantId,
+      // 2026-10-17: tenantId + doğrulanmış depo alanları tek kaynaktan.
+      ...stockMovementOwnedFields(tenantId, fromWh),
       productId: product.id,
       productCode: product.code,
       productName: product.name,
-      warehouseId: fromWh.id,
-      warehouseName: fromWh.name,
       documentNo: docNo,
       documentType: 'TRANSFER',
       movementType: 'TRANSFER_OUT',
@@ -324,12 +350,11 @@ export class StockService {
 
     const inMove: StockMovement = {
       id: `sm-in-${Date.now()}`,
-      tenantId,
+      // 2026-10-17: tenantId + doğrulanmış depo alanları tek kaynaktan.
+      ...stockMovementOwnedFields(tenantId, toWh),
       productId: product.id,
       productCode: product.code,
       productName: product.name,
-      warehouseId: toWh.id,
-      warehouseName: toWh.name,
       documentNo: docNo,
       documentType: 'TRANSFER',
       movementType: 'TRANSFER_IN',

@@ -535,7 +535,9 @@ export const api = {
   createQuote: (data: any) => request<{ success: boolean; quote: Quote; message: string }>('/quotes', { method: 'POST', body: JSON.stringify(data) }),
   updateQuoteStatus: (id: string, status: string) => request<{ success: boolean; quote: Quote; message: string }>(`/quotes/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   convertQuoteToOrder: (id: string, data?: any) => request<{ success: boolean; message: string; data: any }>(`/quotes/${id}/convert-to-order`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  convertQuoteToInvoice: (id: string) => request<{ success: boolean; message: string; data: any }>(`/quotes/${id}/convert-to-invoice`, { method: 'POST' }),
+  // 2026-10-17: `data` parametresi eklendi — sunucu artık faturalaştırmada
+  // depo seçimini ZORUNLU kılıyor (firma tek depoluysa sunucu kendisi seçer).
+  convertQuoteToInvoice: (id: string, data?: any) => request<{ success: boolean; message: string; data: any }>(`/quotes/${id}/convert-to-invoice`, { method: 'POST', body: JSON.stringify(data || {}) }),
   getOrders: (params?: any) => {
     const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; orders: Order[] }>(`/quotes/orders/list${query}`);

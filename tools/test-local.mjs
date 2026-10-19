@@ -128,6 +128,15 @@ const suites = [
   // kapısını, geçiş verisinin varsayılan firmada kaldığını ve yeni kayıtların
   // AÇIK damgayla yazıldığını ölçer. Ağa ÇIKMAZ.
   'cashBankTenantIsolationTest.ts',
+  // 2026-10-17: DEPO SAHİPLİĞİ + STOK HAREKETİ KAPISI (P0).
+  // Eski hâlde `POST /api/products` ve `POST /api/products/adjust` depo
+  // seçimini `|| draft.warehouses[0]` ile DOLDURUYORDU: B firması A'nın
+  // deposuna stok yazabiliyor, hiç depo yoksa ürün `warehouseId`'siz
+  // kalıyordu. Bu dosya boş/geçersiz/yabancı deponun REDDEDİLDİĞİNİ,
+  // `StockMovement`'ın tenantId'siz yazılamadığını, geri alınan işlemin
+  // stoğu DEĞİŞTİRMEDİĞİNİ ve sahipsiz deponun HİÇBİR firmaya açılmadığını
+  // ölçer. N1–N8 negatif senaryoları tek tek kanıtlanır. Ağa ÇIKMAZ.
+  'warehouseTenantIsolationTest.ts',
   // 2026-10-17: KAPSAMLI RAPOR FİLTRELERİ + DETAY RAPORLARI.
   // `/api/v1/reports/detail/*` uçları geçersiz filtreyi SESSİZCE boş liste
   // yapmıyor, açık 400 dönüyor (bozuk tarih/tutar/ters aralık); cari ekstre

@@ -177,8 +177,20 @@ function kurulum() {
   db.incomingDespatches = (db.incomingDespatches || []).filter(d => d.tenantId !== tenantId);
   db.tenants = (db.tenants || []).filter(t => t.id !== tenantId);
   db.tenantEinvoiceSettings = (db.tenantEinvoiceSettings || []).filter(s => s.tenantId !== tenantId);
+  db.warehouses = (db.warehouses || []).filter(w => w.tenantId !== tenantId);
 
   db.tenants.push(tenant as any);
+
+  // 2026-10-19 GÜVENLİK GERİLEMESİ: Gelen belge onayı stok girişini artık
+  // SAHİPLİKLİ bir depoya yazar; depo tanımsızsa açık hata verir
+  // (`WAREHOUSE_ID_REQUIRED`). Bu fikstürde depo YOKTU ve eski kod
+  // `'wh-default'` sabitine (canlıda var olmayan kimlik) sessizce düşüyordu —
+  // testler o sessiz yanlış yazmayı örtüyordu. Firma deposu eklendi.
+  db.warehouses.push({
+    id: `wh-${tenantId}`, tenantId, name: 'Gelen Belge Merkez Depo', code: 'INB-DEP',
+    isDefault: true, createdAt: '2026-01-01T00:00:00.000Z',
+  } as any);
+
   db.customers.push(tedarikci);
   db.products.push(prdEslesen);
   // ⚠️ Başlangıç stoğu HAREKETLE kurulur, yalnız alan yazarak DEĞİL.

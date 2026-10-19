@@ -3,6 +3,7 @@ import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { DocumentConversionService } from '../../services/documentConversionService';
 import { resolveInvoiceRecipient } from '../../services/invoiceRecipientService';
+import { isOwnedBy } from '../../security/tenantOwnership';
 import {
   parseDateRange,
   normalizeTaxNumber,
@@ -181,9 +182,16 @@ v1InvoicesRouter.post('/', requirePermission(PERMISSIONS.INVOICES_CREATE), async
   const user = req.user!;
 
   try {
-    const customer = storage.getState().customers.find(c => c.id === req.body.customerId && c.tenantId === tenantId);
+    // 2026-10-17 GÜVENLİK: Cari SAHİPLİK tek kaynaktan (`isOwnedBy`) — elle
+    // yazılmış `c.tenantId === tenantId` karşılaştırması eski (tenantId alanı
+    // boş) kayıtları yok sayıyordu.
+    const customer = storage.getState().customers.find(c => c.id === req.body.customerId && isOwnedBy(c, tenantId));
     if (!customer) throw new Error('Cari hesap bulunamadı.');
     const recipient = (req.body.type || 'SALES') === 'SALES' ? await resolveInvoiceRecipient(customer.taxNumber || '', tenantId, req.body.invoiceProfile) : undefined;
+    // NOT: `...req.body` ÖNCE yayılır, sahiplik alanları SONRA yazılır — gövde
+    // `tenantId`/`userId` EZEMEZ. Depo ise `createInvoice` içindeki depo
+    // kapısından geçer (`assertOwnedWarehouse`); gövdeden gelen `warehouseId`
+    // sahiplik kanıtı sayılmaz.
     const invoice = await DocumentConversionService.createInvoice({
       ...req.body,
       tenantId,
@@ -193,7 +201,8 @@ v1InvoicesRouter.post('/', requirePermission(PERMISSIONS.INVOICES_CREATE), async
     });
     res.status(201).json({ success: true, invoice });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });
 

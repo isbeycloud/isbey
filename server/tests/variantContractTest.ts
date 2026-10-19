@@ -94,7 +94,16 @@ function kurulum() {
     ];
     db.variantOptions = [];
     db.invoices = [];
-    db.stockMovements = [];
+    // 2026-10-17: Açılış stoğu HAREKETLE kurulur. `recalculateBalances` ürün
+    // stoğunu yalnız hareketlerden türetir; bu hareket yokken ilk yazmadan
+    // sonra `currentStock` 0'a iner ve varyant stok düşüşü ölçülemez.
+    db.stockMovements = [{
+      id: 'sm-var-base', tenantId: TENANT_A, productId: 'prd-sade', productCode: 'STK-001',
+      productName: 'Sade Ürün', warehouseId: 'wh-1', documentNo: 'ACILIS-VAR',
+      documentType: 'ADJUSTMENT', documentId: 'var-opening', movementType: 'COUNT_ADJUSTMENT',
+      quantity: 50, direction: 'IN', unitPrice: 60, totalAmount: 3000,
+      date: now.split('T')[0], userId: 'variant-admin', createdAt: now,
+    } as any];
   });
 }
 
@@ -207,7 +216,7 @@ test('ÜRÜN: varyantlı ürün oluşturulur, ürün stoğu = varyant toplamı',
   const res = await fetch(`${base}/api/products`, {
     method: 'POST', headers: headers('A'),
     body: JSON.stringify({
-      name: 'Tişört', code: 'STK-100', unit: 'Adet', salePrice: 200, vatRate: 20,
+      name: 'Tişört', code: 'STK-100', unit: 'Adet', warehouseId: 'wh-1', salePrice: 200, vatRate: 20,
       variantOptionIds: [RENK_ID, EBAT_ID],
       variants: [
         { attributes: [{ optionId: RENK_ID, valueId: KIRMIZI_ID }, { optionId: EBAT_ID, valueId: S_ID }], name: 'Kırmızı / S', barcode: '8691000000001', currentStock: 10, salePrice: 210 },
@@ -227,7 +236,7 @@ test('ÜRÜN: geçersiz varyant girdileri ATILIR (bozuk satır yazılmaz)', asyn
   const res = await fetch(`${base}/api/products`, {
     method: 'POST', headers: headers('A'),
     body: JSON.stringify({
-      name: 'Bozuk Varyantlı', code: 'STK-101', unit: 'Adet', salePrice: 100, vatRate: 20,
+      name: 'Bozuk Varyantlı', code: 'STK-101', unit: 'Adet', warehouseId: 'wh-1', salePrice: 100, vatRate: 20,
       variantOptionIds: [RENK_ID],
       variants: [
         { attributes: [{ optionId: RENK_ID, valueId: KIRMIZI_ID }], name: 'Kırmızı', currentStock: 3 },
@@ -257,7 +266,7 @@ test('ÜRÜN: başka firmaya ait özellikle varyant AÇILAMAZ (IDOR)', async () 
   const res = await fetch(`${base}/api/products`, {
     method: 'POST', headers: headers('A'),
     body: JSON.stringify({
-      name: 'IDOR Ürün', code: 'STK-102', unit: 'Adet', salePrice: 100, vatRate: 20,
+      name: 'IDOR Ürün', code: 'STK-102', unit: 'Adet', warehouseId: 'wh-1', salePrice: 100, vatRate: 20,
       variantOptionIds: [bOpt.id],
       variants: [{ attributes: [{ optionId: bOpt.id, valueId: bVal }], name: 'X', currentStock: 5 }],
     }),

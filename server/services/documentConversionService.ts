@@ -10,6 +10,7 @@ import {
 } from '../db/schema';
 import { FinancialTransactionService } from './financialTransactionService';
 import { ProviderFactory } from './providers/providerFactory';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 
 export interface CreateInvoiceParams {
   tenantId: string;
@@ -90,16 +91,28 @@ export class DocumentConversionService {
     }
 
     const db = storage.getState();
-    const customer = (db.customers || []).find(
-      c => c.id === customerId && (!c.tenantId || c.tenantId === tenantId)
-    );
+    const customer = (db.customers || []).find(c => c.id === customerId && isOwnedBy(c, tenantId));
     if (!customer) throw new Error('Cari hesap bulunamadı.');
+
+    // 2026-10-17 GÜVENLİK: Eski hâl `warehouseId || db.warehouses[0]?.id || 'wh-default'`
+    // idi — istekteki depo sahiplik kontrolünden geçmiyordu (yabancı depoya stok
+    // hareketi yazma), `db.warehouses[0]` başka firmanın deposu olabilirdi ve
+    // `'wh-default'` canlıda VAR OLMAYAN bir kimlikti. Stok hareketi YAZILACAKSA
+    // hedef depo artık ZORUNLU (kaynak irsaliyeden gelen faturada stok zaten
+    // düşülmüşse depo kapısı aranmaz — `sourceWaybillId` durumu).
+    // Kayıt DB'de olmayan bir depo kimliği taşıyorsa sessizce başka depoya
+    // düşülmez → açık hata (canlıdaki gerçek durum).
+    const willCreateStockMovements = !sourceWaybillId;
+    const requestedWhId = typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+    const ownedWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    const resolvedWhId = requestedWhId ?? (ownedWhs.length === 1 ? ownedWhs[0].id : undefined);
+    const wh = willCreateStockMovements ? assertOwnedWarehouse(db.warehouses, resolvedWhId, tenantId) : undefined;
+    const whId = wh ? wh.id : resolvedWhId || '';
 
     const now = new Date().toISOString();
     const invoiceDate = date || now.slice(0, 10);
     const invoiceId = `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const invoiceNo = storage.getNextSequence(type === 'PURCHASE' ? 'PURCHASE_INVOICE' : 'SALES_INVOICE');
-    const whId = warehouseId || (db.warehouses && db.warehouses[0]?.id) || 'wh-default';
 
     let subTotal = 0;
     let totalDiscount = 0;
@@ -111,9 +124,7 @@ export class DocumentConversionService {
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const product = (db.products || []).find(
-        p => p.id === it.productId && (!p.tenantId || p.tenantId === tenantId)
-      );
+      const product = (db.products || []).find(p => p.id === it.productId && isOwnedBy(p, tenantId));
       if (!product) throw new Error(`Ürün bulunamadı (ID: ${it.productId})`);
 
       const qty = Number(it.quantity) || 1;
@@ -173,11 +184,12 @@ export class DocumentConversionService {
 
         stockMovementsToCreate.push({
           id: `sm-${Date.now()}-${i}`,
-          tenantId,
+          // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+          // `willCreateStockMovements === true` olduğu için `wh` burada TANIMLIDIR.
+          ...stockMovementOwnedFields(tenantId, assertOwnedWarehouse(db.warehouses, whId, tenantId)),
           productId: product.id,
           productCode: product.code,
           productName: product.name,
-          warehouseId: whId,
           documentNo: invoiceNo,
           documentType: 'INVOICE',
           documentId: invoiceId,
@@ -395,8 +407,24 @@ export class DocumentConversionService {
       ? invoice.items
       : Array.isArray((invoice as any).lines) ? (invoice as any).lines : [];
     for (const item of cancelLines) {
-      const product = (db.products || []).find(p => p.id === item.productId);
+      // 2026-10-17 GÜVENLİK: Ürün sahiplikle aranır (eskiden filtresizdi).
+      const product = (db.products || []).find(p => p.id === item.productId && isOwnedBy(p, tenantId));
       if (product) {
+        // 2026-10-17 GÜVENLİK: İade hareketinin deposu artık ZORUNLU ve
+        // sahiplikli. Eski hâl `invoice.warehouseId || 'wh-default'` idi;
+        // `'wh-default'` canlıda VAR OLMAYAN bir kimliktir. Faturanın kendi
+        // deposu DB'de YOKSA sessizce başka depoya düşülmez → açık hata.
+        const requestedRevWhId =
+          typeof invoice.warehouseId === 'string' && invoice.warehouseId.trim() !== ''
+            ? invoice.warehouseId.trim()
+            : undefined;
+        const ownedRevWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+        const revWh = assertOwnedWarehouse(
+          db.warehouses,
+          requestedRevWhId ?? (ownedRevWhs.length === 1 ? ownedRevWhs[0].id : undefined),
+          tenantId
+        );
+
         if (isSales) {
           product.currentStock = (product.currentStock || 0) + item.quantity;
         } else {
@@ -406,11 +434,11 @@ export class DocumentConversionService {
 
         const revMove: StockMovement = {
           id: `sm-rev-${Date.now()}-${item.id}`,
-          tenantId,
+          // 2026-10-17: tenantId + doğrulanmış depo alanları tek kaynaktan.
+          ...stockMovementOwnedFields(tenantId, revWh),
           productId: product.id,
           productCode: product.code,
           productName: product.name,
-          warehouseId: invoice.warehouseId || 'wh-default',
           documentNo: `IPT-${invoice.invoiceNo}`,
           documentType: 'INVOICE',
           documentId: invoice.id,
@@ -489,12 +517,20 @@ export class DocumentConversionService {
   /**
    * 3. TEKLİFİ SİPARİŞE DÖNÜŞTÜRME
    */
-  static async convertQuoteToOrder(quoteId: string, tenantId: string, userId: string, username: string = 'Sistem'): Promise<Order> {
+  static async convertQuoteToOrder(
+    quoteId: string,
+    tenantId: string,
+    userId: string,
+    username: string = 'Sistem',
+    warehouseId?: string
+  ): Promise<Order> {
     // 2026-10-06 — KALICILIK: `getNextSequence` bayatlatmasına karşı transaction.
-    return storage.runTransaction(() => DocumentConversionService.convertQuoteToOrderCore(quoteId, tenantId, userId, username));
+    return storage.runTransaction(() =>
+      DocumentConversionService.convertQuoteToOrderCore(quoteId, tenantId, userId, username, warehouseId)
+    );
   }
 
-  private static async convertQuoteToOrderCore(quoteId: string, tenantId: string, userId: string, username: string): Promise<Order> {
+  private static async convertQuoteToOrderCore(quoteId: string, tenantId: string, userId: string, username: string, warehouseId?: string): Promise<Order> {
     const db = storage.getState();
     const quote = (db.quotes || []).find(q => q.id === quoteId && (!q.tenantId || q.tenantId === tenantId));
     if (!quote) throw new Error('Teklif bulunamadı.');
@@ -502,6 +538,18 @@ export class DocumentConversionService {
     const now = new Date().toISOString();
     const orderNo = storage.getNextSequence('ORDER');
     const orderId = `ord-${Date.now()}`;
+
+    // 2026-10-17 GÜVENLİK: Eski hâl koşulsuz `warehouseId: 'wh-default'` yazıyordu
+    // (canlıda VAR OLMAYAN kimlik). Sipariş stok hareketi doğurmaz ama bu kimlik
+    // sipariş→irsaliye dönüşümünde stok düşümünün deposu olur; sessizce başka
+    // depoya düşmemek için sipariş de doğrulanmış depo taşır.
+    const ownedOrderWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    const orderWh = assertOwnedWarehouse(
+      db.warehouses,
+      (typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined) ??
+        (ownedOrderWhs.length === 1 ? ownedOrderWhs[0].id : undefined),
+      tenantId
+    );
 
     const newOrder: Order = {
       id: orderId,
@@ -518,7 +566,7 @@ export class DocumentConversionService {
       totalVat: quote.totalVat,
       grandTotal: quote.grandTotal,
       status: 'CONFIRMED',
-      warehouseId: 'wh-default',
+      warehouseId: orderWh.id,
       sourceQuoteId: quote.id,
       sourceQuoteNo: quote.quoteNo,
       notes: `Tekliften dönüştürüldü: ${quote.quoteNo}`,
@@ -568,12 +616,20 @@ export class DocumentConversionService {
   /**
    * 4. SİPARİŞİ İRSALİYEYE DÖNÜŞTÜRME
    */
-  static async convertOrderToWaybill(orderId: string, tenantId: string, userId: string, username: string = 'Sistem'): Promise<Waybill> {
+  static async convertOrderToWaybill(
+    orderId: string,
+    tenantId: string,
+    userId: string,
+    username: string = 'Sistem',
+    warehouseId?: string
+  ): Promise<Waybill> {
     // 2026-10-06 — KALICILIK (KANITLANMIŞ CANLI HATA): `getNextSequence` bayatlatması.
-    return storage.runTransaction(() => DocumentConversionService.convertOrderToWaybillCore(orderId, tenantId, userId, username));
+    return storage.runTransaction(() =>
+      DocumentConversionService.convertOrderToWaybillCore(orderId, tenantId, userId, username, warehouseId)
+    );
   }
 
-  private static async convertOrderToWaybillCore(orderId: string, tenantId: string, userId: string, username: string): Promise<Waybill> {
+  private static async convertOrderToWaybillCore(orderId: string, tenantId: string, userId: string, username: string, warehouseId?: string): Promise<Waybill> {
     const db = storage.getState();
     const order = (db.orders || []).find(o => o.id === orderId && (!o.tenantId || o.tenantId === tenantId));
     if (!order) throw new Error('Sipariş bulunamadı.');
@@ -587,6 +643,22 @@ export class DocumentConversionService {
     const waybillNo = storage.getNextSequence('WAYBILL');
     const waybillId = `wb-${Date.now()}`;
 
+    // 2026-10-17 GÜVENLİK: Eski hâl `order.warehouseId || 'wh-default'` idi;
+    // `'wh-default'` canlıda VAR OLMAYAN bir kimliktir ve siparişin taşıdığı
+    // kimlik de doğrulanmıyordu. Sipariş DB'de olmayan bir depo taşıyorsa
+    // sessizce başka depoya DÜŞÜLMEZ → açık hata. Stok bu irsaliyeyle
+    // düşüleceği için hedef depo ZORUNLUDUR. İstekte açıkça depo verildiyse
+    // (kullanıcı seçimi) o tercih edilir.
+    const requestedWaybillWhId =
+      (typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined) ??
+      (typeof order.warehouseId === 'string' && order.warehouseId.trim() !== '' ? order.warehouseId.trim() : undefined);
+    const ownedWaybillWhs = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    const waybillWh = assertOwnedWarehouse(
+      db.warehouses,
+      requestedWaybillWhId ?? (ownedWaybillWhs.length === 1 ? ownedWaybillWhs[0].id : undefined),
+      tenantId
+    );
+
     const newWaybill: Waybill = {
       id: waybillId,
       tenantId,
@@ -597,7 +669,7 @@ export class DocumentConversionService {
       customerTitle: order.customerTitle,
       date: now.slice(0, 10),
       shipmentDate: now.slice(0, 10),
-      warehouseId: order.warehouseId || 'wh-default',
+      warehouseId: waybillWh.id,
       status: 'PENDING',
       sourceOrderId: order.id,
       sourceOrderNo: order.orderNo,
@@ -626,18 +698,19 @@ export class DocumentConversionService {
 
     // Fiili stok düşümü
     for (const item of newWaybill.items) {
-      const prod = (db.products || []).find(p => p.id === item.productId);
+      // 2026-10-17 GÜVENLİK: Ürün sahiplikle aranır (eskiden filtresizdi).
+      const prod = (db.products || []).find(p => p.id === item.productId && isOwnedBy(p, tenantId));
       if (prod) {
         prod.currentStock = (prod.currentStock || 0) - item.quantity;
         prod.updatedAt = now;
 
         const sm: StockMovement = {
           id: `sm-wb-${Date.now()}-${item.productId}`,
-          tenantId,
+          // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+          ...stockMovementOwnedFields(tenantId, waybillWh),
           productId: prod.id,
           productCode: prod.code,
           productName: prod.name,
-          warehouseId: newWaybill.warehouseId,
           documentNo: waybillNo,
           documentType: 'WAYBILL',
           documentId: waybillId,
@@ -693,6 +766,16 @@ export class DocumentConversionService {
       tenantId,
       type: 'SALES',
       customerId: waybill.customerId,
+      // 2026-10-17 GÜVENLİK: Fatura, irsaliyenin deposunu DEVRALIR. Eski hâlde
+      // depo hiç verilmiyordu ve `createInvoice` içindeki eski varsayılan
+      // (`db.warehouses[0]?.id || 'wh-default'`) BAŞKA firmanın deposunu ya da
+      // canlıda VAR OLMAYAN bir kimliği faturaya yazıyordu. Bu yolda stok
+      // hareketi ÜRETİLMEZ (`sourceWaybillId` dolu) — stok zaten irsaliyede
+      // düşülmüştür; depo kapısı bu yüzden stok kapısı değil, referans
+      // tutarlılığı içindir.
+      warehouseId: typeof waybill.warehouseId === 'string' && waybill.warehouseId.trim() !== ''
+        ? waybill.warehouseId.trim()
+        : undefined,
       items: waybill.items.map(it => ({
         productId: it.productId,
         quantity: it.quantity,

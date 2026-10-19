@@ -17,7 +17,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import type { Product, Customer, InvoiceItem } from '../../../types';
+import type { Product, Customer, InvoiceItem, Warehouse } from '../../../types';
 import { api } from '../../../services/api';
 
 import { useToast } from '../../../context/ToastContext';
@@ -47,6 +47,11 @@ export const POSSalesView: React.FC = () => {
   const [paymentType, setPaymentType] = useState<'CASH' | 'CREDIT_CARD' | 'OPEN_ACCOUNT'>('CASH');
   const [tenderedAmount, setTenderedAmount] = useState<number | string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  // 2026-10-17: POS satışının stok hareketi HANGİ depoya yazılacak. Alan yoktu;
+  // sunucu eski hâlde canlıda VAR OLMAYAN `'wh-1'` kimliğine ya da ürünün kırık
+  // depo referansına düşüyordu. Liste tenant'a göre süzülmüş uçtan gelir.
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,9 +74,10 @@ export const POSSalesView: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [pRes, cRes] = await Promise.all([
+      const [pRes, cRes, mRes] = await Promise.all([
         api.getProducts(),
         api.getCustomers({ type: 'CUSTOMER' }),
+        api.getProductMeta(),
       ]);
       if (pRes.success) setProducts(pRes.products);
       if (cRes.success) {
@@ -79,6 +85,12 @@ export const POSSalesView: React.FC = () => {
         if (cRes.customers.length > 0 && !selectedCustomerId) {
           setSelectedCustomerId(cRes.customers[0].id);
         }
+      }
+      // 2026-10-17: Depo listesi (tenant'a göre süzülmüş uç). Tek depo varsa
+      // otomatik seçilir; seçim yoksa satış tamamlanmaz.
+      if (mRes.success) {
+        setWarehouses(mRes.warehouses || []);
+        if (mRes.warehouses?.length === 1) setWarehouseId(mRes.warehouses[0].id);
       }
     } catch (err) {
       console.error(err);
@@ -287,6 +299,16 @@ export const POSSalesView: React.FC = () => {
       showToast('Lütfen bir müşteri seçiniz.', 'warning');
       return;
     }
+    // 2026-10-17: Depo seçimi ZORUNLU — sunucu artık varsayılan seçmiyor.
+    if (!warehouseId) {
+      showToast(
+        warehouses.length === 0
+          ? 'Bu firma için tanımlı depo yok. Satış kaydedilemez; lütfen önce bir depo tanımlayın.'
+          : 'Satışın stok hareketi için önce bir depo seçiniz.',
+        'warning'
+      );
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -297,6 +319,7 @@ export const POSSalesView: React.FC = () => {
         paymentType,
         paidAmount: paymentType === 'OPEN_ACCOUNT' ? 0 : grandTotal,
         date: new Date().toISOString().split('T')[0],
+        warehouseId,
       };
 
       const res = await api.createInvoice(payload);
@@ -522,7 +545,33 @@ export const POSSalesView: React.FC = () => {
           {/* Hızlı Ödeme Türü ve Para Üstü Hesabı */}
           <div className="card-panel" style={{ padding: '14px' }}>
             <div style={{ fontSize: 'var(--fs-base, 13px)', fontWeight: 700, marginBottom: '10px' }}>Ödeme Türü & Tahsilat</div>
-            
+
+            {/* 2026-10-17: Satışın stok hareketi bu depoya yazılır. Seçilmezse
+                satış tamamlanmaz (sunucu varsayılan depo SEÇMEZ). */}
+            <div className="form-group" style={{ marginBottom: '12px' }}>
+              <label className="form-label required">Depo (Stok Hareketi)</label>
+              <select
+                className="form-select"
+                value={warehouseId}
+                onChange={e => setWarehouseId(e.target.value)}
+                disabled={warehouses.length === 0}
+              >
+                {warehouses.length === 0 ? (
+                  <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+                ) : (
+                  <>
+                    <option value="">-- Depo Seçiniz --</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            </div>
+
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
               <button
                 type="button"

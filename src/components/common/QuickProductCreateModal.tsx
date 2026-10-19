@@ -31,7 +31,11 @@ export const QuickProductCreateModal: React.FC<QuickProductCreateModalProps> = (
   const [salePrice, setSalePrice] = useState<number | ''>(0);
   const [vatRate, setVatRate] = useState<number>(20);
   const [criticalStock, setCriticalStock] = useState<number>(5);
-  const [warehouseId, setWarehouseId] = useState('wh-1');
+  // 2026-10-17: Eski hâlde varsayılan `'wh-1'` idi — canlıda VAR OLMAYAN bir
+  // depo kimliği. Sunucu artık depo kapısını (assertOwnedWarehouse) uyguluyor;
+  // bu kimlik 400 (WAREHOUSE_NOT_FOUND) ile reddedilir. Depo, gerçek listeden
+  // seçilir; liste boşsa alan BOŞ kalır ve kayıt denemesi açık hata verir.
+  const [warehouseId, setWarehouseId] = useState('');
   const [description, setDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
 
@@ -91,7 +95,10 @@ export const QuickProductCreateModal: React.FC<QuickProductCreateModalProps> = (
         salePrice: Number(salePrice) || 0,
         vatRate: Number(vatRate) || 20,
         criticalStock: Number(criticalStock) || 5,
-        warehouseId: warehouseId || 'wh-1',
+        // Depo seçilmemişse `warehouseId` GÖNDERİLMEZ (undefined) — sunucu
+        // firmanın TEK deposu varsa onu kullanır, yoksa açık hata verir.
+        // Canlıda VAR OLMAYAN bir kimliğe sessizce düşülmez.
+        ...(warehouseId ? { warehouseId } : {}),
         description: description.trim(),
         imageUrl: imageUrl.trim() || undefined,
         initialStock: 0,
@@ -272,12 +279,25 @@ export const QuickProductCreateModal: React.FC<QuickProductCreateModalProps> = (
             className="form-select"
             value={warehouseId}
             onChange={e => setWarehouseId(e.target.value)}
+            disabled={warehouses.length === 0}
           >
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
-            ))}
-            {warehouses.length === 0 && <option value="wh-1">Merkez Depo</option>}
+            {warehouses.length === 0 ? (
+              <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+            ) : (
+              <>
+                <option value="">-- Depo Seçiniz --</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+                ))}
+              </>
+            )}
           </select>
+          {warehouses.length === 0 && (
+            <div style={{ fontSize: '11px', color: 'var(--danger, #ef4444)', marginTop: '4px' }}>
+              Bu firma için tanımlı depo yok. Ürün kaydedilebilir; açılış stoğu
+              girmek için önce Depolar ekranından bir depo tanımlayın.
+            </div>
+          )}
         </div>
 
         <div className="form-group">

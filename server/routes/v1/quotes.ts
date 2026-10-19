@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { Quote } from '../../db/schema';
+import { isOwnedBy } from '../../security/tenantOwnership';
 import { DocumentConversionService } from '../../services/documentConversionService';
 
 export const v1QuotesRouter = Router();
@@ -59,9 +60,8 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 
   const { customerId, validUntil, items = [], termsAndConditions, paymentTerms, deliveryTerms, notes } = req.body;
 
-  const customer = (db.customers || []).find(
-    c => c.id === customerId && (c.tenantId === tenantId || (tenantId === 'tnt-isbey' && !c.tenantId))
-  );
+  // 2026-10-17 GÜVENLİK: Cari SAHİPLİK kontrolü tek kaynaktan (isOwnedBy).
+  const customer = (db.customers || []).find(c => c.id === customerId && isOwnedBy(c, tenantId));
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
   const now = new Date().toISOString();
@@ -164,16 +164,23 @@ v1QuotesRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 v1QuotesRouter.post('/:id/convert-to-order', requirePermission(PERMISSIONS.QUOTES_UPDATE), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
+  // 2026-10-17 GÜVENLİK: Dönüşümde yazılacak depo istemciden seçilebilir;
+  // servis içinde SAHİPLİK kapısından geçer. Gönderilmezse firmanın TEK
+  // deposu kullanılır; belirsizse işlem AÇIK hata ile durur
+  // (`'wh-default'` gibi canlıda VAR OLMAYAN bir kimliğe sessizce düşülmez).
+  const { warehouseId } = req.body || {};
 
   try {
     const order = await DocumentConversionService.convertQuoteToOrder(
       String(req.params.id),
       tenantId,
       user.id,
-      user.fullName || user.username
+      user.fullName || user.username,
+      typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined
     );
     res.json({ success: true, order });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });

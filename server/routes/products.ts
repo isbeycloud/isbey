@@ -3,7 +3,15 @@ import { storage } from '../db/storage';
 import { Product, ProductPriceEntry, StockMovement } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
 // 2026-10-17: Depo sahipliği TEK KAYNAKTAN (bkz. security/tenantOwnership.ts).
-import { filterOwned } from '../security/tenantOwnership';
+// `filterOwned` = okuma listesi; `requireOwnedWarehouse` = yazma kapısı (boş /
+// geçersiz / yabancı depo seçimini HATA yapar — sessiz fallback yok).
+import {
+  filterOwned,
+  isOwnedBy,
+  assertOwnedWarehouse,
+  stockMovementOwnedFields,
+  WarehouseGateError,
+} from '../security/tenantOwnership';
 
 export const productsRouter = Router();
 
@@ -223,8 +231,11 @@ productsRouter.post('/', async (req, res) => {
       const productBarcode = barcode || `869${Date.now().toString().slice(-10)}`;
 
       const group = draft.productGroups.find(g => g.id === groupId);
-      const warehouse = draft.warehouses.find(w => w.id === warehouseId) || draft.warehouses[0];
-      const tenantId = req.tenantId || 'tnt-isbey';
+      const tenantId = req.tenantId!;
+      // 2026-10-17: Depo seçimi ZORUNLU ve sahiplik doğrulanır. Eski hâlde
+      // `|| draft.warehouses[0]` ile başka firmanın deposu sessizce atanıyor,
+      // hiç depo yoksa `product.warehouseId` tanımsız kalıyordu.
+      const warehouse = assertOwnedWarehouse(draft.warehouses, warehouseId, tenantId);
 
       // 2026-10-12: Varyant özellikleri tenant'a ait olmalı (IDOR koruması).
       // Geçersiz/başka firmaya ait özellik kimliği sessizce ATILIR — varyant
@@ -264,8 +275,9 @@ productsRouter.post('/', async (req, res) => {
         currentStock: cleanVariants.length > 0
           ? cleanVariants.reduce((s, v) => s + (Number(v.currentStock) || 0), 0)
           : (Number(initialStock) || 0),
-        warehouseId: warehouse?.id || 'wh-1',
-        warehouseName: warehouse?.name || 'Merkez Depo',
+        // Kapı yukarıda garantiledi: `warehouse` burada HER ZAMAN tanımlı.
+        warehouseId: warehouse.id,
+        warehouseName: warehouse.name,
         description: description || '',
         imageUrl: imageUrl || undefined,
         active: true,
@@ -287,13 +299,12 @@ productsRouter.post('/', async (req, res) => {
           if (qty <= 0) continue;
           const movement: StockMovement = {
             id: `sm-${Date.now()}-${v.id}`,
+            ...stockMovementOwnedFields(tenantId, warehouse),
             productId: product.id,
             variantId: v.id,
             variantName: v.name,
             productCode: product.code,
             productName: product.name,
-            warehouseId: product.warehouseId ?? 'wh-1',
-            warehouseName: product.warehouseName,
             documentNo: `DEV-${new Date().getFullYear()}-001`,
             documentType: 'ADJUSTMENT',
             movementType: 'COUNT_ADJUSTMENT',
@@ -312,11 +323,10 @@ productsRouter.post('/', async (req, res) => {
         // If initial stock provided, create opening stock movement
         const movement: StockMovement = {
           id: `sm-${Date.now()}`,
+          ...stockMovementOwnedFields(tenantId, warehouse),
           productId: product.id,
           productCode: product.code,
           productName: product.name,
-          warehouseId: product.warehouseId ?? 'wh-1',
-          warehouseName: product.warehouseName,
           documentNo: `DEV-${new Date().getFullYear()}-001`,
           documentType: 'ADJUSTMENT',
           movementType: 'COUNT_ADJUSTMENT',
@@ -336,8 +346,8 @@ productsRouter.post('/', async (req, res) => {
     });
 
     storage.addAuditLog({
-      userId: 'admin',
-      username: 'admin',
+      userId: req.user?.id || 'admin',
+      username: req.user?.username || 'admin',
       action: 'CREATE',
       module: 'STOCK',
       documentNo: newProduct.code,
@@ -347,7 +357,7 @@ productsRouter.post('/', async (req, res) => {
 
     res.json({ success: true, product: newProduct, message: 'Stok kartı kaydedildi.' });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({ success: false, code: err.code, message: err.message });
   }
 });
 
@@ -358,11 +368,21 @@ productsRouter.put('/:id', async (req, res) => {
 
   try {
     const updated = await storage.runTransaction(draft => {
-      const product = draft.products.find(p => p.id === id);
+      const tenantId = req.tenantId!;
+      const product = draft.products.find(p => p.id === id && isOwnedBy(p, tenantId));
       if (!product) throw new Error('Stok kartı bulunamadı.');
 
       const group = draft.productGroups.find(g => g.id === updateData.groupId);
-      const warehouse = draft.warehouses.find(w => w.id === updateData.warehouseId);
+      // 2026-10-17: `warehouseId` KISMİ güncellemede opsiyoneldir. Gönderildiyse
+      // sahipliği DOĞRULANIR (yabancı depoya bağlanamaz); hiç gönderilmediyse
+      // ürünün mevcut deposu korunur. Eski hâlde filtre yoktu: başka firmanın
+      // depo kimliği gönderilerek ürün oraya bağlanabiliyordu.
+      let warehouse = product.warehouseId
+        ? draft.warehouses.find(w => w.id === product.warehouseId && isOwnedBy(w, tenantId))
+        : undefined;
+      if (updateData.warehouseId !== undefined && updateData.warehouseId !== null && updateData.warehouseId !== '') {
+        warehouse = assertOwnedWarehouse(draft.warehouses, updateData.warehouseId, tenantId);
+      }
 
       // 2026-10-12: Varyant stok farkı için ÖNCEKİ değerler (`Object.assign`
       // öncesi snapshot). Ürün kartından varyant stoğu değiştirilirse fark,
@@ -384,7 +404,6 @@ productsRouter.put('/:id', async (req, res) => {
       // 2026-10-12: Varyant güncellemesi. `variantOptionIds` HİÇ gönderilmediyse
       // mevcut varyant yapısı korunur; boş dizi gönderilirse varyantlar TAMAMEN
       // kaldırılır (ürün varyantsız olur). `variants` gönderildiyse temizlenir.
-      const tenantId = req.tenantId || 'tnt-isbey';
       const tenantOptions = (draft.variantOptions || []).filter(
         o => o.tenantId === tenantId || (tenantId === 'tnt-isbey' && !o.tenantId)
       );
@@ -405,7 +424,21 @@ productsRouter.put('/:id', async (req, res) => {
       }
 
       Object.assign(product, {
-        ...updateData,
+        // 2026-10-17 GÜVENLİK: Ham gövde (`...updateData`) YAYILMAZ — yalnız
+        // izin verilen alanlar. Eski hâlde gövde doğrudan ürüne yayıldığı için
+        // istemci `tenantId` göndererek ürünü BAŞKA firmaya taşıyabiliyor,
+        // `warehouseId: ''` göndererek mevcut depo bağını silebiliyordu
+        // (ikisi de yazma IDOR'u / veri kaybı).
+        barcode: typeof updateData.barcode === 'string' ? updateData.barcode : product.barcode,
+        code: typeof updateData.code === 'string' ? updateData.code : product.code,
+        name: typeof updateData.name === 'string' ? updateData.name : product.name,
+        groupId: typeof updateData.groupId === 'string' ? updateData.groupId : product.groupId,
+        unit: typeof updateData.unit === 'string' ? updateData.unit : product.unit,
+        description: updateData.description !== undefined ? updateData.description : product.description,
+        imageUrl: updateData.imageUrl !== undefined ? updateData.imageUrl : product.imageUrl,
+        // Sahiplik ve depo bağı SUNUCU kararıdır; gövdeden ASLA yazılmaz.
+        tenantId: product.tenantId,
+        warehouseId: warehouse ? warehouse.id : product.warehouseId,
         groupName: group ? group.name : product.groupName,
         warehouseName: warehouse ? warehouse.name : product.warehouseName,
         purchasePrice: Number(updateData.purchasePrice ?? product.purchasePrice),
@@ -443,15 +476,25 @@ productsRouter.put('/:id', async (req, res) => {
           const after = Number(v.currentStock) || 0;
           const diff = before === undefined ? after : after - before;
           if (!Number.isFinite(diff) || diff === 0) continue;
+          // 2026-10-17: Varyant farkı deftere YAZILMAK ZORUNDA; yazılmazsa
+          // `recalculateBalances` değişimi siler. Depo yoksa hareket
+          // kaydedilemez → sessizce `'wh-1'`e yazmak yerine AÇIK HATA verilir
+          // (aksi hâlde stok değişimi ya kaybolur ya yabancı depoya düşer).
+          if (!warehouse) {
+            throw new WarehouseGateError({
+              ok: false,
+              code: 'WAREHOUSE_ID_REQUIRED',
+              message: 'Varyant stoğu değiştirilemez: bu ürünün bağlı olduğu geçerli bir depo yok. Lütfen önce depo tanımlayıp ürünü bir depoya bağlayın.',
+            });
+          }
           draft.stockMovements.push({
             id: `sm-${Date.now()}-${v.id}`,
+            ...stockMovementOwnedFields(tenantId, warehouse),
             productId: product.id,
             variantId: v.id,
             variantName: v.name,
             productCode: product.code,
             productName: product.name,
-            warehouseId: product.warehouseId ?? 'wh-1',
-            warehouseName: product.warehouseName,
             documentNo: `DUZ-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
             documentType: 'ADJUSTMENT',
             movementType: 'COUNT_ADJUSTMENT',
@@ -473,8 +516,8 @@ productsRouter.put('/:id', async (req, res) => {
     });
 
     storage.addAuditLog({
-      userId: 'admin',
-      username: 'admin',
+      userId: req.user?.id || 'admin',
+      username: req.user?.username || 'admin',
       action: 'UPDATE',
       module: 'STOCK',
       documentNo: updated.code,
@@ -484,7 +527,7 @@ productsRouter.put('/:id', async (req, res) => {
 
     res.json({ success: true, product: updated, message: 'Stok kartı güncellendi.' });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({ success: false, code: err.code, message: err.message });
   }
 });
 
@@ -497,9 +540,17 @@ productsRouter.post('/adjust', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Geçerli bir ürün ve miktar giriniz.' });
   }
 
+  // 2026-10-17: Depo ve ürün sahipliği DOĞRULANIR. Eski hâlde
+  // `draft.warehouses.find(...) || draft.warehouses[0]` fallback'i, depo seçimi
+  // boş/geçersizse BAŞKA firmanın deposuna yazıyordu; hareket `tenantId` de
+  // taşımadığı için sahipsiz doğuyordu (bkz. security/tenantOwnership.ts).
+  const tenantId = req.tenantId!;
+
   try {
+    // Ön doğrulama: transaction açmadan hızlı reddet (boş/geçersiz/yabancı depo).
+    assertOwnedWarehouse(storage.getState().warehouses, warehouseId, tenantId);
     const movement = await storage.runTransaction(draft => {
-      const product = draft.products.find(p => p.id === productId);
+      const product = draft.products.find(p => p.id === productId && isOwnedBy(p, tenantId));
       if (!product) throw new Error('Ürün bulunamadı.');
 
       const isOut = type === 'OUT';
@@ -507,16 +558,17 @@ productsRouter.post('/adjust', async (req, res) => {
         throw new Error(`Yetersiz stok! Mevcut stok: ${product.currentStock} ${product.unit}`);
       }
 
-      const warehouse = draft.warehouses.find(w => w.id === warehouseId) || draft.warehouses[0];
+      // Kapı transaction İÇİNDE yeniden doğrulanır: ön okuma ile yazım arasında
+      // depo silinmiş/pasife alınmış olabilir. Fallback YOK — seçim yoksa hata.
+      const warehouse = assertOwnedWarehouse(draft.warehouses, warehouseId, tenantId);
       const docNo = `DUZ-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
 
       const sm: StockMovement = {
         id: `sm-${Date.now()}`,
+        ...stockMovementOwnedFields(tenantId, warehouse),
         productId: product.id,
         productCode: product.code,
         productName: product.name,
-        warehouseId: warehouse.id,
-        warehouseName: warehouse.name,
         documentNo: docNo,
         documentType: 'ADJUSTMENT',
         movementType: isOut ? 'SALE_RETURN' : 'COUNT_ADJUSTMENT',
@@ -526,7 +578,7 @@ productsRouter.post('/adjust', async (req, res) => {
         totalAmount: qty * (Number(unitPrice) || product.purchasePrice),
         date: new Date().toISOString().split('T')[0],
         notes: notes || (isOut ? 'Manuel Stok Çıkışı' : 'Manuel Stok Girişi'),
-        userId: 'admin',
+        userId: req.user?.id || 'admin',
         createdAt: new Date().toISOString(),
       };
 
@@ -535,8 +587,8 @@ productsRouter.post('/adjust', async (req, res) => {
     });
 
     storage.addAuditLog({
-      userId: 'admin',
-      username: 'admin',
+      userId: req.user?.id || 'admin',
+      username: req.user?.username || 'admin',
       action: 'UPDATE',
       module: 'STOCK',
       documentNo: movement.documentNo,
@@ -546,7 +598,7 @@ productsRouter.post('/adjust', async (req, res) => {
 
     res.json({ success: true, movement, message: 'Stok hareketi başarıyla işlendi.' });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({ success: false, code: err.code, message: err.message });
   }
 });
 
@@ -559,14 +611,22 @@ productsRouter.post('/transfer', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Geçersiz transfer bilgileri veya aynı depolar seçildi.' });
   }
 
+  // 2026-10-17: HEM kaynak HEM hedef depo sahipliği doğrulanır. Eski hâlde
+  // `draft.warehouses.find(...)` filtresiz olduğu için yabancı firmanın deposu
+  // transfer hedefi olabiliyordu (yazma IDOR'u) ve iki hareket de `tenantId`
+  // taşımıyordu.
+  const tenantId = req.tenantId!;
+
   try {
+    // Ön doğrulama: HEM kaynak HEM hedef depo bu firmaya ait olmalı.
+    assertOwnedWarehouse(storage.getState().warehouses, fromWarehouseId, tenantId);
+    assertOwnedWarehouse(storage.getState().warehouses, toWarehouseId, tenantId);
     const result = await storage.runTransaction(draft => {
-      const product = draft.products.find(p => p.id === productId);
+      const product = draft.products.find(p => p.id === productId && isOwnedBy(p, tenantId));
       if (!product) throw new Error('Ürün bulunamadı.');
 
-      const fromWh = draft.warehouses.find(w => w.id === fromWarehouseId);
-      const toWh = draft.warehouses.find(w => w.id === toWarehouseId);
-      if (!fromWh || !toWh) throw new Error('Kaynak veya hedef depo bulunamadı.');
+      const fromWh = assertOwnedWarehouse(draft.warehouses, fromWarehouseId, tenantId);
+      const toWh = assertOwnedWarehouse(draft.warehouses, toWarehouseId, tenantId);
 
       if (product.currentStock < qty) {
         throw new Error(`Yetersiz stok! Mevcut: ${product.currentStock}`);
@@ -578,11 +638,10 @@ productsRouter.post('/transfer', async (req, res) => {
       // OUT from source
       const outMovement: StockMovement = {
         id: `sm-${Date.now()}-out`,
+        ...stockMovementOwnedFields(tenantId, fromWh),
         productId: product.id,
         productCode: product.code,
         productName: product.name,
-        warehouseId: fromWh.id,
-        warehouseName: fromWh.name,
         documentNo: docNo,
         documentType: 'TRANSFER',
         movementType: 'TRANSFER_OUT',
@@ -592,18 +651,17 @@ productsRouter.post('/transfer', async (req, res) => {
         totalAmount: qty * product.purchasePrice,
         date: dateStr,
         notes: `Transfer: ${fromWh.name} -> ${toWh.name}. ${notes || ''}`,
-        userId: 'admin',
+        userId: req.user?.id || 'admin',
         createdAt: new Date().toISOString(),
       };
 
       // IN to destination
       const inMovement: StockMovement = {
         id: `sm-${Date.now()}-in`,
+        ...stockMovementOwnedFields(tenantId, toWh),
         productId: product.id,
         productCode: product.code,
         productName: product.name,
-        warehouseId: toWh.id,
-        warehouseName: toWh.name,
         documentNo: docNo,
         documentType: 'TRANSFER',
         movementType: 'TRANSFER_IN',
@@ -613,7 +671,7 @@ productsRouter.post('/transfer', async (req, res) => {
         totalAmount: qty * product.purchasePrice,
         date: dateStr,
         notes: `Transfer: ${fromWh.name} -> ${toWh.name}. ${notes || ''}`,
-        userId: 'admin',
+        userId: req.user?.id || 'admin',
         createdAt: new Date().toISOString(),
       };
 
@@ -622,8 +680,8 @@ productsRouter.post('/transfer', async (req, res) => {
     });
 
     storage.addAuditLog({
-      userId: 'admin',
-      username: 'admin',
+      userId: req.user?.id || 'admin',
+      username: req.user?.username || 'admin',
       action: 'UPDATE',
       module: 'STOCK',
       documentNo: result.docNo,
@@ -633,6 +691,6 @@ productsRouter.post('/transfer', async (req, res) => {
 
     res.json({ success: true, message: 'Depo transferi tamamlandı.' });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({ success: false, code: err.code, message: err.message });
   }
 });

@@ -151,8 +151,19 @@ function kurulum() {
   db.productSupplierMappings = (db.productSupplierMappings || []).filter(m => m.tenantId !== tenantId);
   db.tenants = (db.tenants || []).filter(t => t.id !== tenantId);
   db.tenantEinvoiceSettings = (db.tenantEinvoiceSettings || []).filter(s => s.tenantId !== tenantId);
+  db.warehouses = (db.warehouses || []).filter(w => w.tenantId !== tenantId);
 
   db.tenants.push(tenant as any);
+
+  // 2026-10-19 GÜVENLİK GERİLEMESİ: Gelen belge onayı artık stok girişini
+  // SAHİPLİKLİ bir depoya yazar; depo yoksa açık hata verir
+  // (`WAREHOUSE_ID_REQUIRED`). Bu fikstürde depo TANIMLI DEĞİLDİ — eskiden
+  // kod `warehouses[0]?.id || 'wh-default'` fallback'iyle var olmayan bir
+  // kimliğe yazıyordu ve testler o hatayı ÖRTÜYORDU. Firma deposu eklendi.
+  db.warehouses.push({
+    id: `wh-${tenantId}`, tenantId, name: 'Matris Merkez Depo', code: 'MTX-DEP',
+    isDefault: true, createdAt: '2026-01-01T00:00:00.000Z',
+  } as any);
   db.customers.push(tedarikci);
   db.products.push(prdEslesen);
   db.stockMovements.push({

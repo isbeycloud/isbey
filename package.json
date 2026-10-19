@@ -19,6 +19,7 @@
     "lint": "oxlint src server",
     "security-audit": "npm audit --audit-level=high",
     "ci": "npm run release:check",
+    "release:gate": "node tools/release-gate.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

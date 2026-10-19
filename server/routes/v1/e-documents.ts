@@ -18,6 +18,7 @@ import {
 } from '../../services/incomingDocumentStatus';
 import { DocumentVisualError, resolveErpDocumentVisual, prepareDocumentVisual, archiveOriginalInvoice } from '../../services/documentVisualService';
 import { formatXmlForDisplay } from '../../services/ubl/xmlPrettyPrint';
+import { WarehouseGateError } from '../../security/tenantOwnership';
 import type { SyncSummary } from '../../services/incomingSyncContract';
 
 export const v1EDocumentsRouter = Router();
@@ -50,6 +51,13 @@ v1EDocumentsRouter.post('/erp-invoices/:id/original-xml', requirePermission(PERM
  * gibi görünüp kullanıcıyı yanıltıyordu.
  */
 function belgeHatasi(res: Response, err: any) {
+  // 2026-10-17 GÜVENLİK: Depo kapısı hatası (WAREHOUSE_ID_REQUIRED /
+  // NOT_FOUND → 400, FORBIDDEN → 403) kendi durum kodunu ve `code` alanını
+  // KORUR. Aksi hâlde "depo seçin" mesajı 400'e düşer ve makine tarafından
+  // okunabilir kod kaybolurdu.
+  if (err instanceof WarehouseGateError) {
+    return res.status(err.statusCode || 400).json({ success: false, code: err.code, message: err.message });
+  }
   if (err instanceof DocumentVisualError) return res.status(err.status).json({ success: false, message: err.message });
   // 2026-09-29 — GELEN BELGE ALAN HATASI KENDİ DURUM KODUNU TAŞIR.
   //
@@ -664,7 +672,9 @@ v1EDocumentsRouter.post(
 v1EDocumentsRouter.post('/incoming/:id/convert', requirePermission(PERMISSIONS.INVOICES_CREATE), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
-  const { supplierId, createSupplier, lines, currencyConversion } = req.body || {};
+  // 2026-10-17 GÜVENLİK: `warehouseId` artık kabul edilir ve servis içinde
+  // SAHİPLİK kapısından geçer (gövdeden gelen sahiplik alanı yazılmaz).
+  const { supplierId, createSupplier, lines, currencyConversion, warehouseId } = req.body || {};
 
   try {
     const invoice = await IncomingInvoiceService.approveAndConvert(
@@ -674,7 +684,7 @@ v1EDocumentsRouter.post('/incoming/:id/convert', requirePermission(PERMISSIONS.I
       user.fullName || user.username,
       // 2026-10-03: Dövizli belgede kur ZORUNLU. Gönderilmezse servis işlemi
       // durdurur — burada varsayılan kur ATANMAZ (uydurma kur yasağı, md.1).
-      { supplierId, createSupplier, lines, currencyConversion }
+      { supplierId, createSupplier, lines, currencyConversion, warehouseId }
     );
     res.status(201).json({
       success: true,
@@ -910,14 +920,17 @@ v1EDocumentsRouter.post(
   async (req: Request, res: Response) => {
     const tenantId = req.tenantId!;
     const user = req.user!;
-    const { supplierId, createSupplier, lines } = req.body || {};
+    // 2026-10-17 GÜVENLİK: Mal girişinin deposu artık istemciden seçilebilir ve
+    // sunucuda SAHİPLİK kapısından geçer. Gönderilmezse servis firmanın TEK
+    // deposunu kullanır; belirsizse işlem açık hata ile durur.
+    const { supplierId, createSupplier, lines, warehouseId } = req.body || {};
     try {
       const sonuc = await IncomingDespatchService.approveDespatch(
         String(req.params.id),
         tenantId,
         user.id,
         user.fullName || user.username,
-        { supplierId, createSupplier, lines }
+        { supplierId, createSupplier, lines, warehouseId }
       );
       res.status(201).json({
         success: true,

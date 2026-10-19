@@ -76,6 +76,12 @@ storage.update(db => {
     ...db.products[0], id: item.productId, tenantId, code: item.productCode,
     name: item.productName, currentStock: 10, vatRate: 20,
   }];
+  // 2026-10-17: DEPO SEED ZORUNLU. Belge dönüştürme artık depo sahipliğini
+  // DOĞRULAR (`assertOwnedWarehouse`); `warehouseId: 'wh-docconv'` referansı
+  // DB'de karşılıksız kaldığı sürece sipariş/irsaliye dönüşümü reddedilir.
+  // (Canlıdaki `wh-default` kırık referansıyla aynı sınıf.)
+  db.warehouses = [{ id: 'wh-docconv', tenantId, name: 'Merkez Depo', code: 'WH-D', isDefault: true } as any];
+
   db.orders = [structuredClone(order)];
   db.waybills = [structuredClone(seededWaybill)];
   db.quotes = [{

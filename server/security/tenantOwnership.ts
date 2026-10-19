@@ -24,10 +24,15 @@
  *   tenantId BOŞ   → yalnız varsayılan `tnt-isbey` (eski veri ana firmada kalır)
  * Kimlik dizesi ASLA sahiplik kanıtı değildir.
  *
- * NOT: Depo (`warehouse`) kayıtlarında `tenantId` alanı ŞEMADA YOKTUR (bkz.
- * `Warehouse`); depo sahipliği ayrı bir iştir ve bu modülün kapsamı dışındadır.
+ * NOT (2026-10-17 DÜZELTME): Bu modülün ilk sürümü "depo kayıtlarında
+ * `tenantId` alanı ŞEMADA YOKTUR" diyordu — **YANLIŞ**. `Warehouse` arayüzü
+ * `tenantId?: string` taşır (bkz. `db/schema.ts`, `interface Warehouse`).
+ * Aynı şekilde `StockMovement.tenantId` de şemada VARDIR. Alanın şemada
+ * olduğu hâlde yazma yollarında ATANMAMASI, sahipsiz kayıt birikmesinin
+ * kaynağıdır. Depo sahipliği artık bu modülün KAPSAMINDADIR (aşağıdaki
+ * `isWarehouseOwnedBy` / `requireOwnedWarehouse`).
  */
-import type { DatabaseState } from '../db/schema';
+import type { DatabaseState, Warehouse } from '../db/schema';
 
 /** Eski (tenantId alanı boş) verinin ait olduğu varsayılan firma. */
 export const DEFAULT_TENANT_ID = 'tnt-isbey';
@@ -145,5 +150,149 @@ export function ownedSlice(db: DatabaseState, tenantId: string) {
     customers: filterOwned(db.customers, tenantId),
     products: filterOwned(db.products, tenantId),
     expenses: filterOwned(db.expenses, tenantId),
+    warehouses: filterOwned(db.warehouses, tenantId),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEPO SAHİPLİĞİ VE YAZMA KAPISI (2026-10-17)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// ÖLÇÜLEN AÇIK: 20 stok-hareketi yazma noktasının HİÇBİRİNDE depo sahipliği
+// doğrulanmıyordu. Üç ayrı sessiz-yanlış-yazma yolu vardı:
+//
+//   1. `draft.warehouses.find(w => w.id === warehouseId) || draft.warehouses[0]`
+//      → `warehouseId` boş/geçersizse BAŞKA firmanın deposuna yazar.
+//   2. `warehouseId || 'wh-default'` / `'wh-1'` → var olmayan kimliğe yazar
+//      (hareket sahipsiz depo kimliği taşır; raporlar çözülmemiş referans görür).
+//   3. `StockMovement` nesnesine `tenantId` ATANMAMASI → yeni kayıt sahipsiz
+//      doğar; `recalculateBalances` tenant'a bakmadığı için (storage.ts) bu
+//      hareket ürün stoğunu YİNE değiştirir.
+//
+// Bu üç yolun her biri AYRI AYRI hata döndürür; hiçbiri sessizce düşmez.
+// "Kullanıcı yanlış depoya yazdı" sonucu bu fonksiyon kullanıldığı sürece
+// üretilemez — çünkü seçim yoksa hata verilir, varsayılan seçilmez.
+
+/**
+ * Depo yazma kapısının hata sebebi (route katmanı HTTP kodunu buna göre seçer).
+ *
+ * NOT: Tek `interface` olarak tanımlıdır (üç ayrı nesne türünün birleşimi
+ * DEĞİL) — aksi hâlde `!result.ok` ile ayrımlı birleşim daraltması
+ * çalışmıyor ve çağıran kod `result.code` okuyamıyordu.
+ */
+export interface WarehouseGateFailure {
+  ok: false;
+  code: 'WAREHOUSE_ID_REQUIRED' | 'WAREHOUSE_NOT_FOUND' | 'WAREHOUSE_FORBIDDEN';
+  message: string;
+}
+
+export interface WarehouseGateSuccess {
+  ok: true;
+  warehouse: Warehouse;
+}
+
+export type WarehouseGateResult = WarehouseGateSuccess | WarehouseGateFailure;
+
+/** Bir depo kaydı verilen tenant'a mı ait? (Okuma yolu.) */
+export function isWarehouseOwnedBy(warehouse: Warehouse | null | undefined, tenantId: string): boolean {
+  return isOwnedBy(warehouse, tenantId);
+}
+
+/** Tenant'ın YAZABİLECEĞİ depolar (okuma listesiyle aynı kural). */
+export function writableWarehouses(warehouses: Warehouse[] | undefined, tenantId: string): Warehouse[] {
+  return filterOwned(warehouses, tenantId);
+}
+
+/**
+ * YAZMA KAPISI — stok hareketi/irsaliye/fatura yazan her yol bunu kullanır.
+ *
+ * Sözleşme:
+ *   - `warehouseId` boş → `WAREHOUSE_ID_REQUIRED` (sessiz varsayılan YASAK).
+ *   - `warehouseId` var ama depo yok → `WAREHOUSE_NOT_FOUND`.
+ *   - Depo başka firmanın → `WAREHOUSE_FORBIDDEN` (varlık sızdırılmaz: 404 de
+ *     dönebilirdi ama açık 403, istemciye "depo tanımlayın" yolunu açar).
+ *
+ * `warehouseId` verildiğinde **hiçbir koşulda** başka depoya düşülmez.
+ */
+export function requireOwnedWarehouse(
+  warehouses: Warehouse[] | undefined,
+  warehouseId: unknown,
+  tenantId: string
+): WarehouseGateResult {
+  if (typeof warehouseId !== 'string' || warehouseId.trim() === '') {
+    return {
+      ok: false,
+      code: 'WAREHOUSE_ID_REQUIRED',
+      message: 'Depo seçimi zorunludur. Lütfen önce bir depo tanımlayın.',
+    };
+  }
+  const id = warehouseId.trim();
+  const warehouse = (warehouses || []).find(w => w.id === id);
+  if (!warehouse) {
+    return {
+      ok: false,
+      code: 'WAREHOUSE_NOT_FOUND',
+      message: 'Seçilen depo bulunamadı. Lütfen depo listesini yenileyin.',
+    };
+  }
+  if (!isWarehouseOwnedBy(warehouse, tenantId)) {
+    return {
+      ok: false,
+      code: 'WAREHOUSE_FORBIDDEN',
+      message: 'Seçilen depo bu firmaya ait değil.',
+    };
+  }
+  return { ok: true, warehouse };
+}
+
+/**
+ * Yazma kapısı sonucunu HTTP durumuna çevirir (route katmanı için).
+ * Kapı kullanıldığı her yerde aynı durum kodu üretilsin diye tek kaynak.
+ */
+export function warehouseGateStatus(failure: WarehouseGateFailure): number {
+  return failure.code === 'WAREHOUSE_FORBIDDEN' ? 403 : 400;
+}
+
+/**
+ * Depo kapısı hatası — `code` ve `statusCode` taşır ki route katmanı
+ * `catch (err: any)` içinde `err.statusCode`/`err.code` okuyabilsin.
+ */
+export class WarehouseGateError extends Error {
+  readonly code: WarehouseGateFailure['code'];
+  readonly statusCode: number;
+  constructor(failure: WarehouseGateFailure) {
+    super(failure.message);
+    this.name = 'WarehouseGateError';
+    this.code = failure.code;
+    this.statusCode = warehouseGateStatus(failure);
+  }
+}
+
+/**
+ * Kapıyı çalıştırır ve başarısızsa `WarehouseGateError` FIRLATIR.
+ *
+ * Route katmanı bunu tercih eder: dönüş tipi `Warehouse` olduğu için çağıran
+ * kodda tip daraltma (narrowing) gerekmez ve hata yolu tek biçimde işler.
+ */
+export function assertOwnedWarehouse(
+  warehouses: Warehouse[] | undefined,
+  warehouseId: unknown,
+  tenantId: string
+): Warehouse {
+  const result = requireOwnedWarehouse(warehouses, warehouseId, tenantId);
+  // NOT: Bu depoda `strict` KAPALIDIR; boolean ayırt edicili birleşim
+  // daraltması güvenilir çalışmadığı için `result.ok` ile daraltma yerine
+  // açık tip kontrolü yapılır (davranış aynı, derleyici bağımlılığı yok).
+  if (result.ok === false) throw new WarehouseGateError(result);
+  return (result as WarehouseGateSuccess).warehouse;
+}
+
+/**
+ * Yeni yazılan stok hareketlerine konacak sahiplik + depo alanları.
+ *
+ * `StockMovement` nesnesi 20 noktada elle kuruluyor ve çoğunda `tenantId`
+ * unutuluyordu. Bu yardımcı, sahipliği ve depo adını TEK yerden verir.
+ */
+export function stockMovementOwnedFields(tenantId: string, warehouse: Pick<Warehouse, 'id' | 'name'>) {
+  return { tenantId, warehouseId: warehouse.id, warehouseName: warehouse.name };
 }

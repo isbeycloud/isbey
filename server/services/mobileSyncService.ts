@@ -1,6 +1,7 @@
 import { storage } from '../db/storage';
 import { MobileSyncQueue, DatabaseState } from '../db/schema';
 import { FieldCollectionService } from './fieldCollectionService';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 
 export interface SyncOperationItem {
   clientTransactionId: string;
@@ -105,13 +106,29 @@ export class MobileSyncService {
             const scId = `sc-${Date.now()}`;
             serverRecordId = scId;
             const rawItems = Array.isArray(op.payload.items) ? op.payload.items : [];
-            const warehouseId = op.payload.warehouseId || 'wh-default';
-            const warehouse = draft.warehouses.find(w => w.id === warehouseId) || draft.warehouses[0];
+            // 2026-10-17 GÜVENLİK: Sayım deposu artık SAHİPLİK kapısından geçer.
+            // Eski hâl `op.payload.warehouseId || 'wh-default'` + `draft.warehouses[0]`
+            // idi: `'wh-default'` canlıda VAR OLMAYAN bir kimlik ve `[0]` BAŞKA
+            // firmanın deposu olabilirdi (sessiz düşme). Artık istekteki depo
+            // doğrulanır, yoksa firmanın TEK deposu kullanılır, belirsizse AÇIK HATA.
+            const requestedWhId =
+              typeof op.payload?.warehouseId === 'string' && op.payload.warehouseId.trim()
+                ? op.payload.warehouseId.trim()
+                : undefined;
+            const ownedWhs = (draft.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+            const warehouse = assertOwnedWarehouse(
+              draft.warehouses,
+              requestedWhId ?? (ownedWhs.length === 1 ? ownedWhs[0].id : undefined),
+              tenantId
+            );
+            const warehouseId = warehouse.id;
 
             const cleanItems: import('../db/schema').StockCountItem[] = [];
             for (const raw of rawItems) {
               if (!raw || typeof raw !== 'object') continue;
-              const product = draft.products.find(p => p.id === (raw as any).productId);
+              // 2026-10-17 GÜVENLİK: Ürün SAHİPLİKLE aranır (eskiden filtresizdi
+              // → başka firmanın ürününe sayım farkı işlenebiliyordu).
+              const product = draft.products.find(p => p.id === (raw as any).productId && isOwnedBy(p, tenantId));
               if (!product) continue;
               const variantId = typeof (raw as any).variantId === 'string' && (raw as any).variantId.trim()
                 ? (raw as any).variantId.trim()
@@ -144,13 +161,15 @@ export class MobileSyncService {
                 const qty = Math.abs(variance);
                 draft.stockMovements.push({
                   id: `sm-${Date.now()}-${product.id.slice(-4)}-${cleanItems.length}`,
+                  // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+                  // Eski hâl `warehouse?.id || 'wh-default'` + `'Merkez Depo'` uydurma
+                  // adıydı; artık depo kapısından geçmiş gerçek depo yazılır.
+                  ...stockMovementOwnedFields(tenantId, warehouse),
                   productId: product.id,
                   variantId: variant?.id,
                   variantName: variant?.name,
                   productCode: product.code,
                   productName: product.name,
-                  warehouseId: warehouse?.id || 'wh-default',
-                  warehouseName: warehouse?.name || 'Merkez Depo',
                   documentNo: countNo,
                   documentType: 'ADJUSTMENT',
                   movementType: 'COUNT_ADJUSTMENT',
@@ -172,7 +191,9 @@ export class MobileSyncService {
               id: scId,
               tenantId,
               warehouseId,
-              warehouseName: warehouse?.name || op.payload.warehouseName || 'Merkez Depo',
+              // 2026-10-17: Depo adı artık doğrulanmış depodan gelir; gövdeden
+              // gelen ada ve uydurma 'Merkez Depo' varsayımına düşülmez.
+              warehouseName: warehouse.name,
               countNumber: countNo,
               status: 'COMPLETED',
               countedBy: userName,

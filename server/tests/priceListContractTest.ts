@@ -81,6 +81,14 @@ function kurulum() {
 
     // Her kiracıda bir ürün + bir cari.
     const now = new Date().toISOString();
+    // 2026-10-17: DEPO SEED ZORUNLU. `POST /api/products` artık depo
+    // sahipliğini DOĞRULAR (`assertOwnedWarehouse`); depo tanımsızken ürün
+    // açılamaz. HER kiracının KENDİ deposu olmalı — `warehouseId` sahiplik
+    // taşıdığı için tek ortak kayıt yetmez (çapraz yazma kapısı).
+    db.warehouses = [
+      { id: 'wh-1', tenantId: TENANT_A, name: 'A Merkez Depo', code: 'WH-1', isDefault: true } as any,
+      { id: 'wh-b', tenantId: TENANT_B, name: 'B Merkez Depo', code: 'WH-B', isDefault: true } as any,
+    ];
     db.products = [
       {
         id: 'prd-a', tenantId: TENANT_A, barcode: '8690000000001', code: 'STK-001',
@@ -91,7 +99,7 @@ function kurulum() {
       {
         id: 'prd-b', tenantId: TENANT_B, barcode: '8690000000002', code: 'STK-001',
         name: 'B Ürünü', groupId: 'grp-1', unit: 'Adet', purchasePrice: 60, salePrice: 100,
-        vatRate: 20, criticalStock: 5, currentStock: 0, warehouseId: 'wh-1', active: true,
+        vatRate: 20, criticalStock: 5, currentStock: 0, warehouseId: 'wh-b', active: true,
         createdAt: now, updatedAt: now,
       } as any,
     ];
@@ -310,7 +318,7 @@ test('ÜRÜN: POST — yalnız LİSTE fiyatı verilirse taban fiyat EN DÜŞÜK 
   const res = await fetch(`${base}/api/products`, {
     method: 'POST', headers: headers('A'),
     body: JSON.stringify({
-      name: 'Yalnız Listeli Ürün', code: 'STK-900', unit: 'Adet', vatRate: 20,
+      name: 'Yalnız Listeli Ürün', code: 'STK-900', unit: 'Adet', warehouseId: 'wh-1', vatRate: 20,
       salePrices: [{ priceListId: toptan.id, salePrice: 70 }],
     }),
   });
@@ -331,7 +339,7 @@ test('ÜRÜN: ne taban ne liste fiyatı verilirse REDDEDİLİR (sessiz 0 fiyat o
 test('ÜRÜN: salePrice=0 TEK BAŞINA geçerli (bedelsiz/numune ürün)', async () => {
   const res = await fetch(`${base}/api/products`, {
     method: 'POST', headers: headers('A'),
-    body: JSON.stringify({ name: 'Numune Ürün', code: 'STK-902', unit: 'Adet', salePrice: 0, vatRate: 20 }),
+    body: JSON.stringify({ name: 'Numune Ürün', code: 'STK-902', unit: 'Adet', warehouseId: 'wh-1', salePrice: 0, vatRate: 20 }),
   });
   assert.equal(res.status, 200, 'salePrice: 0 açıkça verilmişse kabul edilmeli');
   assert.equal((await res.json() as any).product.salePrice, 0);

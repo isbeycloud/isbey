@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { Waybill, StockMovement } from '../../db/schema';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../../security/tenantOwnership';
 import { DocumentConversionService } from '../../services/documentConversionService';
 import {
   parseDateRange,
@@ -120,6 +121,21 @@ v1WaybillsRouter.get('/', requirePermission(PERMISSIONS.WAYBILLS_VIEW), (req: Re
  * İrsaliye oluşturma ve fiili stok düşümü
  */
 v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req: Request, res: Response) => {
+  // 2026-10-17 GÜVENLİK: Bu uçta try/catch YOKTU. Depo kapısı hataları
+  // (WAREHOUSE_ID_REQUIRED / NOT_FOUND / FORBIDDEN) global hata yakalayıcıya
+  // düşüp 500 olarak sızıyordu. Artık kapı hatası kendi HTTP kodunu korur.
+  try {
+    createWaybillV1(req, res);
+  } catch (err: any) {
+    res.status(err?.statusCode || 400).json({
+      success: false,
+      code: err?.code,
+      message: err?.message || 'İrsaliye oluşturulamadı.',
+    });
+  }
+});
+
+function createWaybillV1(req: Request, res: Response) {
   const tenantId = req.tenantId!;
   const user = req.user!;
   const db = storage.getState();
@@ -136,14 +152,25 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
     notes,
   } = req.body;
 
-  const customer = (db.customers || []).find(
-    c => c.id === customerId && (c.tenantId === tenantId || (tenantId === 'tnt-isbey' && !c.tenantId))
-  );
+  // Sahiplik tek kaynaktan: `isOwnedBy` (elle yazılmış tenant karşılaştırması yerine).
+  const customer = (db.customers || []).find(c => c.id === customerId && isOwnedBy(c, tenantId));
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
   const now = new Date().toISOString();
   const waybillId = `wb-${Date.now()}`;
-  const whId = warehouseId || 'wh-default';
+  // 2026-10-17 GÜVENLİK: Eski hâl `warehouseId || 'wh-default'` idi.
+  // `'wh-default'` canlıda VAR OLMAYAN bir depo kimliğidir; istek gövdesinden
+  // gelen `warehouseId` de filtresizdi (yabancı depoya yazma). Artık istekteki
+  // depo SAHİPLİK kapısından geçer, istek yoksa firmanın TEK deposu kullanılır;
+  // hiçbiri yoksa sessizce başka depoya düşmeden AÇIK HATA verilir.
+  let requestedWhId = typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+  if (!requestedWhId) {
+    const owned = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    requestedWhId = owned.length === 1 ? owned[0].id : undefined;
+  }
+  // Transaction ÖNCESİ hızlı reddetme (kapı transaction içinde yeniden doğrulanır).
+  const preWh = assertOwnedWarehouse(db.warehouses, requestedWhId, tenantId);
+  const whId = preWh.id;
 
   const formattedItems = items.map((it: any, i: number) => {
     const qty = Number(it.quantity) || 1;
@@ -204,6 +231,10 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
   let newWaybill!: Waybill;
   storage.update(draft => {
     if (!draft.waybills) draft.waybills = [];
+    // 2026-10-17 GÜVENLİK: Depo kapısı transaction İÇİNDE yeniden doğrulanır
+    // (arada değişmiş olabilir). Fırlatan API → `strict:false` altında
+    // birleşim daraltması gerekmez.
+    const warehouse = assertOwnedWarehouse(draft.warehouses, whId, tenantId);
     const waybillNo = storage.nextSequenceInTransaction(draft, 'WAYBILL');
     newWaybill = { ...waybillBase, waybillNo };
     draft.waybills.push(newWaybill);
@@ -211,7 +242,9 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
     // Fiili stok hareketi oluştur
     const isSales = type === 'SALES_DESPATCH';
     for (const item of formattedItems) {
-      const prod = (draft.products || []).find(p => p.id === item.productId);
+      // 2026-10-17 GÜVENLİK: Ürün de sahiplikle aranır (eskiden filtresizdi →
+      // başka firmanın ürününün stoğu bu irsaliyeyle değiştirilebiliyordu).
+      const prod = (draft.products || []).find(p => p.id === item.productId && isOwnedBy(p, tenantId));
       if (prod) {
         if (isSales) {
           prod.currentStock = (prod.currentStock || 0) - item.quantity;
@@ -222,11 +255,11 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
 
         const sm: StockMovement = {
           id: `sm-wb-${Date.now()}-${item.productId}`,
-          tenantId,
+          // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+          ...stockMovementOwnedFields(tenantId, warehouse),
           productId: prod.id,
           productCode: prod.code,
           productName: prod.name,
-          warehouseId: whId,
           documentNo: waybillNo,
           documentType: 'WAYBILL',
           documentId: waybillId,
@@ -261,7 +294,7 @@ v1WaybillsRouter.post('/', requirePermission(PERMISSIONS.WAYBILLS_CREATE), (req:
   });
 
   res.status(201).json({ success: true, waybill: newWaybill });
-});
+}
 
 /**
  * POST /api/v1/waybills/:id/convert-to-invoice
