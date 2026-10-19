@@ -693,7 +693,15 @@ invoicesRouter.delete('/:id', async (req, res) => {
     const current = storage.getState().invoices.find(i =>
       i.id === id && (i.tenantId === tenantId || (!i.tenantId && tenantId === 'tnt-isbey'))
     );
-    if (!current) throw new Error('Fatura bulunamadı.');
+    // 2026-10-19 GÜVENLİK (IDOR tutarlılığı): Yabancı/olmayan kimlik 404 döner.
+    // Önce 400 dönüyordu. Sızıntı YOKTU (var olmayan kimlik de aynı 400'ü
+    // veriyordu), ama kod tabanının geri kalanı (ör. `v1/products` DELETE)
+    // 404 kullanıyor; 400 "gövde hatalı" demektir ve istemciye yanlış sinyal
+    // verir. Mevcut sözleşmeyi bozmamak için yalnız kimlik bulunamadığında
+    // 404'e geçilir; diğer iş kuralı hataları 400 kalır.
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Fatura bulunamadı.' });
+    }
     if (current.isDeleted || current.status === 'CANCELLED') throw new Error('Fatura zaten iptal edilmiş.');
 
     const hasOutgoingEDoc = Boolean(

@@ -137,6 +137,13 @@ const suites = [
   // stoğu DEĞİŞTİRMEDİĞİNİ ve sahipsiz deponun HİÇBİR firmaya açılmadığını
   // ölçer. N1–N8 negatif senaryoları tek tek kanıtlanır. Ağa ÇIKMAZ.
   'warehouseTenantIsolationTest.ts',
+  // 2026-10-19: ÇAPRAZ-TENANT IDOR TARAMASI (P0 devamı).
+  // Depo kapısı kapandıktan sonra geriye "başka firmanın KAYDINI kimliğiyle
+  // okuyup/yazabilme" sınıfı kaldı. Bu dosya B firmasının gerçek kayıtlarını
+  // kurar, A kimliğiyle 12 router'ın `/:id` uçlarını dener: yabancı kayıt
+  // 403/404 almalı, kendi kaydı 2xx almalı (aşırı kilit de hata sayılır).
+  // Liste uçlarında gövde sızıntısı da taranır. Ağa ÇIKMAZ.
+  'crossTenantIdorTest.ts',
   // 2026-10-17: KAPSAMLI RAPOR FİLTRELERİ + DETAY RAPORLARI.
   // `/api/v1/reports/detail/*` uçları geçersiz filtreyi SESSİZCE boş liste
   // yapmıyor, açık 400 dönüyor (bozuk tarih/tutar/ters aralık); cari ekstre
