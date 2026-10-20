@@ -340,6 +340,17 @@ aktif olmalı (main'e push'ta `release:gate` koşar, force-push reddedilir).
 - Ana sayfa bundle adı (`assets/index-*.js`) + sha256'sı öncekiyle farklı olmalı
 - Dağıtım öncesi/sonrası bundle adını **yaz**, "değişti" demeden önce karşılaştır
 
+**Dağıtım ÖNCESİ taban (2026-10-20 ölçümü):**
+
+| Ölçüm | Değer |
+|---|---|
+| `/api/health` | 200 · `version 2.0.0` |
+| Ana sayfa | 200 |
+| Bundle | `assets/index-5x-VFNsU.js` |
+
+Dağıtım sonrası bu üçü **karşılaştırılır**; bundle adı değişmediyse istemci
+kodu dağıtılmamış demektir.
+
 ---
 
 ## 10. Açık kalan gerçek engeller (2026-10-20)
@@ -350,6 +361,41 @@ aktif olmalı (main'e push'ta `release:gate` koşar, force-push reddedilir).
 | 2 | Push kimliği (bu VM'de yok: remote https, `~/.ssh` yok, helper yok) | Kullanıcı → §1 |
 | 3 | Canlı DB erişimi (yedek + uygulama) | Kullanıcı |
 | 4 | `SAT-2026-000001` çelişkisi (DB "gönderilmedi", eski kayıt 1300 diyor) | Sağlayıcı teyidi — teyit gelmeden "onaylı" DENMEZ |
+| 5 | `SAT-2026-000001` carisi oluşmamış (120 TL defterde yok) — C5/C9 | Kullanıcı kararı: ayrı iş emri ya da belgeleme |
 
 Bunlar çözülmeden 2–9 arası adımlar **teknik olarak imkânsızdır**; kod
 tarafında beklenecek bir iş kalmadı.
+
+### Hazır bekleyen komut sırası (kimlik geldiğinde)
+
+```
+# 1) kimlik
+node tools/deploy-credentials.mjs set
+node tools/deploy-credentials.mjs test          # YETKİ VAR mı
+
+# 2) dal push + o SHA'nın CI'ı
+git push -u origin release/p0-tenant-depo
+gh api repos/isbeycloud/isbey/commits/<SHA>/check-runs \
+  --jq '.check_runs[] | "\(.name): \(.conclusion)"'
+
+# 3) taze canlı yedek + ölç
+sha256sum database.prod.json
+
+# 4) taban çizgisi (yedek üzerinde — DEĞİŞTİRMEZ)
+python3 tools/cari-tutarlilik.py <yedek>.json
+python3 tools/backfill-dryrun.py <yedek>.json
+
+# 5) uygula (kapılar düşerse YAZMAZ)
+SHA=$(sha256sum <kopya>.json | cut -d' ' -f1)
+python3 tools/backfill-apply.py <kopya>.json --expect-sha256 $SHA --confirm APPLY
+
+# 6) doğrula
+python3 tools/backfill-verify.py <kopya>.json --before <yedek>.bak
+python3 tools/cari-tutarlilik.py <kopya>.json    # taban ile AYNI sonucu vermeli
+
+# 7) sunucuyu yeniden başlat (DB yalnız açılışta okunur) → canlı API kontrolü
+```
+
+**DUR noktaları:** belirsiz sahiplik > 0 · değişmezlik ihlali · plan–uygulama
+uyuşmazlığı (G3b) · C1–C5b kapısı düşük · CI kırmızı. Herhangi biri varsa
+ilerlenmez; yeni depo güvenlik kodu production'a **dağıtılmaz**.
