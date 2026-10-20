@@ -170,9 +170,19 @@ karşılaştırılmasıdır. İkisi de aynı dosyada, aynı anda doğrudur:
 - `currentTransactions[].balance` → **koşan** bakiye; her satır "o ana
   kadarki" bakiyeyi taşır. Toplamı cari bakiye değildir: **−253.500,59**
 
-Farkın tam kaynağı `SAT-2026-000005` (`ctx-1791372483711`): borç 0, alacak 0,
-ama koşan bakiye −576 taşıyor. Tutarı sıfır olduğu için cari bakiyeye
-girmiyor, koşan toplama giriyor. `ALI-2026-000001`'in −576'sını ileri taşıyor.
+**Tam kimlik** (200 rastgele senaryoda doğrulandı, 200/200):
+
+```
+Σ koşan − Σ cari = Σ(her carinin SON satırı HARİÇ bakiyeleri)
+```
+
+Sebep: bir carinin koşan bakiyeleri son satırın bakiyesine (=cari bakiyesi)
+kadar birikir; son satır dışındaki her satır toplama **fazladan** girer.
+
+Canlıda fazlalığı üreten tek satır `ALI-2026-000001` (bakiye −576).
+`SAT-2026-000005` o carinin **son satırı** olduğu için fazlalık üretmiyor —
+ilk yazdığım "fark 0 tutarlı belgeden gelir" açıklaması bu yüzden yanlıştı;
+tesadüfen örtüşen iki özellik karıştırılmıştı.
 
 ```
 Σ borç = 0,00 | Σ alacak = 252.924,59 | net = −252.924,59  ✓ (cari ile aynı)
@@ -181,6 +191,51 @@ girmiyor, koşan toplama giriyor. `ALI-2026-000001`'in −576'sını ileri taş�
 **Yapılmaması gereken:** eski bakiyeyi "düzeltmek" için zorla geri yazmak.
 Ortada düzeltilecek bir şey yok; backfill bu iki sayıyı da değiştirmez ve
 `invariants()` ikisini de ayrı ayrı ölçer.
+
+### Cari defter tutarlılığı — `tools/cari-tutarlilik.py`
+
+Farkın **nedenini** açıklamak, defterin **doğru** olduğunu kanıtlamaz. Bunun
+için ayrı, salt okunur bir denetçi var:
+
+```
+python3 tools/cari-tutarlilik.py <db.json>
+```
+
+| Kapı | Ne kanıtlar | 2026-10-20 canlı ölçümü |
+|---|---|---|
+| C1 | cari.balance = Σborç − Σalacak | 4/4 tutarlı |
+| C2 | koşan bakiye kuralı her satırda | 5/5 tutarlı |
+| C3 | son satır bakiyesi = cari bakiye | tüm carilerde eşit |
+| C4 | iki para gerçeği kimliği | −576,00 = −576,00 |
+| C5 | yürürlükteki fatura ↔ cari hareket | **1 İHLAL** (aşağıda) |
+| C5b | iptal faturada hareket kalmamış | temiz |
+
+**BULGU (C5 + C9): `SAT-2026-000001`.** Yürürlükte (`APPROVED`), e-Fatura
+**SENT**, 120,00 TL — ama `customerId` **boş** ve cari hareketi **yok**.
+Yani 120 TL'lik bir satış ne cari bakiyede ne koşan bakiyede görünüyor:
+canlıda hiçbir yerde. Backfill'in sebep olmadığı, backfill'in de
+düzeltmediği bir kayıt. İptal edilen 3 kardeşi (000002–000004) de aynı
+şekilde carisiz doğmuş; onlarda hareket silindiği için defter etkilenmiyor.
+
+Otomatik düzeltme **yapılmaz** (mali kayıt). Karar kullanıcınındır: ya
+backfill'den ayrı bir iş emri olarak cari bağlantısı kurulur, ya da geçmiş
+dönem kaydı olarak belgelenir. Geçmek için gerekçe zorunlu:
+
+```
+python3 tools/cari-tutarlilik.py <db.json> \
+  --kabul C5="cari kaydi hic olusmamis; ayri is emri, backfill kapsami disinda"
+```
+
+Gerekçesiz (10 karakterden kısa) onay **reddedilir**; onaylar raporda
+gerekçesiyle birlikte "KABUL" olarak basılır.
+
+**Uyarılar (kapı değil, inceleme konusu):**
+
+- **C6** `SAT-2026-000005`: 0 TL ama 3 stok hareketi (3 adet mal çıkmış).
+- **C7** 13/13 ürünün `salePrice` alanı **0**. Satış faturası ürünün satış
+  fiyatını kullanır (`invoices.ts:259`), dolayısıyla bu ürünlerle kesilen
+  her satış faturası 0 TL çıkar. C6'nın kök nedeni budur; rastgele bir hata
+  değil, **veri eksikliği**. Backfill bunu değiştirmez ve değiştirmemeli.
 
 ### Neden sıra kritik — ölçülmüş kanıt
 
@@ -246,6 +301,12 @@ python3 tools/backfill-verify.py <db>.json --before <db>.pre-backfill-*.bak
 8 kontrol: Beyoğlu deposu, sarkan referans, çapraz-tenant bağlantı, sahipsiz
 kayıt, her firmanın deposu, finansal değişmezlik, depo sayısı yönü, ad
 tutarlılığı. Hepsi GEÇTİ olmalı.
+
+> **Sıra notu:** `cari-tutarlilik.py` hem **yedek üzerinde** (backfill'den
+> önce, taban çizgisi) hem **backfill sonrası** koşulmalı. Taban çizgisi
+> alınmadan sonuç yorumlanamaz: C5 gibi bulgular backfill'den ÖNCE de vardı
+> ve backfill onları ne düzeltir ne bozar. Kanıt, iki koşumun **aynı**
+> sonucu vermesidir.
 
 Ardından **gerçek API** kontrolü (kendi kendine yeten, canlıya dokunmaz):
 sunucuyu bu DB ile ayağa kaldır, `admin` ile giriş yap, kendi deposuna ürün

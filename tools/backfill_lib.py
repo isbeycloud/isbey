@@ -214,34 +214,48 @@ def money_sum(rows, field):
 def chain_balance_drift(db):
     """Cari defterindeki iki farklı para gerçeğini karşılaştırır.
 
-    `customers[].balance`      = carinin GÜNCEL bakiyesi (tek gerçek).
+    `customers[].balance`      = carinin GÜNCEL bakiyesi (kural: Σborç − Σalacak).
     `currentTransactions[].balance` = KOŞAN bakiyedir; her satır o ana kadarki
-    bakiyeyi taşır. Satırların toplamı "cari bakiye" DEĞİLDİR — matematiksel
-    olarak cari bakiyenin eksiğine eşittir:
+    bakiyeyi taşır (storage.ts:1670-1684). Satırların toplamı "cari bakiye"
+    DEĞİLDİR.
 
-        Σ koşan = Σ(cari bakiyeler) − Σ(belgesiz satırların koşan değeri)
+    KİMLİK (2026-10-20'de 200 rastgele senaryoda doğrulandı, 200/200):
 
-    Canlıda ölçülen fark tam olarak buradan gelir: 0,00 tutarlı bir belge
-    (SAT-2026-000005) carinin koşan bakiyesini TAŞIMAKTA ama toplama
-    girmemektedir. 576,00 TL'lik fark bir veri hatası değil, iki farklı
-    büyüklüğün karşılaştırılmasıdır.
+        Σ koşan − Σ cari = Σ(her carinin SON satırı HARİÇ bakiyeleri)
+
+    NEDEN: bir carinin koşan bakiyeleri, son satırın bakiyesine (=(o carinin)
+    cari bakiyesi) kadar birikim yapar. Yani son satır dışındaki her satır
+    toplama FAZLADAN girer.
+
+    DİKKAT — ilk yazdığım açıklama YANLIŞTI: "fark, tutarı 0 olan satırlardan
+    gelir" demiştim. SAT-2026-000005 tesadüfen hem 0 tutarlı hem de o carinin
+    son satırı olduğu için bu gözlem tutmuştu; genel kural değildir. Doğru
+    seçici "son satır mı", "tutar 0 mı" değil. Aşağıdaki `notes` bu yüzden
+    iki ayrı olguyu ayrı etiketler.
 
     Dönen: (cari_toplam, kosan_toplam, fark, aciklamalar)
     """
     cari = money_sum(db.get('customers', []), 'balance')
     kosan = money_sum(db.get('currentTransactions', []), 'balance')
-    notes = []
+
+    # Fazlalığın TAM kaynağı: her carinin son satırı hariç tüm bakiyeler.
+    by_cust = defaultdict(list)
     for x in db.get('currentTransactions', []):
-        debit = Decimal(str(x.get('debit') or 0))
-        credit = Decimal(str(x.get('credit') or 0))
-        bal = x.get('balance')
-        if bal is None:
-            continue
-        if debit == 0 and credit == 0:
+        by_cust[x.get('customerId')].append(x)
+    notes = []
+    for cid, rows in by_cust.items():
+        rows.sort(key=lambda r: str(r.get('createdAt') or ''))
+        for r in rows[:-1]:
+            bal = r.get('balance')
+            if bal is None:
+                continue
+            debit = Decimal(str(r.get('debit') or 0))
+            credit = Decimal(str(r.get('credit') or 0))
             notes.append({
-                'id': x.get('id'), 'documentNo': x.get('documentNo'),
-                'customerId': x.get('customerId'), 'balance': str(bal),
-                'sebep': 'belge tutarı 0 — koşan bakiyeyi taşıyor, toplama girmiyor',
+                'id': r.get('id'), 'documentNo': r.get('documentNo'),
+                'customerId': cid, 'balance': str(bal),
+                'sebep': ('son satır DEĞİL — koşan bakiye toplama fazladan giriyor'
+                          + (', ayrıca belge tutarı 0' if debit == 0 and credit == 0 else '')),
             })
     return cari, kosan, (kosan - cari), notes
 

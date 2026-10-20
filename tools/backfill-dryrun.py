@@ -117,10 +117,13 @@ def main():
     print(f'  currentTransactions[].balance toplamı : {kosan}   ← KOŞAN bakiye toplamı')
     print(f'  fark                                  : {fark}')
     print('  Açıklama: koşan bakiye her satırda "o ana kadarki" bakiyeyi taşır;')
-    print('  toplamı cari bakiyeye eşit DEĞİLDİR. Fark, tutarı 0 olan ama')
-    print('  koşan bakiyeyi taşıyan belgelerden gelir:')
+    print('  toplamı cari bakiyeye eşit DEĞİLDİR. Kimlik (200/200 senaryoda')
+    print('  doğrulandı):  fark = her carinin SON satırı HARİÇ bakiyeler toplamı')
+    print('  Fazlalığı üreten satırlar:')
     for n in notlar:
         print(f"    - {n['id']} {n['documentNo']}: bakiye {n['balance']} ({n['sebep']})")
+    if not notlar:
+        print('    (yok — her caride tek satır var)')
     print('  Backfill bu iki sayıyı DEĞİŞTİRMEZ; ikisi de aynı kalmalıdır.')
 
     print(f'\n  SONUÇ: {"TÜM DEĞİŞMEZLİKLER KORUNDU" if all_ok else "İHLAL VAR — UYGULAMA YAPILMAMALI"}')
