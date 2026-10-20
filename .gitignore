@@ -57,6 +57,14 @@ hostinger.txt
 *.zip
 *.tar.gz
 *.tsbuildinfo
+__pycache__/
+*.pyc
+
+# Backfill yedekleri ve geri alma tohumları: TAM DB KOPYASI içerir
+# (müşteri verisi + passwordHash). ASLA commit edilmemeli.
+*.pre-backfill-*.bak
+*.pre-backfill-*.beads.json
+*.backfill-*.report.json
 .agents/
 .claude/
 .codex/
