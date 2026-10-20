@@ -24,6 +24,11 @@ storage.update(db => {
   db.tenants = [{ ...db.tenants[0], id: tenantId, status: 'ACTIVE', isArchived: false, eInvoiceCredits: 25 }];
   db.users = [{ ...db.users[0], id: 'optional-admin', role: 'SUPER_ADMIN', active: true }];
   db.customers = [{ ...db.customers[0], id: order.customerId, tenantId, balance: 20, riskLimit: undefined }];
+  // 2026-10-17: DEPO SEED ZORUNLU. Belge dönüştürme artık depo sahipliğini
+  // DOĞRULAR (`assertOwnedWarehouse`); depo seed edilmezse sipariş
+  // faturalandırılamaz. Fikstürün `warehouseId: 'wh-test'` referansı DB'de
+  // karşılıksızdı — canlıdaki `wh-default` kırık referansıyla aynı sınıftır.
+  db.warehouses = [{ id: 'wh-test', tenantId, name: 'Merkez Depo', code: 'WH-T', isDefault: true } as any];
   db.products = [{ ...db.products[0], id: item.productId, tenantId, code: item.productCode, name: item.productName, barcode: undefined, currentStock: 10 }];
   db.orders = [structuredClone(order)];
   db.currentTransactions = [{ ...db.currentTransactions[0], id: 'optional-tx', tenantId, customerId: order.customerId, debt: undefined, dueDate: '2020-01-01' }];

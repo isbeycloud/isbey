@@ -14,7 +14,15 @@ import { setTenantTokenForTest, invalidateTenant } from '../services/hizliTenant
  *   - Belge bulunamadı               → kayıt DEĞİŞTİRİLMEZ.
  *   - ETTN yok                       → hiç sorgu yapılmaz, kayıt değiştirilmez.
  *
- * Her senaryoda belge GÖNDERİLMEZ; yalnız `GetDocumentListGUID` sorgulanır.
+ * Her senaryoda belge GÖNDERİLMEZ; yalnız `GetDocumentListGUID` ve (GUID
+ * bulamazsa) `GetDocumentList` sorgulanır.
+ *
+ * ── 2026-10-20: 11. SENARYO CANLI ÖLÇÜMLE EKLENDİ ───────────────────────────
+ * GUID ucu `guids` filtresini uygulamıyor ve yalnız çok yakın tarihli bir alt
+ * küme döndürüyor. Bu yüzden "GUID'de yok" ≠ "sağlayıcıda yok". Canlıda tam
+ * bu oldu: SAT-2026-000001 GUID ucunda görünmedi, tarih aralıklı listede
+ * BULUNDU (zarf 1300). Eski kod ikisini eşitliyordu → belge GİB'e iletilmişken
+ * "yok" deyip SENDING kilidini açtırıyordu (mükerrer fatura riski).
  */
 
 const UUID = '7e03cd4b-03db-4d36-a389-642af1700927';
@@ -34,18 +42,31 @@ function invoice(overrides: Record<string, any> = {}) {
     invoiceNo: 'SAT-2026-000001',
     eInvoiceStatus: 'SENDING',
     eInvoiceUUID: UUID,
+    // Tarih ZORUNLU: aralık taraması faturanın kendi tarihinden kurulur.
+    // Verilmezse ikinci (kesin) doğrulama yolu hiç denenmez.
+    date: '2026-09-25',
     ...overrides,
   };
 }
 
 const originalPost = axios.post;
-let calls: Array<{ url: string; payload: any }> = [];
+const originalGet = axios.get;
+let calls: Array<{ url: string; payload: any; method: string }> = [];
 let handler: (payload: any) => any = () => ({ IsSucceeded: true, documents: [] });
+// GUID ucunun döndürdüğü liste (uç filtre uygulamıyor → alakasız belgeler)
+let guidHandler: (payload: any) => any = (payload) => handler(payload);
+// GetDocumentList (tarih aralıklı) yanıtı
+let listHandler: (params: any) => any = () => ({ success: true, documents: [] });
 
 axios.post = (async (url: string, payload: any) => {
-  calls.push({ url, payload });
-  return { data: handler(payload) };
+  calls.push({ url, payload, method: 'POST' });
+  return { data: guidHandler(payload) };
 }) as typeof axios.post;
+
+axios.get = (async (url: string) => {
+  calls.push({ url, payload: null, method: 'GET' });
+  return { data: listHandler(url) };
+}) as typeof axios.get;
 
 try {
   setTenantTokenForTest(settings.tenantId, true, 'company-token');
@@ -81,10 +102,14 @@ try {
   // ---- 3) Sağlayıcı belgeyi tanımıyor → kayıt değişmez --------------------
   calls = [];
   handler = () => ({ IsSucceeded: true, documents: [] });
+  listHandler = () => ({ success: true, documents: [] });
   out = await reconcileSendingInvoice(invoice(), settings);
   assert.equal(out.result, 'NOT_FOUND');
   assert.equal(out.newStatus, undefined);
-  assert.equal(calls.length, 2, 'iki appType kapsamı da denenmeli');
+  const guidCalls = calls.filter(c => /GetDocumentListGUID$/.test(c.url));
+  assert.equal(guidCalls.length, 2, 'iki appType kapsamı da denenmeli');
+  const listCalls = calls.filter(c => /GetDocumentList\?/.test(c.url));
+  assert.equal(listCalls.length, 2, 'GUID bulamayınca tarih aralıklı liste de taranmalı');
 
   // ---- 4) Yanlış belge döndüyse KABUL EDİLMEZ -----------------------------
   // Uç `guids` filtresini uygulamazsa başka bir belge gelebilir; onu "bizim
@@ -146,15 +171,67 @@ try {
 
   // ---- 10) Başarılı sorgu + belge yok = GERÇEKTEN NOT_FOUND --------------
   axios.post = (async (url: string, payload: any) => {
-    calls.push({ url, payload });
+    calls.push({ url, payload, method: 'POST' });
     return { data: { IsSucceeded: true, documents: [] } };
   }) as any;
+  axios.get = (async (url: string) => {
+    calls.push({ url, payload: null, method: 'GET' });
+    return { data: { success: true, documents: [] } };
+  }) as any;
   out = await reconcileSendingInvoice(invoice(), settings);
-  assert.equal(out.result, 'NOT_FOUND', 'başarılı sorguda belge yoksa NOT_FOUND denebilir');
+  assert.equal(out.result, 'NOT_FOUND', 'İKİ uç da başarılı ve belge yoksa NOT_FOUND denebilir');
   assert.match(out.message, /sorgusu yapıldı/);
 
-  console.log('PASS: SENDING mutabakatı — 1300→SENT; işlemde/bulunamadı/ETTN yok kaydı DEĞİŞTİRMEZ; sorgu yapılamazsa QUERY_FAILED (asla "yok" denmez); belge gönderilmez.');
+  // ---- 11) CANLI VAKA: GUID ucu bulamaz, tarih aralıklı liste BULUR --------
+  // 2026-10-20 ölçümü: `GetDocumentListGUID` `guids` filtresini uygulamıyor ve
+  // yalnız yakın tarihli alt kümeyi döndürüyor. SAT-2026-000001 (ETTN
+  // 7e03cd4b…) GUID ucunda YOKTU ama tarih aralıklı listede VARDI (zarf 1300).
+  // Eski kod bu durumda NOT_FOUND deyip SENDING kilidini açtırıyordu →
+  // belge GİB'e iletilmişken yeniden gönderim = MÜKERRER FATURA.
+  calls = [];
+  axios.post = (async (url: string, payload: any) => {
+    calls.push({ url, payload, method: 'POST' });
+    // Uç filtre uygulamıyor: alakasız belgeler dönüyor, aranan YOK.
+    return { data: { IsSucceeded: true, documents: [{ UUID: 'baska-belge-1' }, { UUID: 'baska-belge-2' }] } };
+  }) as any;
+  axios.get = (async (url: string) => {
+    calls.push({ url, payload: null, method: 'GET' });
+    // Tarih aralıklı liste aranan belgeyi İÇERİYOR.
+    if (/AppType=2/.test(url)) {
+      return { data: { success: true, documents: [{ UUID: UUID, EnvelopeStatus: 1300, EnvelopeExp: 'BAŞARI İLE TAMAMLANDI', Status: 12 }] } };
+    }
+    return { data: { success: true, documents: [] } };
+  }) as any;
+  out = await reconcileSendingInvoice(invoice(), settings);
+  assert.equal(out.result, 'FOUND', 'GUID bulamasa bile LIST bulursa belge VARDIR');
+  assert.equal(out.newStatus, 'SENT');
+  assert.equal(out.gibStatus, '1300');
+  assert.ok(calls.some(c => /GetDocumentList\?/.test(c.url)), 'tarih aralıklı liste sorgulanmalı');
+  assert.ok(calls.some(c => /StartDate=2026-08-11/.test(c.url)), 'aralık faturanın KENDİ tarihinden kurulmalı');
+
+  // ---- 12) Tarih yoksa aralık taraması yapılmaz (uydurma tarih ÜRETİLMEZ) --
+  calls = [];
+  out = await reconcileSendingInvoice(invoice({ date: undefined, issueDate: undefined, createdAt: undefined }), settings);
+  assert.equal(out.result, 'NOT_FOUND');
+  assert.equal(calls.filter(c => /GetDocumentList\?/.test(c.url)).length, 0, 'tarih yokken aralık uydurulmamalı');
+
+  // ---- 13) GUID "yok" + LIST sorgusu HATA = "yok" DEĞİL -------------------
+  // Belge gönderilmiş olabilir; doğrulanamayan ikinci yol "yok" kanıtı sayılamaz.
+  axios.post = (async (url: string, payload: any) => {
+    calls.push({ url, payload, method: 'POST' });
+    return { data: { IsSucceeded: true, documents: [] } };
+  }) as any;
+  axios.get = (async (url: string) => {
+    calls.push({ url, payload: null, method: 'GET' });
+    throw new Error('liste alınamadı');
+  }) as any;
+  out = await reconcileSendingInvoice(invoice(), settings);
+  assert.equal(out.result, 'QUERY_FAILED', 'doğrulanamayan liste "belge yok" sayılamaz');
+  assert.match(out.message, /yok" sayılamaz|sayılamaz/);
+
+  console.log('PASS: SENDING mutabakatı — 1300→SENT; işlemde/bulunamadı/ETTN yok kaydı DEĞİŞTİRMEZ; GUID bulamazsa tarih aralıklı liste taranır (13/13 canlı vaka); sorgu yapılamazsa QUERY_FAILED (asla "yok" denmez); belge gönderilmez.');
 } finally {
   axios.post = originalPost;
+  axios.get = originalGet;
   invalidateTenant(settings.tenantId);
 }

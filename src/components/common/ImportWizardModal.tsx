@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { api } from '../../services/api';
+import type { Warehouse } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { useApp } from '../../context/AppContext';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, ArrowRight, Download } from 'lucide-react';
@@ -23,6 +24,27 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [step, setStep] = useState<'INPUT' | 'PREVIEW'>('INPUT');
   const [loading, setLoading] = useState(false);
+  // 2026-10-17: Stok içe aktarımı artık DEPO ZORUNLU kılar. Sihirbazda depo
+  // seçici YOKTU ve satırlarda `warehouseId` hiç üretilmiyordu; sunucu eski
+  // hâlde sessizce `draft.warehouses[0]` (başka firmanın deposu olabilir) ya
+  // da canlıda VAR OLMAYAN `'wh-1'` kimliğine yazıyordu. Depo burada, kayıt
+  // öncesinde ve firmanın KENDİ deposu listesinden seçilir.
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
+
+  useEffect(() => {
+    if (isOpen && importType === 'PRODUCTS') {
+      api
+        .getProductMeta()
+        .then(res => {
+          if (res.success) {
+            setWarehouses(res.warehouses || []);
+            if (res.warehouses?.length === 1) setWarehouseId(res.warehouses[0].id);
+          }
+        })
+        .catch(() => setWarehouses([]));
+    }
+  }, [isOpen, importType]);
 
   const sampleCustomerData = `Unvan;Yetkili;Telefon;VergiNo;VergiDairesi;Bakiye;Vade
 Mega Bilişim Ltd. Şti.;Kenan Er;0532 999 11 22;1234567890;Beşiktaş;0;30
@@ -39,6 +61,13 @@ Kingston 64GB USB 3.2 Bellek;8690000106402;STK-USB;140;240;20;50`;
   const handleParse = () => {
     if (!rawText.trim()) {
       showToast('Lütfen içe aktarılacak metni yapıştırınız.', 'warning');
+      return;
+    }
+
+    // 2026-10-17: Depo seçilmeden stok içe aktarımı ayrıştırılamaz. Aksi hâlde
+    // satırlar sahipsiz/yanlış depo kimliğiyle sunucuya giderdi.
+    if (importType === 'PRODUCTS' && !warehouseId) {
+      showToast('Devam etmek için önce bir depo seçiniz.', 'warning');
       return;
     }
 
@@ -74,6 +103,9 @@ Kingston 64GB USB 3.2 Bellek;8690000106402;STK-USB;140;240;20;50`;
           salePrice: Number(parts[4]) || 0,
           vatRate: Number(parts[5]) || 20,
           currentStock: Number(parts[6]) || 0,
+          // 2026-10-17: Seçilen depo satırlara AÇIKÇA eklenir; sunucu varsayılan
+          // seçmez. Depo seçilmemişse kaydetme aşağıdaki kapıda durdurulur.
+          warehouseId,
         });
       }
     }
@@ -88,6 +120,11 @@ Kingston 64GB USB 3.2 Bellek;8690000106402;STK-USB;140;240;20;50`;
   };
 
   const handleImportSubmit = async () => {
+    // 2026-10-17: Son kapı — depo seçilmemişse hiç istek gönderilmez.
+    if (importType === 'PRODUCTS' && !warehouseId) {
+      showToast('Stok içe aktarımı için depo seçimi zorunludur.', 'warning');
+      return;
+    }
     setLoading(true);
     try {
       if (importType === 'CUSTOMERS') {
@@ -165,6 +202,41 @@ Kingston 64GB USB 3.2 Bellek;8690000106402;STK-USB;140;240;20;50`;
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
             💡 <strong>İpucu:</strong> Kolon ayracı olarak noktalı virgül (;), sekme (Tab) veya virgül (,) kullanabilirsiniz.
           </div>
+
+          {importType === 'PRODUCTS' && (
+            <div className="form-group" style={{ marginTop: '14px', marginBottom: 0 }}>
+              <label className="form-label required">Açılış Stoğu Deposu</label>
+              {/* 2026-10-17: Aktarılan ürünler ve açılış stok hareketleri bu
+                  depoya yazılır. Liste yalnız SEÇİLİ FIRMANIN depolarını içerir
+                  (sunucu /products/meta/groups-warehouses ucu tenant'a göre
+                  süzer); başka firmanın deposu burada görünmez. */}
+              <select
+                className="form-select"
+                value={warehouseId}
+                onChange={e => setWarehouseId(e.target.value)}
+                disabled={warehouses.length === 0}
+              >
+                {warehouses.length === 0 ? (
+                  <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+                ) : (
+                  <>
+                    <option value="">-- Depo Seçiniz --</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+              {warehouses.length === 0 && (
+                <div style={{ fontSize: '11px', color: 'var(--danger, #ef4444)', marginTop: '4px' }}>
+                  Bu firma için tanımlı depo yok. Stok kartları içe aktarılamaz; lütfen
+                  Depolar ekranından bir depo tanımlayın.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div>

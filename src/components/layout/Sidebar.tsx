@@ -114,6 +114,7 @@ const MODULE_META: Record<string, ModuleMeta> = {
   vergi:              { id: 'vergi',              ribbonTab: 'RAPORLAR',    orderNumber: '16', label: 'KDV / Beyanname',      icon: <FileText size={18} /> },
   raporlar:           { id: 'raporlar',           ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Raporlar',             icon: <BarChart3 size={18} /> },
   'rapor-tasarimci':  { id: 'rapor-tasarimci',    ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Rapor Tasarım Merkezi', icon: <BarChart3 size={18} />, badge: 'NEW',  badgeColor: '#059669' },
+  'rapor-detay':      { id: 'rapor-detay',        ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Detay Raporları',      icon: <BarChart3 size={18} />, badge: 'NEW',  badgeColor: '#059669' },
   ayarlar:            { id: 'ayarlar',            ribbonTab: 'AYARLAR',     orderNumber: '18', label: 'Ayarlar',              icon: <Settings size={18} /> },
   companies:          { id: 'companies',          ribbonTab: 'AYARLAR',     orderNumber: '19', label: 'Firma & Şirketler',    icon: <Building size={18} /> },
   tenants:            { id: 'tenants',            ribbonTab: 'AYARLAR',     orderNumber: '19', label: 'Tenant Yönetimi',      icon: <Building size={18} /> },

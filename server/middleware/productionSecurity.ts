@@ -169,3 +169,11 @@ function envInt(name: string, fallback: number): number {
 export const loginRateLimit = rateLimit({ name: 'login', windowMs: 15 * 60 * 1000, max: envInt('LOGIN_RATE_LIMIT_MAX', 20) });
 export const mobileLoginRateLimit = rateLimit({ name: 'mobile-login', windowMs: 15 * 60 * 1000, max: envInt('MOBILE_RATE_LIMIT_MAX', 30) });
 export const webhookRateLimit = rateLimit({ name: 'webhook', windowMs: 60 * 1000, max: 60 });
+/**
+ * 2026-10-15: VKN ile kayıt hız sınırı.
+ * NEDEN: Bu uç her çağrıda HIZLI BİLİŞİM'e giden bir mükellef sorgusu tetikler
+ * (dış servis + kimlik doğrulama). Sınırsız bırakılırsa hem sağlayıcı kotası
+ * tüketilir hem de VKN deneme (enumeration) saldırısına kapı açılır.
+ * Public uç olduğu için limit sıkı tutulur: 1 saat / 5 kayıt denemesi.
+ */
+export const registerRateLimit = rateLimit({ name: 'register', windowMs: 60 * 60 * 1000, max: envInt('REGISTER_RATE_LIMIT_MAX', 5) });

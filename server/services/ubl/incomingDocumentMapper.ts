@@ -488,7 +488,10 @@ export function draftProductFromLine(line: ParsedUblLine): Partial<Product> {
     currentStock: 0,
     stock: 0,
     criticalStock: 0,
-    warehouseId: 'wh-default',
+    // 2026-10-17 GÜVENLİK: Taslakta `warehouseId: 'wh-default'` YAZILMAZ.
+    // `'wh-default'` canlıda VAR OLMAYAN bir kimliktir; taslak bir gün
+    // kaydedilirse ürün kırık bir depo referansıyla doğardı. Depoyu, kaydı
+    // yapan taraf SAHİPLİK kapısından geçmiş gerçek depodan yazar.
     active: true,
   };
 }

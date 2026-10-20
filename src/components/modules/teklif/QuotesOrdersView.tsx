@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
-import type { Quote, Order } from '../../../types';
+import type { Quote, Order, Warehouse } from '../../../types';
 import { api } from '../../../services/api';
 import { useApp } from '../../../context/AppContext';
 import { useToast } from '../../../context/ToastContext';
@@ -38,10 +38,42 @@ export const QuotesOrdersView: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [converting, setConverting] = useState<string | null>(null);
+  // 2026-10-17: Dönüştürme (teklif→fatura, sipariş→irsaliye) artık DEPO ister.
+  // Seçici yoktu; sunucu eski hâlde `warehouses[0]` (başka firmanın deposu
+  // olabilir) ya da canlıda VAR OLMAYAN `'wh-1'` kimliğine yazıyordu.
+  // Liste yalnız SEÇİLİ FIRMANIN depolarını içerir (sunucu tenant'a göre süzer).
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
 
   useEffect(() => {
     loadData();
   }, [activeSubTab, refreshKey]);
+
+  useEffect(() => {
+    api
+      .getProductMeta()
+      .then(res => {
+        if (res.success) {
+          setWarehouses(res.warehouses || []);
+          if (res.warehouses?.length === 1) setWarehouseId(res.warehouses[0].id);
+        }
+      })
+      .catch(() => setWarehouses([]));
+  }, [refreshKey]);
+
+  /** Depo seçilmemişse işlemi başlatmaz; kullanıcıya nedenini söyler. */
+  const requireWarehouse = (): string | null => {
+    if (!warehouseId) {
+      showToast(
+        warehouses.length === 0
+          ? 'Bu firma için tanımlı depo yok. İşlem için önce bir depo tanımlayın.'
+          : 'İşlem için önce bir depo seçiniz.',
+        'warning'
+      );
+      return null;
+    }
+    return warehouseId;
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -62,10 +94,12 @@ export const QuotesOrdersView: React.FC = () => {
 
   const handleConvertToOrder = async (quote: Quote) => {
     if (converting) return;
+    const whId = requireWarehouse();
+    if (!whId) return;
     setConverting(quote.id);
     try {
       const deliveryDate = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-      const res = await api.convertQuoteToOrder(quote.id, { deliveryDate });
+      const res = await api.convertQuoteToOrder(quote.id, { deliveryDate, warehouseId: whId });
       if (res.success) {
         showToast(res.message || 'Teklif başarıyla siparişe dönüştürüldü!', 'success');
         triggerRefresh();
@@ -79,9 +113,11 @@ export const QuotesOrdersView: React.FC = () => {
 
   const handleConvertToInvoice = async (quote: Quote) => {
     if (converting) return;
+    const whId = requireWarehouse();
+    if (!whId) return;
     setConverting(quote.id);
     try {
-      const res = await api.convertQuoteToInvoice(quote.id);
+      const res = await api.convertQuoteToInvoice(quote.id, { warehouseId: whId });
       if (res.success) {
         showToast(res.message || 'Teklif başarıyla faturaya dönüştürüldü!', 'success');
         triggerRefresh();
@@ -95,9 +131,11 @@ export const QuotesOrdersView: React.FC = () => {
 
   const handleConvertOrderToWaybill = async (order: Order) => {
     if (converting) return;
+    const whId = requireWarehouse();
+    if (!whId) return;
     setConverting(order.id);
     try {
-      const res = await api.convertOrderToWaybill(order.id);
+      const res = await api.convertOrderToWaybill(order.id, { warehouseId: whId });
       if (res.success) {
         showToast(res.message || 'Sipariş başarıyla irsaliyeye dönüştürüldü!', 'success');
         triggerRefresh();
@@ -308,11 +346,43 @@ export const QuotesOrdersView: React.FC = () => {
           </button>
         </div>
 
-        <button className="btn btn-primary" onClick={() => setIsNewQuoteModalOpen(true)}>
-          <Plus size={16} />
-          <span>Yeni Teklif</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* 2026-10-17: Dönüştürme işlemlerinin hedef deposu. Tek depo varsa
+              otomatik seçilir; hiç yoksa dönüştürme başlatılmaz. */}
+          <select
+            className="form-select"
+            style={{ minWidth: '190px' }}
+            value={warehouseId}
+            onChange={e => setWarehouseId(e.target.value)}
+            disabled={warehouses.length === 0}
+            title="Dönüştürme işlemlerinde kullanılacak depo"
+          >
+            {warehouses.length === 0 ? (
+              <option value="">Depo tanımlı değil</option>
+            ) : (
+              <>
+                <option value="">-- Depo Seçiniz --</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </>
+            )}
+          </select>
+          <button className="btn btn-primary" onClick={() => setIsNewQuoteModalOpen(true)}>
+            <Plus size={16} />
+            <span>Yeni Teklif</span>
+          </button>
+        </div>
       </div>
+
+      {warehouses.length === 0 && (
+        <div style={{ fontSize: '12px', color: 'var(--danger, #ef4444)' }}>
+          Bu firma için tanımlı depo yok. Teklif/sipariş dönüştürme ve stok hareketi
+          kaydedilemez; lütfen Depolar ekranından bir depo tanımlayın.
+        </div>
+      )}
 
       {activeSubTab === 'QUOTES' ? (
         <DataGrid

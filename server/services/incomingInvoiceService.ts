@@ -23,6 +23,7 @@ import {
   type IngestionPlan,
 } from './ubl/incomingDocumentMapper';
 import { IncomingDocumentError } from '../errors/incomingDocumentError';
+import { isOwnedBy, assertOwnedWarehouse } from '../security/tenantOwnership';
 import {
   MAX_CONTENT_DOWNLOADS_PER_SYNC,
   clampDateRange,
@@ -596,6 +597,11 @@ export class IncomingInvoiceService {
         /** Kurun kaynağı (`TCMB`). */
         rateSource?: string;
       };
+      /**
+       * 2026-10-17: Stok girişinin yapılacağı depo. Verilmezse firmanın TEK
+       * deposu kullanılır; belirsizse işlem AÇIK HATA ile durur.
+       */
+      warehouseId?: string;
     }
   ): Promise<Invoice> {
     // ⚠️ TEK TRANSACTION — BURADA TUTULMASI ZORUNLU.
@@ -703,6 +709,23 @@ export class IncomingInvoiceService {
         dovizKasasi = ensureCurrencyCashRegister(draft, tenantId, dovizBilgisi.documentCurrency);
       }
 
+      // ── HEDEF DEPO (2026-10-17 GÜVENLİK) ────────────────────────────────
+      // Stok girişi BU onayda oluşur; depo artık ZORUNLU ve sahiplikli.
+      // Eski hâlde depo `'wh-default'` sabitine (canlıda VAR OLMAYAN kimlik)
+      // veya ürün kartının taşıdığı doğrulanmamış kimliğe düşülüyordu.
+      // İstekte depo verilmişse o; verilmemişse firmanın TEK deposu; hiçbiri
+      // yoksa AÇIK HATA (sessizce başka depoya düşme yok).
+      const requestedWhId =
+        typeof decisions?.warehouseId === 'string' && decisions.warehouseId.trim() !== ''
+          ? decisions.warehouseId.trim()
+          : undefined;
+      const ownedWhs = (draft.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+      const targetWarehouse = assertOwnedWarehouse(
+        draft.warehouses,
+        requestedWhId ?? (ownedWhs.length === 1 ? ownedWhs[0].id : undefined),
+        tenantId
+      );
+
       const tenant = (draft.tenants || []).find(t => t.id === tenantId);
       if (!tenant) throw new Error('Firma kaydı bulunamadı.');
 
@@ -762,7 +785,10 @@ export class IncomingInvoiceService {
         let kullaniciSecti = false;
 
         if (karar?.productId) {
-          product = (draft.products || []).find(p => p.id === karar.productId);
+          // 2026-10-17 GÜVENLİK: Seçilen ürün kartı SAHİPLİKLE aranır (eskiden
+          // filtresizdi → başka firmanın ürün kartına bu belgeyle stok/maliyet
+          // yazılabiliyordu).
+          product = (draft.products || []).find(p => p.id === karar.productId && isOwnedBy(p, tenantId));
           if (!product) throw new Error(`Seçilen ürün kartı bulunamadı (satır ${lm.line.lineNo}).`);
           kullaniciSecti = true;
         } else if (lm.product && !karar?.createProduct) {
@@ -785,7 +811,9 @@ export class IncomingInvoiceService {
             currentStock: 0,
             stock: 0,
             criticalStock: 0,
-            warehouseId: 'wh-default',
+            // 2026-10-17 GÜVENLİK: `'wh-default'` (canlıda VAR OLMAYAN kimlik)
+            // yerine doğrulanmış hedef depo yazılır.
+            warehouseId: targetWarehouse.id,
             active: true,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -840,6 +868,9 @@ export class IncomingInvoiceService {
         customerId: supplier.id,
         date: inc.issueDate || new Date().toISOString().slice(0, 10),
         items,
+        // 2026-10-17 GÜVENLİK: Stok girişinin deposu AÇIKÇA geçilir; motorun
+        // kendi varsayımına/depo listesinin ilk elemanına düşmesi engellenir.
+        warehouseId: targetWarehouse.id,
         // 2026-10-03: Dövizli belgede tutar TL'ye çevrildiği için fatura döviz
         // kasasına bağlanır. TRY belgede `undefined` kalır; motor kendi
         // varsayılan davranışını sürdürür ve mevcut akış değişmez.

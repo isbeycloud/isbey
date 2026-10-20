@@ -143,7 +143,8 @@ canlı çağrı yok). Mevcut `server/tests/*ContractTest.ts` kalıbını izle.
 - **İrsaliye hizmetini açma** — kullanıcı "pasif" dedi.
 - **Bayi portalı OTP** — gerçek sağlayıcı oturumu + kullanıcı gerektirir; ajan tek başına
   doğrulayamaz (raporun §5.4'ünde de böyle yazıyor).
-- **`u455582886` geçmiş temizliği** — force-push gerektirir, ayrı onay konusu.
+- **Sunucu kullanıcı adı geçmiş temizliği** — force-push gerektirir, ayrı onay konusu.
+  (2026-10-17: ad bu dosyadan çıkarıldı; ancak git geçmişinde ve origin/main'de duruyor.)
 
 ## Codex kanıtı — Adım 1 (6 Ekim 2026)
 

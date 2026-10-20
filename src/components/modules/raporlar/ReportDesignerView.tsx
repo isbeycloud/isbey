@@ -26,9 +26,9 @@ import { useToast } from '../../../context/ToastContext';
 import { api } from '../../../services/api';
 import {
   DATA_SOURCE_LABELS, CHART_LABELS, REPORT_FIELDS, KPI_LABELS,
-  FIELD_COLUMN_LABELS, AMOUNT_LABEL, NEW_REPORT_DESIGN,
+  FIELD_COLUMN_LABELS, AMOUNT_LABEL, NEW_REPORT_DESIGN, SOURCE_STATUSES,
   orderedFields, fieldHasData, computeKpis, buildChartData,
-  applyFilters, exportRowsToCsv,
+  applyFilters, exportRowsToCsv, groupTotals, hasDesignFilters,
 } from './reportBuilderTypes';
 import type {
   ReportDesign, ReportDataSource, ReportChartType, ReportFieldId, ReportRow, ReportKpiId,
@@ -65,7 +65,9 @@ const writeLocalDesigns = (list: ReportDesign[]) => {
 
 export const ReportDesignerView: React.FC = () => {
   const { showToast } = useToast();
-  const { openPrintModal } = useApp();
+  // 2026-10-17: firma değişiminde rapor ESKİ firmanın verisinde takılı
+  // kalmamalı (AdvancedReportsView'de ölçülen aynı kusur).
+  const { openPrintModal, refreshKey, activeTenantId } = useApp();
 
   const [designs, setDesigns] = useState<ReportDesign[]>([]);
   const [activeDesignId, setActiveDesignId] = useState<string | null>(null);
@@ -84,6 +86,15 @@ export const ReportDesignerView: React.FC = () => {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // 2026-10-17: rapor oluşturucu filtreleri genişletildi (varyant/ürün/durum/
+  // tutar aralığı). Durum tek biri seçilir; liste alanları çoklu seçimdir.
+  const [designFilters, setDesignFilters] = useState<NonNullable<ReportDesign['filters']>>({});
+  const [filterOptions, setFilterOptions] = useState<{
+    customers: { id: string; title: string }[];
+    products: { id: string; name: string }[];
+    warehouses: { id: string; name: string }[];
+  }>({ customers: [], products: [], warehouses: [] });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // ── Kayıtlı tasarımları yükle
   useEffect(() => {
@@ -95,6 +106,19 @@ export const ReportDesignerView: React.FC = () => {
       })
       .catch(() => setDesigns(readLocalDesigns()));
   }, []);
+
+  // ── Filtre seçenekleri (cari/ürün/depo) — yalnız KENDİ firmasının kayıtları.
+  useEffect(() => {
+    api.getReportFilterOptions()
+      .then(res => {
+        if (res.success) setFilterOptions({
+          customers: res.customers.map(c => ({ id: c.id, title: `${c.code} — ${c.title}` })),
+          products: res.products.map(p => ({ id: p.id, name: `${p.code} — ${p.name}` })),
+          warehouses: res.warehouses.map(w => ({ id: w.id, name: `${w.code} — ${w.name}` })),
+        });
+      })
+      .catch(() => { /* seçenek yoksa çoklu filtre kutuları boş kalır */ });
+  }, [activeTenantId, refreshKey]);
 
   // ── Tasarım değişince veriyi çalıştır
   const runReport = useCallback(async (d: ReportDesign) => {
@@ -115,10 +139,23 @@ export const ReportDesignerView: React.FC = () => {
   useEffect(() => { runReport(design); }, [design.dataSource, runReport]); // dataSource / tarih aralığı değişince yenile
 
   // ── Filtreli satır kümesi + KPI + grafik (hafıza — render dışı hesap)
-  const filteredRows = useMemo(() => applyFilters(rows, { dateFrom, dateTo }), [rows, dateFrom, dateTo]);
+  // Filtreler TEK yerde birleşir: ekrandaki tarih kutuları + tasarım filtreleri.
+  // Böylece "önizleme" ile "kaydedilen rapor" aynı kümeyi gösterir.
+  const effectiveFilters = useMemo(() => ({
+    ...designFilters,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  }), [designFilters, dateFrom, dateTo]);
+  const filteredRows = useMemo(() => applyFilters(rows, effectiveFilters), [rows, effectiveFilters]);
   const kpis = useMemo(() => computeKpis(filteredRows, design.kpis, currentMonthKey()), [filteredRows, design.kpis]);
-  const groupField = useMemo<ReportFieldId | undefined>(() => orderedFields(design.fields).find(f => f !== 'date'), [design.fields]);
+  const groupField = useMemo<ReportFieldId | undefined>(
+    () => design.groupBy || orderedFields(design.fields).find(f => f !== 'date'),
+    [design.groupBy, design.fields],
+  );
   const chartData = useMemo(() => buildChartData(filteredRows, groupField), [filteredRows, groupField]);
+  // Gruplama özeti: grafik ve özet tablo AYNI fonksiyondan beslenir ki
+  // iki görünüm birbiriyle çelişmesin.
+  const grouped = useMemo(() => groupTotals(filteredRows, groupField), [filteredRows, groupField]);
   const tableFields = useMemo(() => orderedFields(design.fields), [design.fields]);
 
   const activeDesign = designs.find(d => d.id === activeDesignId) || null;
@@ -160,7 +197,9 @@ export const ReportDesignerView: React.FC = () => {
         chartType: design.chartType,
         fields: design.fields,
         kpis: design.kpis,
-        filters: { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined },
+        // Boş filtre nesnesi DİSKE YAZILMAZ (`hasDesignFilters`).
+        filters: hasDesignFilters(effectiveFilters) ? effectiveFilters : undefined,
+        groupBy: design.groupBy,
       };
       if (activeDesignId && activeDesign) {
         const res = await api.updateReportDesign(activeDesignId, payload);
@@ -226,6 +265,16 @@ export const ReportDesignerView: React.FC = () => {
     setDirty(false);
     if (d.filters?.dateFrom) setDateFrom(d.filters.dateFrom);
     if (d.filters?.dateTo) setDateTo(d.filters.dateTo);
+    // Tarih dışı filtreler ayrı durumda tutulur; tarih kutularıyla çakışmasın.
+    setDesignFilters({
+      customerIds: d.filters?.customerIds,
+      warehouseIds: d.filters?.warehouseIds,
+      productIds: d.filters?.productIds,
+      variantIds: d.filters?.variantIds,
+      statuses: d.filters?.statuses,
+      minAmount: d.filters?.minAmount,
+      maxAmount: d.filters?.maxAmount,
+    });
   };
 
   // ── Yeni tasarım
@@ -238,7 +287,13 @@ export const ReportDesignerView: React.FC = () => {
       chartType: NEW_REPORT_DESIGN.chartType,
       fields: [...NEW_REPORT_DESIGN.fields],
       kpis: [...(NEW_REPORT_DESIGN.kpis || [])],
+      filters: {},
+      groupBy: undefined,
     });
+    // Yeni rapora geçerken ESKİ filtreler taşınmaz: kullanıcı temiz sayfa bekler.
+    setDateFrom('');
+    setDateTo('');
+    setDesignFilters({});
     setDirty(true);
   };
 
@@ -552,6 +607,34 @@ export const ReportDesignerView: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {/* Gruplama özeti: grafikle AYNI kaynaktan (groupTotals) gelir. */}
+          {grouped && grouped.labels.length > 0 && (
+            <div style={{ marginTop: '14px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                {groupField ? FIELD_COLUMN_LABELS[groupField] : 'Grup'} Bazında Dağılım
+                <span style={{ fontWeight: 400, marginLeft: '6px' }}>
+                  (toplam {fmtTL(grouped.totals.sum)} · {fmtNum(grouped.totals.count)} kayıt · ort. {fmtTL(grouped.totals.avg)})
+                </span>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                {grouped.labels.map((label, i) => (
+                  <div key={label} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '6px 10px', fontSize: '12px',
+                    background: i % 2 === 0 ? 'transparent' : 'var(--bg-secondary, #f8fafc)',
+                    borderBottom: i < grouped.labels.length - 1 ? '1px solid var(--border-color)' : 'none',
+                  }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                    <span style={{ display: 'flex', gap: '14px', flexShrink: 0 }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{fmtNum(grouped.counts[i])} adet</span>
+                      <span style={{ fontWeight: 600, minWidth: '90px', textAlign: 'right' }}>{fmtTL(grouped.values[i])}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {filteredRows.length > 50 && (
             <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
               İlk 50 satır gösteriliyor — tam liste için Excel/Yazdır kullanın.
@@ -643,6 +726,164 @@ export const ReportDesignerView: React.FC = () => {
                 );
               })}
             </div>
+          </div>
+
+          {/* 2026-10-17: KAPSAMLI FİLTRELER. Önceden yalnız tarih aralığı
+              vardı; şimdi cari/ürün/depo/durum/tutar da seçilebiliyor ve
+              tasarımla birlikte KAYDEDİLİYOR (yeniden çalıştırılabilir). */}
+          <div>
+            <button
+              onClick={() => setShowAdvancedFilters(s => !s)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: '6px', padding: '7px 9px', borderRadius: '8px', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 600, border: '1px solid var(--border-color)', background: 'transparent',
+              }}
+            >
+              <span>Kapsamlı Filtreler</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                {Object.values(effectiveFilters).filter(v => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)).length} aktif
+              </span>
+            </button>
+
+            {showAdvancedFilters && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', marginTop: '9px' }}>
+                {design.dataSource !== 'VAT' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Cari</label>
+                    <select
+                      multiple size={4} className="form-control"
+                      style={{ width: '100%', fontSize: '11px', padding: '4px' }}
+                      value={designFilters.customerIds || []}
+                      onChange={e => setDesignFilters(prev => ({
+                        ...prev,
+                        customerIds: [...e.target.selectedOptions].map(o => o.value),
+                      }))}
+                    >
+                      {filterOptions.customers.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {(design.dataSource === 'STOCK' || design.dataSource === 'SALES' || design.dataSource === 'PURCHASE') && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Ürün</label>
+                    <select
+                      multiple size={4} className="form-control"
+                      style={{ width: '100%', fontSize: '11px', padding: '4px' }}
+                      value={designFilters.productIds || []}
+                      onChange={e => setDesignFilters(prev => ({
+                        ...prev,
+                        productIds: [...e.target.selectedOptions].map(o => o.value),
+                      }))}
+                    >
+                      {filterOptions.products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {design.dataSource !== 'CUSTOMER' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Depo</label>
+                    <select
+                      multiple size={3} className="form-control"
+                      style={{ width: '100%', fontSize: '11px', padding: '4px' }}
+                      value={designFilters.warehouseIds || []}
+                      onChange={e => setDesignFilters(prev => ({
+                        ...prev,
+                        warehouseIds: [...e.target.selectedOptions].map(o => o.value),
+                      }))}
+                    >
+                      {filterOptions.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {(SOURCE_STATUSES[design.dataSource] || []).length > 0 && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Durum</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                      {(SOURCE_STATUSES[design.dataSource] || []).map(st => {
+                        const selected = (designFilters.statuses || []).includes(st.id);
+                        return (
+                          <button key={st.id}
+                            onClick={() => setDesignFilters(prev => ({
+                              ...prev,
+                              statuses: selected
+                                ? (prev.statuses || []).filter(x => x !== st.id)
+                                : [...(prev.statuses || []), st.id],
+                            }))}
+                            style={{
+                              padding: '4px 9px', borderRadius: '999px', cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+                              border: selected ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+                              background: selected ? 'var(--primary)' : 'transparent',
+                              color: selected ? '#fff' : 'var(--text-color, #374151)',
+                            }}>
+                            {st.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Alt Tutar</label>
+                    <input
+                      type="number" className="form-control" placeholder="0"
+                      style={{ width: '100%', fontSize: '11px', padding: '6px 8px' }}
+                      value={designFilters.minAmount ?? ''}
+                      onChange={e => setDesignFilters(prev => ({
+                        ...prev, minAmount: e.target.value === '' ? undefined : Number(e.target.value),
+                      }))}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Üst Tutar</label>
+                    <input
+                      type="number" className="form-control" placeholder="—"
+                      style={{ width: '100%', fontSize: '11px', padding: '6px 8px' }}
+                      value={designFilters.maxAmount ?? ''}
+                      onChange={e => setDesignFilters(prev => ({
+                        ...prev, maxAmount: e.target.value === '' ? undefined : Number(e.target.value),
+                      }))}
+                    />
+                  </div>
+                </div>
+
+                {(() => {
+                  const min = designFilters.minAmount, max = designFilters.maxAmount;
+                  if (min !== undefined && max !== undefined && Number.isFinite(min) && Number.isFinite(max) && min > max) {
+                    return <div style={{ fontSize: '11px', color: '#dc2626' }}>Alt tutar, üst tutardan büyük olamaz.</div>;
+                  }
+                  return null;
+                })()}
+
+                <button
+                  onClick={() => { setDesignFilters({}); setDateFrom(''); setDateTo(''); setDirty(true); }}
+                  style={{ fontSize: '11px', padding: '5px 9px', borderRadius: '7px', border: '1px solid var(--border-color)', background: 'transparent', cursor: 'pointer' }}
+                >
+                  Filtreleri temizle
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Gruplama: grafik ve özet tablonun hangi alana göre kırılacağı */}
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-muted)' }}>Gruplama</label>
+            <select
+              value={design.groupBy || ''}
+              onChange={e => patchDesign({ groupBy: (e.target.value || undefined) as ReportFieldId | undefined })}
+              className="form-control"
+              style={{ width: '100%', fontSize: '12px', padding: '7px 9px' }}
+            >
+              <option value="">Otomatik</option>
+              {orderedFields(design.fields).filter(f => f !== 'date').map(f => (
+                <option key={f} value={f}>{FIELD_COLUMN_LABELS[f]}</option>
+              ))}
+            </select>
           </div>
 
           {/* KPI seçici */}

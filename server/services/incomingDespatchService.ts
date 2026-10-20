@@ -11,6 +11,7 @@ import { DocumentStorageService } from './documentStorageService';
 import { parseUblDocument } from './ubl/ublParser';
 import { XmlValidatorService } from './ubl/xmlValidatorService';
 import { IncomingDocumentError } from '../errors/incomingDocumentError';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 import {
   MAX_CONTENT_DOWNLOADS_PER_SYNC,
   clampDateRange,
@@ -450,6 +451,12 @@ export class IncomingDespatchService {
       supplierId?: string;
       createSupplier?: boolean;
       lines?: Array<{ lineNo: string; productId?: string; createProduct?: boolean }>;
+      /**
+       * 2026-10-17: Mal girişinin yapılacağı depo. Verilmezse firmanın TEK
+       * deposu kullanılır; belirsizse işlem AÇIK HATA ile durur (sessizce
+       * başka depoya düşme yok).
+       */
+      warehouseId?: string;
     }
   ): Promise<{ despatch: IncomingDespatch; movements: StockMovement[] }> {
     // ⚠️ TEK TRANSACTION — BURADA TUTULMASI ZORUNLU.
@@ -480,7 +487,22 @@ export class IncomingDespatchService {
       if (plan.blockedReason) throw new Error(`İrsaliye onaylanamaz: ${plan.blockedReason}`);
 
       const now = new Date().toISOString();
-      const whId = (draft.warehouses && draft.warehouses[0]?.id) || 'wh-default';
+      // 2026-10-17 GÜVENLİK: Eski hâl `draft.warehouses[0]?.id || 'wh-default'` idi:
+      // `warehouses[0]` BAŞKA firmanın deposu olabilirdi (liste filtresizdi) ve
+      // `'wh-default'` canlıda VAR OLMAYAN bir kimliktir. Gelen malın gireceği
+      // depo artık SAHİPLİK kapısından geçer; belirsizse sessizce başka depoya
+      // düşülmez → açık hata.
+      const requestedWhId =
+        typeof decisions?.warehouseId === 'string' && decisions.warehouseId.trim() !== ''
+          ? decisions.warehouseId.trim()
+          : undefined;
+      const ownedWhs = (draft.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+      const warehouse = assertOwnedWarehouse(
+        draft.warehouses,
+        requestedWhId ?? (ownedWhs.length === 1 ? ownedWhs[0].id : undefined),
+        tenantId
+      );
+      const whId = warehouse.id;
       const belgeRef = `GİR-${kayit.despatchNo || kayit.uuid.slice(0, 8)}`;
 
       // ── Tedarikçi: yalnızca EŞLEŞTİRME için; borç yazılmaz ──────────────
@@ -523,7 +545,9 @@ export class IncomingDespatchService {
         let product: Product | undefined;
 
         if (karar?.productId) {
-          product = (draft.products || []).find(p => p.id === karar.productId);
+          // 2026-10-17 GÜVENLİK: Seçilen ürün kartı SAHİPLİKLE aranır (eskiden
+          // filtresizdi → başka firmanın ürününe bu irsaliyeyle mal girişi).
+          product = (draft.products || []).find(p => p.id === karar.productId && isOwnedBy(p, tenantId));
           if (!product) throw new Error(`Seçilen ürün kartı bulunamadı (satır ${lm.line.lineNo}).`);
           // Yalnız KULLANICININ açıkça seçtiği eşleştirme öğrenilir.
           const kod = lm.line.sellerProductCode || lm.line.barcode || '';
@@ -565,11 +589,11 @@ export class IncomingDespatchService {
         const qty = lm.line.quantity;
         movements.push({
           id: `sm-irs-${Date.now()}-${movements.length}`,
-          tenantId,
+          // 2026-10-17: tenantId + doğrulanmış depo kimliği/adı tek kaynaktan.
+          ...stockMovementOwnedFields(tenantId, warehouse),
           productId: product.id,
           productCode: product.code,
           productName: product.name,
-          warehouseId: whId,
           documentNo: belgeRef,
           documentType: 'WAYBILL',
           documentId: kayit.id,

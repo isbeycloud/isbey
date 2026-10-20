@@ -97,6 +97,11 @@ try {
   await call(`${root}/payment-callback`, '', 'POST', callback, 200, { 'x-payment-signature': sign(callback) });
   await call(`${root}/payment-callback`, '', 'POST', callback, 200, { 'x-payment-signature': sign(callback) });
   assert.equal(storage.getState().eServiceApplications?.[0].status, 'PAID');
+  // 2026-10-16: e-Dönüşüm başvurusu ÖDENDİYSE karar kaydı oluşur (kilit açılır).
+  // Başvuru ödemesiz karar yerine GEÇMEZ; ödeme kararı netleştirir (ücretli geçiş).
+  assert.equal(storage.getState().tenants.find(t => t.id === 'a')!.edonusumChoice, 'E_DONUSUM');
+  assert.ok(storage.getState().tenants.find(t => t.id === 'a')!.edonusumChoiceAt, 'karar anı yazılmalı');
+  assert.equal(menuAllowsView(storage.getState().tenantUsers!.find(m => m.userId === 'a' && m.tenantId === 'a')!.allowedMenuIds, 'edonusum'), true, 'e-Dönüşüm menü kapsamı açılmalı');
   await call(`${root}/applications/${a.id}/checkout`, 'a', 'POST', {}, 409);
   const expired = { ...callback, timestamp: Date.now() - 600_000 };
   await call(`${root}/payment-callback`, '', 'POST', expired, 401, { 'x-payment-signature': sign(expired) });

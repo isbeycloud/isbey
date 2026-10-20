@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { Order } from '../../db/schema';
+import { isOwnedBy, assertOwnedWarehouse } from '../../security/tenantOwnership';
 import { DocumentConversionService } from '../../services/documentConversionService';
 
 export const v1OrdersRouter = Router();
@@ -59,13 +60,28 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 
   const { customerId, deliveryDate, items = [], warehouseId, notes } = req.body;
 
-  const customer = (db.customers || []).find(
-    c => c.id === customerId && (c.tenantId === tenantId || (tenantId === 'tnt-isbey' && !c.tenantId))
-  );
+  // Sahiplik tek kaynaktan.
+  const customer = (db.customers || []).find(c => c.id === customerId && isOwnedBy(c, tenantId));
   if (!customer) return res.status(400).json({ success: false, message: 'Cari hesap bulunamadı.' });
 
+  // 2026-10-17 GÜVENLİK: Sipariş deposu artık gövdeden filtresiz yazılmaz.
+  // Eski hâl `warehouseId || 'wh-default'` idi: `'wh-default'` canlıda VAR
+  // OLMAYAN bir kimliktir ve sipariş→irsaliye dönüşümünde stok düşümünün
+  // deposu bu alandan gelir. İstekteki depo SAHİPLİK kapısından geçer;
+  // istek yoksa firmanın TEK deposu; belirsizse AÇIK HATA.
+  let orderWhId = typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+  if (!orderWhId) {
+    const owned = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+    orderWhId = owned.length === 1 ? owned[0].id : undefined;
+  }
+  let orderWh: { id: string };
+  try {
+    orderWh = assertOwnedWarehouse(db.warehouses, orderWhId, tenantId);
+  } catch (err: any) {
+    return res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err?.message });
+  }
+
   const now = new Date().toISOString();
-  const orderNo = storage.getNextSequence('ORDER');
   const orderId = `order-${Date.now()}`;
 
   let subTotal = 0;
@@ -112,11 +128,10 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 
   const grandTotal = subTotal + totalVat;
 
-  const newOrder: Order = {
+  const orderBase = {
     id: orderId,
     tenantId,
-    orderNo,
-    type: 'SALES_ORDER',
+    type: 'SALES_ORDER' as const,
     customerId: customer.id,
     customerCode: customer.code,
     customerTitle: customer.title,
@@ -126,8 +141,9 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     totalDiscount: Math.round(totalDiscount * 100) / 100,
     totalVat: Math.round(totalVat * 100) / 100,
     grandTotal: Math.round(grandTotal * 100) / 100,
-    status: 'PENDING',
-    warehouseId: warehouseId || 'wh-default',
+    status: 'PENDING' as const,
+    // 2026-10-17: Depo kapısından geçmiş kimlik yazılır (gövde değeri DEĞİL).
+    warehouseId: orderWh.id,
     notes,
     items: formattedItems,
     userId: user.id,
@@ -135,21 +151,33 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
     updatedAt: now,
   };
 
-  if (!db.orders) db.orders = [];
-  db.orders.push(newOrder);
-
-  storage.addAuditLog({
-    userId: user.id,
-    username: user.fullName || user.username,
-    companyId: tenantId,
-    action: 'ORDER_CREATED',
-    module: 'ORDERS',
-    documentNo: orderNo,
-    ipAddress: req.ip || '127.0.0.1',
-    details: `${customer.title} adına ${grandTotal} TL tutarında sipariş (${orderNo}) alındı.`,
+  // 2026-10-17: `storage.getState()` CANLI `this.db`'ye referans verir; ama
+  // `storage.update()`/`getNextSequence()` içeride KLON yapıp `this.db`'yi
+  // değiştirir. Önce `getNextSequence` çağrılıp SONRA `db.orders.push(...)`
+  // denildiğinde push ÖLÜ nesneye gidiyordu: uç 201 dönüyor, sipariş hiçbir
+  // yere yazılmıyordu (sessiz veri kaybı). Doğrusu: numara üretimi + kayıt +
+  // denetim izi TEK güncelleme içinde; `draft` her zaman güncel kopyadır.
+  let newOrder!: Order;
+  storage.update(draft => {
+    if (!draft.orders) draft.orders = [];
+    const orderNo = storage.nextSequenceInTransaction(draft, 'ORDER');
+    newOrder = { ...orderBase, orderNo };
+    draft.orders.push(newOrder);
+    // Denetim izi addAuditLog ile AYNI yere ve AYNI sıraya yazılır (en yeni başta).
+    draft.auditLogs.unshift({
+      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      userId: user.id,
+      username: user.fullName || user.username,
+      companyId: tenantId,
+      action: 'ORDER_CREATED',
+      module: 'ORDERS',
+      documentNo: orderNo,
+      ipAddress: req.ip || '127.0.0.1',
+      details: `${customer.title} adına ${grandTotal} TL tutarında sipariş (${orderNo}) alındı.`,
+      timestamp: now,
+    } as any);
   });
 
-  storage.save();
   res.status(201).json({ success: true, order: newOrder });
 });
 
@@ -159,16 +187,22 @@ v1OrdersRouter.post('/', requirePermission(PERMISSIONS.QUOTES_CREATE), (req: Req
 v1OrdersRouter.post('/:id/convert-to-waybill', requirePermission(PERMISSIONS.WAYBILLS_CREATE), async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
+  // 2026-10-17 GÜVENLİK: Sevk deposu istemciden seçilebilir; servis içinde
+  // SAHİPLİK kapısından geçer. Gönderilmezse siparişin deposu / firmanın TEK
+  // deposu kullanılır; belirsizse işlem açık hata ile durur.
+  const { warehouseId } = req.body || {};
 
   try {
     const waybill = await DocumentConversionService.convertOrderToWaybill(
       String(req.params.id),
       tenantId,
       user.id,
-      user.fullName || user.username
+      user.fullName || user.username,
+      typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined
     );
     res.json({ success: true, waybill });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });

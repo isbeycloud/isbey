@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '../../common/Modal';
-import type { Customer, Product, InvoiceItem, InvoiceProfile, InvoiceCategory, InvoiceSeries } from '../../../types';
+import type { Customer, Product, InvoiceItem, InvoiceProfile, InvoiceCategory, InvoiceSeries, Warehouse } from '../../../types';
 import type { InvoiceDesignConfig } from '../../templates/invoiceDesignConfig';
 import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { api } from '../../../services/api';
@@ -52,6 +52,12 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [maturityDate, setMaturityDate] = useState('');
   const [paymentType, setPaymentType] = useState<'OPEN_ACCOUNT' | 'CASH' | 'CREDIT_CARD' | 'BANK_TRANSFER'>('OPEN_ACCOUNT');
+  // 2026-10-17: Faturanın stok hareketi HANGİ depoya yazılacak. Bu alan yoktu
+  // ve sunucu eski hâlde `'wh-1'` (canlıda VAR OLMAYAN kimlik) ya da ürünün
+  // kırık `warehouseId` referansına düşüyordu. Liste yalnız SEÇİLİ FIRMANIN
+  // depolarını içerir; seçim yoksa ve firmanın tek deposu varsa o seçilir.
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<InvoiceItem[]>([]);
 
@@ -122,6 +128,15 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
           }
         })
         .catch(err => console.error(err));
+      // 2026-10-17: Faturaya yazılacak depo listesi (tenant'a göre süzülmüş uç).
+      api.getProductMeta()
+        .then(res => {
+          if (res.success) {
+            setWarehouses(res.warehouses || []);
+            if (res.warehouses?.length === 1) setWarehouseId(res.warehouses[0].id);
+          }
+        })
+        .catch(() => setWarehouses([]));
     }
   }, [isOpen, invoiceType]);
   // Handle Taxpayer Check when Customer changes
@@ -422,10 +437,58 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
       return;
     }
 
+    // 2026-10-17: Depo seçimi ZORUNLU. Sunucu artık `'wh-1'`/ürünün kırık depo
+    // referansı gibi yollara DÜŞMÜYOR; seçim yapılmadan hiç istek gönderilmez.
+    if (!warehouseId) {
+      showToast(
+        warehouses.length === 0
+          ? 'Bu firma için tanımlı depo yok. Fatura kaydedilemez; lütfen önce bir depo tanımlayın.'
+          : 'Faturanın stok hareketi için önce bir depo seçiniz.',
+        'warning'
+      );
+      return;
+    }
+
+    // 2026-10-20: SIFIR TUTARLI SATIŞ — sessiz geçemez.
+    // Sunucu kapısı (`server/services/zeroPriceGate.ts`) gerekçesiz 0 TL satışı
+    // reddediyor. Kullanıcı bunu ancak kaydettikten sonra hata olarak görmesin:
+    // burada, göndermeden ÖNCE sorulur. Vazgeçerse hiç istek gitmez; yazarsa
+    // gerekçe gövdeye eklenir ve belgeyle birlikte saklanır.
+    // (Canlıda SAT-2026-000005 0 TL kesilip 3 adet stok çıkmış, nedeni hiçbir
+    // yerde yazmıyordu.)
+    let zeroTotalReason: string | undefined;
+    // Modal yalnız SALES/PURCHASE üretir (perakende yolu `POSSalesView`'dir ve
+    // kendi sorusunu sorar). ALIŞ kapsam dışı — sunucu kapısı da almaz.
+    if (grandTotal <= 0 && invoiceType === 'SALES') {
+      const sifirSatirlar = items
+        .filter(it => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) <= 0)
+        .map(it => `${it.productCode} ${it.productName} (${it.quantity} × ${Number(it.unitPrice) || 0} TL)`)
+        .join(', ');
+      const cevap = window.prompt(
+        `Bu faturanın toplamı ${grandTotal.toFixed(2)} TL.\n\n` +
+        `Sıfır tutarlı satış stok çıkışı doğurur ama alacak doğurmaz.\n` +
+        `Kalemler: ${sifirSatirlar || `${items.length} satır`}\n\n` +
+        `Bu bilinçli bir işlemse GEREKÇESİNİ yazın (en az 10 karakter).\n` +
+        `Vazgeçerseniz fatura kaydedilmez; fiyatları düzeltebilirsiniz.`,
+        ''
+      );
+      if (cevap === null) {
+        showToast('Sıfır tutarlı fatura kaydedilmedi. Fiyatları kontrol edin.', 'warning');
+        return;
+      }
+      if (cevap.trim().length < 10) {
+        showToast('Gerekçe en az 10 karakter olmalı. Fatura kaydedilmedi.', 'warning');
+        return;
+      }
+      zeroTotalReason = cevap.trim();
+    }
+
     try {
       const res = await api.createInvoice({
         type: invoiceType,
         customerId: selectedCustomer.id,
+        // 2026-10-17: Hedef depo SUNUCU kapısından geçecek şekilde gönderilir.
+        warehouseId,
         // 2026-10-12: Seri seçildiyse numara o seriden gelir; seçilmediyse
         // sunucu eski tek sayacı kullanır. Tasarım seçimi yazdırma önizlemesine taşınır.
         invoiceSeriesId: selectedSeriesId || undefined,
@@ -443,6 +506,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         exemptionCode: exemptionCode || undefined,
         recipientTaxNumber: selectedCustomer.taxNumber,
         recipientAliasGB: taxpayerInfo?.aliases?.find((a: any) => a.type === 'GB')?.alias,
+        zeroTotalReason,
         items,
       });
 
@@ -1056,6 +1120,35 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
                   />
+                </div>
+                {/* 2026-10-17: Stok hareketinin yazılacağı depo. Seçilmezse
+                    kaydetme engellenir (sunucu varsayılan seçmez). */}
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label required">Depo (Stok Hareketi)</label>
+                  <select
+                    className="form-select"
+                    value={warehouseId}
+                    onChange={e => setWarehouseId(e.target.value)}
+                    disabled={warehouses.length === 0}
+                  >
+                    {warehouses.length === 0 ? (
+                      <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+                    ) : (
+                      <>
+                        <option value="">-- Depo Seçiniz --</option>
+                        {warehouses.map(w => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                  {warehouses.length === 0 && (
+                    <div style={{ fontSize: '11px', color: 'var(--danger, #ef4444)', marginTop: '4px' }}>
+                      Bu firma için tanımlı depo yok; fatura stok hareketi oluşturamaz.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

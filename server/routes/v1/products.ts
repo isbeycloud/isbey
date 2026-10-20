@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { Product, ProductCategory, Unit, Warehouse } from '../../db/schema';
+import { filterOwned, assertOwnedWarehouse } from '../../security/tenantOwnership';
 import { StockService } from '../../services/stockService';
 
 export const v1ProductsRouter = Router();
@@ -105,15 +106,19 @@ v1ProductsRouter.post('/', requirePermission(PERMISSIONS.PRODUCTS_CREATE), async
   const user = req.user!;
 
   try {
+    // 2026-10-17 GÜVENLİK: `...req.body` en SONA konulmaz — gövdedeki `tenantId`
+    // sunucunun çözdüğü firmayı EZEBİLİR ve depo kapısı yanlış firmaya göre
+    // doğrulanır. Sahiplik alanları sunucu kararıdır (gövdeden yazılmaz).
     const product = await StockService.createProduct({
-      tenantId,
       ...req.body,
+      tenantId,
       userId: user.id,
       username: user.fullName || user.username,
     });
     res.status(201).json({ success: true, product });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });
 
@@ -159,6 +164,25 @@ v1ProductsRouter.put('/:id', requirePermission(PERMISSIONS.PRODUCTS_UPDATE), (re
   delete updates.id;
   delete updates.tenantId;
   delete updates.currentStock; // doğrudan değiştirilemez
+
+  // 2026-10-17 GÜVENLİK: `warehouseId` gövdeden geldiği gibi YAZILAMAZ.
+  // Eski hâlde `Object.assign` bu alanı doğrulamadan ürüne yazıyordu; ürünün
+  // deposu fatura/irsaliye stok düşümünde hedef seçilirken kullanıldığı için
+  // yabancı bir depo kimliği (veya canlıda VAR OLMAYAN `'wh-default'`)
+  // ürüne işlenebiliyordu. Artık depo SAHİPLİK kapısından geçer.
+  try {
+    if (updates.warehouseId !== undefined && updates.warehouseId !== null && updates.warehouseId !== '') {
+      updates.warehouseId = assertOwnedWarehouse(storage.getState().warehouses, updates.warehouseId, tenantId).id;
+    } else if (updates.warehouseId === '' || updates.warehouseId === null) {
+      // Boş değer bir depo ATAMASI DEĞİLDİR: alan gövdeden düşürülür ve ürünün
+      // MEVCUT deposu korunur (kısmi güncelleme). Böylece boş dize diske
+      // yazılmaz; canlıda VAR OLMAYAN bir kimliğe de düşülmez.
+      delete updates.warehouseId;
+    }
+  } catch (err: any) {
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    return res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err?.message });
+  }
 
   Object.assign(product, updates, { updatedAt: new Date().toISOString() });
 
@@ -221,15 +245,17 @@ v1ProductsRouter.post('/adjust', requirePermission(PERMISSIONS.PRODUCTS_UPDATE),
   const user = req.user!;
 
   try {
+    // 2026-10-17 GÜVENLİK: sahiplik alanları gövdeden EZİLEMEZ (bkz. POST /).
     const result = await StockService.adjustStock({
-      tenantId,
       ...req.body,
+      tenantId,
       userId: user.id,
       username: user.fullName || user.username,
     });
     res.json({ success: true, ...result });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });
 
@@ -242,15 +268,17 @@ v1ProductsRouter.post('/warehouses/transfer', requirePermission(PERMISSIONS.WARE
   const user = req.user!;
 
   try {
+    // 2026-10-17 GÜVENLİK: sahiplik alanları gövdeden EZİLEMEZ (bkz. POST /).
     const result = await StockService.transferWarehouse({
-      tenantId,
       ...req.body,
+      tenantId,
       userId: user.id,
       username: user.fullName || user.username,
     });
     res.json({ success: true, ...result });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası kendi kodunu korur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });
 
@@ -282,6 +310,11 @@ v1ProductsRouter.get('/units', requirePermission(PERMISSIONS.PRODUCTS_VIEW), (re
 v1ProductsRouter.get('/warehouses', requirePermission(PERMISSIONS.WAREHOUSES_VIEW), (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const db = storage.getState();
-  const warehouses = (db.warehouses || []).filter(w => !w.tenantId || w.tenantId === tenantId);
+  // 2026-10-17 GÜVENLİK: `!w.tenantId` KOŞULU SIZINTIYDI — sahipsiz depo
+  // (canlıdaki `'wh-1'` gibi) HER firmaya listeleniyordu. Tek kaynak `isOwnedBy`:
+  // sahipsiz kayıt yalnız varsayılan firmada görünür. Liste ile yazma kapısı
+  // (`assertOwnedWarehouse`) aynı kuralı uygular; aksi hâlde istemci listede
+  // gördüğü depoyu seçip 403 alırdı.
+  const warehouses = filterOwned(db.warehouses, tenantId);
   res.json({ success: true, warehouses });
 });

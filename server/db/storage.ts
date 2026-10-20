@@ -12,6 +12,8 @@ import { XsltEngineService } from '../services/xsltEngineService';
 import { PERMISSION_CATALOG, ROLE_DEFINITIONS, ROLE_PERMISSIONS } from '../security';
 import { getDatabasePath, getDataDirectory, isProduction } from '../config/environment';
 import { replaceFileWithRetry } from './atomicWrite';
+// 2026-10-17: Yeni kayıtlar AÇIK sahiplikle yazılır (bkz. security/tenantOwnership.ts).
+import { ownedFields } from '../security/tenantOwnership';
 
 const initialDatabaseState = isProduction() ? createProductionDefaults() : developmentSeed;
 const DATA_DIR = getDataDirectory();
@@ -466,6 +468,7 @@ class StorageManager {
           whiteLabelProfiles: parsed.whiteLabelProfiles || [],
           customDomains: parsed.customDomains || [],
           brandEmailConfigs: parsed.brandEmailConfigs || [],
+          emailOutbox: parsed.emailOutbox || [],
           platformAnnouncements: parsed.platformAnnouncements || [],
           systemHealthIndicators: parsed.systemHealthIndicators || [],
           tenantSuccessMetrics: parsed.tenantSuccessMetrics || [],
@@ -1096,6 +1099,7 @@ class StorageManager {
     if (!state.whiteLabelProfiles) state.whiteLabelProfiles = [];
     if (!state.customDomains) state.customDomains = [];
     if (!state.brandEmailConfigs) state.brandEmailConfigs = [];
+    if (!state.emailOutbox) state.emailOutbox = [];
     if (!state.platformAnnouncements) state.platformAnnouncements = [];
     if (!state.systemHealthIndicators) state.systemHealthIndicators = [];
     if (!state.tenantSuccessMetrics) state.tenantSuccessMetrics = [];
@@ -1883,8 +1887,14 @@ class StorageManager {
     });
 
     // 3. Varsayılan Kasa
+    // 2026-10-17: `tenantId`/`companyId` AÇIKÇA yazılır. Önceden bu alanlar
+    // atanmıyordu; sahiplik yalnız `cash-<tenant>-default` kimlik kalıbından
+    // çıkarılabiliyordu ve alan boş kalan kayıt "varsayılan firma" sayılıyordu.
+    // Yeni firmanın kendi kasası, sahiplik kararı kimliğe bağlı kaldığı sürece
+    // kırılgan oluyordu.
     target.cashRegisters.push({
       id: `cash-${tenant.id}-default`,
+      ...ownedFields(tenant.id),
       name: `${tenant.name} Merkez Kasa (TL)`,
       code: 'KSA-01',
       isDefault: true,
@@ -1895,8 +1905,12 @@ class StorageManager {
     });
 
     // 4. Varsayılan Depo
+    // NOT: `Warehouse` şemasında `tenantId` alanı VARDIR (bkz. schema.ts) ama
+    // depo sahipliği ayrı bir iştir; burada yalnız alan doldurulur, okuma
+    // filtreleri bu değişiklikle DEĞİŞTİRİLMEZ.
     target.warehouses.push({
       id: `wh-${tenant.id}-default`,
+      ...ownedFields(tenant.id),
       name: `${tenant.name} Ana Merkez Depo`,
       code: 'DEP-01',
       isDefault: true,

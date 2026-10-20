@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../../common/Modal';
-import type { Customer, Product, WaybillItem, WaybillType } from '../../../types';
+import type { Customer, Product, Warehouse, WaybillItem, WaybillType } from '../../../types';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
@@ -39,6 +39,12 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
   const [driverName, setDriverName] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<WaybillItem[]>([]);
+  // 2026-10-17: Depo seçimi. Eski hâlde irsaliye ekranı `warehouseId`
+  // GÖNDERMİYORDU; sunucu sabit `'wh-1'` varsayıyordu — canlıda var olmayan
+  // bir kimlik. Sunucu artık depoyu zorunlu tutuyor, bu yüzden seçim buraya
+  // eklenmiştir. Liste firmanın KENDİ depolarıyla sınırlıdır (sunucu süzer).
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
 
   // Modals state
   const [isCustomerSelectorOpen, setIsCustomerSelectorOpen] = useState(false);
@@ -49,8 +55,28 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       resetForm();
+      loadWarehouses();
     }
   }, [isOpen]);
+
+  /**
+   * 2026-10-17: Depo listesi firmanın KENDİ depolarıyla sınırlıdır — sunucu
+   * (`/products/meta/groups-warehouses` → `filterOwned`) süzer. Liste boşsa
+   * kaydetme engellenir ve kullanıcı depo tanımlamaya yönlendirilir; başka
+   * firmanın deposuna sessizce yazılması söz konusu değildir.
+   */
+  const loadWarehouses = async () => {
+    try {
+      const mRes = await api.getProductMeta();
+      if (mRes.success) {
+        const list = mRes.warehouses || [];
+        setWarehouses(list);
+        setWarehouseId(list.length > 0 ? list[0].id : '');
+      }
+    } catch (err) {
+      console.warn('Depo listesi alinamadi:', err);
+    }
+  };
 
   const resetForm = () => {
     setSelectedCustomer(null);
@@ -61,6 +87,7 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
     setDriverName('');
     setNotes('');
     setItems([]);
+    setWarehouseId('');
   };
 
   const handleAddProductToItems = (p: Product, variant?: import('../../../types').ProductVariant) => {
@@ -156,6 +183,13 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
       setIsProductSelectorOpen(true);
       return;
     }
+    // 2026-10-17: Depo ZORUNLU. Eski hâlde irsaliye ekranı `warehouseId`
+    // hiç göndermiyordu; sunucu `'wh-1'` varsayıyordu (canlıda YOK).
+    // Artık seçim yoksa kayıt başlatılmaz — başka firmaya yazma yolu kapalı.
+    if (!warehouseId) {
+      showToast('Depo seçimi zorunludur. Bu firma için tanımlı depo yoksa önce Depolar ekranından depo tanımlayın.', 'warning');
+      return;
+    }
 
     try {
       const res = await api.createWaybill({
@@ -163,6 +197,7 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
         customerId: selectedCustomer.id,
         date,
         shipmentDate,
+        warehouseId,
         carrierTitle,
         plateNumber,
         driverName,
@@ -306,6 +341,34 @@ export const WaybillModal: React.FC<WaybillModalProps> = ({
                   value={plateNumber}
                   onChange={e => setPlateNumber(e.target.value)}
                 />
+              </div>
+
+              {/* 2026-10-17: Depo seçimi (ZORUNLU). Stok bu depodan düşer/eklenir;
+                  liste yalnız firmanın kendi depolarını içerir. */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label required">Sevk Edilecek Depo</label>
+                <select
+                  className="form-select"
+                  value={warehouseId}
+                  onChange={e => setWarehouseId(e.target.value)}
+                  disabled={warehouses.length === 0}
+                >
+                  {warehouses.length === 0 ? (
+                    <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+                  ) : (
+                    warehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                {warehouses.length === 0 && (
+                  <div style={{ fontSize: '11px', color: 'var(--danger, #ef4444)', marginTop: '4px' }}>
+                    Bu firma için tanımlı depo yok. İrsaliye kaydedilemez; lütfen Depolar
+                    ekranından bir depo tanımlayın.
+                  </div>
+                )}
               </div>
             </div>
           </div>

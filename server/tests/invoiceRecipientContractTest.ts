@@ -23,7 +23,12 @@ storage.update(db => {
   db.tenants = [{ ...db.tenants[0], id: T, status: 'ACTIVE', isArchived: false, taxNumber: settings.senderIdentifier }];
   db.users = [{ ...db.users[0], id: 'recipient-admin', role: 'SUPER_ADMIN', active: true }];
   db.customers = [{ ...db.customers[0], id: 'recipient-customer', tenantId: T, taxNumber: '2222222222', title: 'Test Alıcı', balance: 0 }];
-  db.products = [{ ...db.products[0], id: 'recipient-product', tenantId: T, name: 'Ürün', currentStock: 100, vatRate: 20, salePrice: 100 }];
+  // 2026-10-17: DEPO SEED ZORUNLU. Fatura artık depo sahipliğini DOĞRULAR
+  // (`resolveItemWarehouse` → `assertOwnedWarehouse`). Fikstür `db.warehouses`'ı
+  // kurmadığı için seed'den kalan `wh-1` kullanılıyordu; o kayıt `tnt-isbey`'e
+  // ait olduğundan bu kiracı için YABANCIDIR ve fatura haklı olarak reddedilir.
+  db.warehouses = [{ id: 'wh-recipient', tenantId: T, name: 'Merkez Depo', code: 'WH-R', isDefault: true } as any];
+  db.products = [{ ...db.products[0], id: 'recipient-product', tenantId: T, name: 'Ürün', currentStock: 100, vatRate: 20, salePrice: 100, warehouseId: 'wh-recipient' }];
   db.invoices = []; db.stockMovements = []; db.currentTransactions = []; db.accountTransactions = []; db.electronicDocuments = []; db.taxpayerCache = [];
 });
 const oldFactory = ProviderFactory.getProviderForTenant, oldGet = axios.get, oldPost = axios.post;

@@ -1,14 +1,52 @@
 import { Router } from 'express';
 import { storage } from '../db/storage';
-import { Invoice, InvoiceItem, StockMovement, CurrentTransaction, CashTransaction, BankTransaction } from '../db/schema';
+import { Invoice, InvoiceItem, StockMovement, CurrentTransaction, CashTransaction, BankTransaction, Warehouse } from '../db/schema';
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { resolveInvoiceRecipient } from '../services/invoiceRecipientService';
+import { assertZeroTotalAllowed } from '../services/zeroPriceGate';
+import {
+  isOwnedBy,
+  assertOwnedWarehouse,
+  stockMovementOwnedFields,
+} from '../security/tenantOwnership';
 
 export const invoicesRouter = Router();
 
 invoicesRouter.use(requireAuth);
 invoicesRouter.use(resolveTenant);
+
+/**
+ * Fatura kaleminin stok hareketi hangi depoya yazılacak? (SUNUCU kararı)
+ *
+ * 2026-10-17 GÜVENLİK: Eski hâlde `warehouseId || product.warehouseId || 'wh-1'`
+ * idi. Üç sorun: (1) filtre yok — başka firmanın deposu hedeflenebiliyordu;
+ * (2) `'wh-1'` canlıda VAR OLMAYAN sahipsiz kimlik; (3) `product.warehouseId`
+ * canlıda kırık referans taşıyor (`'wh-default'`) ve bu sessizce başka depoya
+ * düşüyordu — yani hareket çözülmemiş bir depoya yazılıyordu.
+ *
+ * Yeni sıra — hiçbir adımda "varsayılana düşme" yok:
+ *   1. İstekte depo verilmişse YALNIZ o kullanılır (geçersizse açık hata).
+ *   2. Yoksa ürünün kendi deposu (varsa) — yine kapıdan geçmek zorunda.
+ *   3. Yoksa firmanın TEK deposu (sunucu kararı; istekten türetilmiş değil).
+ *   4. Hiçbiri yoksa açık hata (sessizce başka firmaya yazılmaz).
+ */
+function resolveItemWarehouse(
+  warehouses: Warehouse[] | undefined,
+  requestedWarehouseId: string | undefined,
+  productWarehouseId: string | undefined,
+  tenantId: string
+): Warehouse {
+  // 1) İstekte depo verildi → başka depoya DÜŞÜLMEZ, kapı karar verir.
+  if (requestedWarehouseId) return assertOwnedWarehouse(warehouses, requestedWarehouseId, tenantId);
+  // 2) Ürünün kendi deposu (canlıda kırık referans olabilir → açık hata verir).
+  if (typeof productWarehouseId === 'string' && productWarehouseId.trim() !== '') {
+    return assertOwnedWarehouse(warehouses, productWarehouseId, tenantId);
+  }
+  // 3) Firmanın tek deposu varsa o; yoksa/çoksa açık hata.
+  const owned = (warehouses || []).filter(w => isOwnedBy(w, tenantId));
+  return assertOwnedWarehouse(warehouses, owned.length === 1 ? owned[0].id : undefined, tenantId);
+}
 
 // List all invoices with filters (Tenant Isolated)
 invoicesRouter.get('/', (req, res) => {
@@ -94,6 +132,8 @@ invoicesRouter.post('/', async (req, res) => {
     // 2026-10-12: Fatura SERİSİ (A/B Serisi…). Verilmezse mevcut tek sayaç
     // kullanılır (geriye dönük uyum). Verilirse numara o seriden gelir.
     invoiceSeriesId,
+    // 2026-10-20: sıfır tutarlı satışta zorunlu gerekçe (bkz. zeroPriceGate).
+    zeroTotalReason,
   } = req.body;
 
   if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
@@ -112,12 +152,22 @@ invoicesRouter.post('/', async (req, res) => {
   }
 
   try {
+    // 2026-10-17: Firma ve işlemi yapan kullanıcı sunucu tarafında sabitlenir.
+    // `tenantId` yeni kayıtlara yazılır; `userId` artık sabit 'admin' DEĞİL.
+    const tenantId = req.tenantId!;
+    const actingUserId = req.user?.id || 'system';
     const selectedCustomer = storage.getState().customers.find(c => c.id === customerId && c.tenantId === req.tenantId);
     if (!selectedCustomer) throw new Error('Seçilen cari kart sistemde bulunamadı!');
     const recipient = invoiceType === 'SALES' ? await resolveInvoiceRecipient(selectedCustomer.taxNumber || '', req.tenantId!, invoiceProfile) : undefined;
+    // Sıfır-tutar kapısının UYARI listesi (engellemeyen gözlemler). Transaction
+    // içinde doldurulur, denetim kaydında kullanılır (bkz. zeroPriceGate.ts).
+    let sifirUyarilari: string[] = [];
     const createdInvoice = await storage.runTransaction(draft => {
       // 1. Verify Customer
-      const customer = draft.customers.find(c => c.id === customerId);
+      // 2026-10-17: Cari SAHİPLİKLE aranır. Eski hâlde transaction içindeki
+      // `find` filtresizdi: dışarıdaki kontrolden sonra cari değişirse (veya
+      // doğrudan içeriden çağrılırsa) başka firmanın carisi kullanılabiliyordu.
+      const customer = draft.customers.find(c => c.id === customerId && isOwnedBy(c, tenantId));
       if (!customer) {
         throw new Error('Seçilen cari kart sistemde bulunamadı!');
       }
@@ -134,7 +184,6 @@ invoicesRouter.post('/', async (req, res) => {
         ? invoiceSeriesId.trim()
         : undefined;
       if (seriesId) {
-        const tenantId = req.tenantId || 'tnt-isbey';
         const series = (draft.invoiceSeries || []).find(
           s => s.id === seriesId && (s.tenantId === tenantId || (tenantId === 'tnt-isbey' && !s.tenantId))
         );
@@ -167,10 +216,16 @@ invoicesRouter.post('/', async (req, res) => {
 
       const numWithholdingRate = Number(withholdingRate) || 0;
 
+      // 2026-10-17: Faturanın depo alanı, kalemlerin çözümlenmiş deposundan
+      // yazılır (aşağıdaki döngüde doldurulur) — `'wh-1'` fallback'i YOK.
+      let invoiceWarehouse: Warehouse | undefined;
+
       // 3. Process items and calculate values
       for (let i = 0; i < items.length; i++) {
         const itemInput = items[i];
-        const product = draft.products.find(p => p.id === itemInput.productId);
+        // 2026-10-17: Ürün SAHİPLİKLE aranır (eskiden filtresizdi → başka
+        // firmanın ürünü faturalanabiliyor, stok hareketi onun adına yazılıyordu).
+        const product = draft.products.find(p => p.id === itemInput.productId && isOwnedBy(p, tenantId));
         if (!product) {
           throw new Error(`Ürün bulunamadı: ID ${itemInput.productId}`);
         }
@@ -285,11 +340,17 @@ invoicesRouter.post('/', async (req, res) => {
         processedItems.push(invItem);
 
         // 4. Create Stock Movement (Double-entry inventory tracking)
-        const targetWhId = warehouseId || product.warehouseId || 'wh-1';
-        const wh = draft.warehouses.find(w => w.id === targetWhId);
+        // 2026-10-17: Hedef depo SUNUCU kararıyla ve sahiplik doğrulamasıyla
+        // belirlenir (bkz. resolveItemWarehouse). `'wh-1'` fallback'i KALDIRILDI.
+        const wh = resolveItemWarehouse(draft.warehouses, warehouseId, product.warehouseId, tenantId);
+        // Faturanın depo alanı için ilk çözümlenen depo kullanılır (kalemler
+        // farklı depolara yazılabiliyorsa fatura başlığı ilkini taşır).
+        if (!invoiceWarehouse) invoiceWarehouse = wh;
 
         const stockMovement: StockMovement = {
           id: `sm-${Date.now()}-${i}`,
+          // 2026-10-17: `tenantId` + doğrulanmış depo kimliği/adı yazılır.
+          ...stockMovementOwnedFields(tenantId, wh),
           productId: product.id,
           // 2026-10-12: Varyant izi — recalculateBalances varyant stoğunu
           // bu alandan hesaplar.
@@ -297,8 +358,6 @@ invoicesRouter.post('/', async (req, res) => {
           variantName: variant?.name,
           productCode: product.code,
           productName: product.name,
-          warehouseId: targetWhId,
-          warehouseName: wh ? wh.name : 'Merkez Depo',
           documentNo: invoiceNo,
           documentType: 'INVOICE',
           movementType: isPurchase ? 'PURCHASE' : 'SALE',
@@ -308,7 +367,7 @@ invoicesRouter.post('/', async (req, res) => {
           totalAmount: lineGross,
           date: invoiceDate,
           notes: `${invoiceNo} nolu ${isPurchase ? 'Alış' : 'Satış'} Faturası`,
-          userId: 'admin',
+          userId: actingUserId,
           createdAt: new Date().toISOString(),
         };
         draft.stockMovements.push(stockMovement);
@@ -326,10 +385,32 @@ invoicesRouter.post('/', async (req, res) => {
       const isPartial = pPaidAmount > 0 && pPaidAmount < grandTotal;
       const paymentStatus = isFullyPaid ? 'PAID' : (isPartial ? 'PARTIAL' : 'UNPAID');
 
+      // ── SIFIR TUTAR KAPISI (2026-10-20) ─────────────────────────────────
+      // Bu rota `DocumentConversionService`'i KULLANMIYOR (kendi transaction'ı
+      // var), o yüzden kapı burada da çağrılır. Kural TEK kaynakta
+      // (`services/zeroPriceGate.ts`); burada yalnız çağrılır. Kalemler
+      // fiyatlarıyla birlikte geçirilir ki mesaj hangi satırın 0 olduğunu
+      // söylesin. Satış yönü dışındaki türler kapıdan zaten muaftır.
+      sifirUyarilari = assertZeroTotalAllowed(
+        invoiceType,
+        Math.round(grandTotal * 100) / 100,
+        processedItems.map(it => ({
+          productCode: it.productCode,
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          productSalePrice: Number(
+            (draft.products || []).find(p => p.id === it.productId)?.salePrice
+          ),
+        })),
+        zeroTotalReason
+      );
+
       // 5. Create Invoice Record
       const invoice: Invoice = {
         id: invoiceId,
-        tenantId: req.tenantId || 'tnt-isbey',
+        tenantId,
+        companyId: tenantId,
         invoiceNo,
         // 2026-10-12: Seri izi (serisiz faturalarda undefined).
         invoiceSeriesId: usedSeriesId,
@@ -351,7 +432,9 @@ invoicesRouter.post('/', async (req, res) => {
         paymentType: paymentType || (pPaidAmount > 0 ? 'CASH' : 'OPEN_ACCOUNT'),
         cashRegisterId,
         bankAccountId,
-        warehouseId: warehouseId || 'wh-1',
+        // 2026-10-17: Depo, kalemlerin doğrulanmış deposundan gelir.
+        // Eski hâlde `warehouseId || 'wh-1'` — canlıda VAR OLMAYAN kimlik.
+        warehouseId: invoiceWarehouse ? invoiceWarehouse.id : assertOwnedWarehouse(draft.warehouses, warehouseId, tenantId).id,
         currency,
         exchangeRate: Number(exchangeRate) || 1,
         invoiceProfile: recipient?.profile || invoiceProfile as any,
@@ -362,6 +445,10 @@ invoicesRouter.post('/', async (req, res) => {
         exemptionCode: exemptionCode || undefined,
         recipientTaxNumber: recipient?.identifier || recipientTaxNumber || customer.taxNumber,
         recipientAliasGB: recipient ? recipient.aliasGB : recipientAliasGB || undefined,
+        // 2026-10-20: sıfır/negatif toplamlı satışta gerekçe belgeye yazılır.
+        zeroTotalReason: grandTotal <= 0 && typeof zeroTotalReason === 'string' && zeroTotalReason.trim()
+          ? zeroTotalReason.trim()
+          : undefined,
         notes: notes || '',
         items: processedItems,
         eInvoiceStatus: 'DRAFT',
@@ -373,7 +460,7 @@ invoicesRouter.post('/', async (req, res) => {
         // `electronicDocumentService.queueInvoice` tarafından atanır
         // (`eInvoiceUUID || crypto.randomUUID()`).
         eInvoiceUUID: undefined,
-        userId: 'admin',
+        userId: actingUserId,
         isDeleted: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -384,6 +471,10 @@ invoicesRouter.post('/', async (req, res) => {
       // Satış -> Borç artar, Alış -> Alacak artar
       const curTx: CurrentTransaction = {
         id: `ctx-${Date.now()}`,
+        // 2026-10-17: Cari hareket de SAHİPLİK taşır (eskiden yoktu → kayıt
+        // sahipsiz doğuyor ve varsayılan firmada birikiyordu).
+        tenantId,
+        companyId: tenantId,
         customerId: customer.id,
         customerCode: customer.code,
         customerTitle: customer.title,
@@ -396,7 +487,7 @@ invoicesRouter.post('/', async (req, res) => {
         balance: 0, // Recalculated by storage manager
         description: `${invoiceNo} nolu ${isPurchase ? 'Alış' : 'Satış'} Faturası`,
         relatedInvoiceId: invoiceId,
-        userId: 'admin',
+        userId: actingUserId,
         createdAt: new Date().toISOString(),
       };
       draft.currentTransactions.push(curTx);
@@ -418,7 +509,7 @@ invoicesRouter.post('/', async (req, res) => {
             customerTitle: customer.title,
             category: isPurchase ? 'Fatura Ödemesi' : 'Fatura Peşin Tahsilatı',
             description: `${invoiceNo} nolu faturanın nakit tahsilatı`,
-            userId: 'admin',
+            userId: actingUserId,
             createdAt: new Date().toISOString(),
           };
           draft.cashTransactions.push(cashTx);
@@ -437,7 +528,7 @@ invoicesRouter.post('/', async (req, res) => {
             customerId: customer.id,
             customerTitle: customer.title,
             description: `${invoiceNo} nolu faturanın banka/kart tahsilatı`,
-            userId: 'admin',
+            userId: actingUserId,
             createdAt: new Date().toISOString(),
           };
           draft.bankTransactions.push(bnkTx);
@@ -447,6 +538,8 @@ invoicesRouter.post('/', async (req, res) => {
         // Add payment balancing entry to Current Transactions
         const paymentCurTx: CurrentTransaction = {
           id: `ctx-${Date.now()}-pay`,
+          tenantId,
+          companyId: tenantId,
           customerId: customer.id,
           customerCode: customer.code,
           customerTitle: customer.title,
@@ -459,7 +552,7 @@ invoicesRouter.post('/', async (req, res) => {
           description: `${invoiceNo} nolu faturanın tahsilatı/ödemesi`,
           paymentMethod: paymentType,
           relatedInvoiceId: invoiceId,
-          userId: 'admin',
+          userId: actingUserId,
           createdAt: new Date().toISOString(),
         };
         draft.currentTransactions.push(paymentCurTx);
@@ -469,18 +562,24 @@ invoicesRouter.post('/', async (req, res) => {
     });
 
     storage.addAuditLog({
-      userId: 'admin',
-      username: 'admin',
+      userId: actingUserId,
+      username: req.user?.username || 'system',
       action: 'CREATE',
       module: 'INVOICE',
       documentNo: createdInvoice.invoiceNo,
       ipAddress: req.ip || '127.0.0.1',
-      details: `${createdInvoice.customerTitle} için ${createdInvoice.grandTotal.toLocaleString('tr-TR')} TL tutarında ${createdInvoice.invoiceNo} oluşturuldu.`,
+      // 2026-10-20: Sıfır tutarlı satışta GEREKÇE ve UYARILAR denetim kaydına
+      // girer (bkz. zeroPriceGate.ts). Canlıda SAT-2026-000005 için "bu mal
+      // neden bedelsiz çıktı" sorusunun cevabı HİÇBİR YERDE yoktu.
+      details: `${createdInvoice.customerTitle} için ${createdInvoice.grandTotal.toLocaleString('tr-TR')} TL tutarında ${createdInvoice.invoiceNo} oluşturuldu.`
+        + (createdInvoice.zeroTotalReason ? ` SIFIR TUTAR GEREKÇESİ: ${createdInvoice.zeroTotalReason}` : '')
+        + (sifirUyarilari.length ? ` · UYARI (0 fiyatlı satır): ${sifirUyarilari.join('; ')}` : ''),
     });
 
     res.json({ success: true, invoice: createdInvoice, message: 'Fatura başarıyla kaydedildi ve tüm muhasebe hareketleri işlendi.' });
   } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
+    // Depo kapısı hatası ise HTTP kodu ve `code` alanı korunur (403/400).
+    res.status(err?.statusCode || 400).json({ success: false, code: err?.code, message: err.message });
   }
 });
 
@@ -630,7 +729,15 @@ invoicesRouter.delete('/:id', async (req, res) => {
     const current = storage.getState().invoices.find(i =>
       i.id === id && (i.tenantId === tenantId || (!i.tenantId && tenantId === 'tnt-isbey'))
     );
-    if (!current) throw new Error('Fatura bulunamadı.');
+    // 2026-10-19 GÜVENLİK (IDOR tutarlılığı): Yabancı/olmayan kimlik 404 döner.
+    // Önce 400 dönüyordu. Sızıntı YOKTU (var olmayan kimlik de aynı 400'ü
+    // veriyordu), ama kod tabanının geri kalanı (ör. `v1/products` DELETE)
+    // 404 kullanıyor; 400 "gövde hatalı" demektir ve istemciye yanlış sinyal
+    // verir. Mevcut sözleşmeyi bozmamak için yalnız kimlik bulunamadığında
+    // 404'e geçilir; diğer iş kuralı hataları 400 kalır.
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Fatura bulunamadı.' });
+    }
     if (current.isDeleted || current.status === 'CANCELLED') throw new Error('Fatura zaten iptal edilmiş.');
 
     const hasOutgoingEDoc = Boolean(

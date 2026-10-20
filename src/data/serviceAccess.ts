@@ -47,6 +47,13 @@ export function serviceAllowsPath(menus: string[] | null | undefined, path: stri
     return true;
   }
   if (/^(saas\/plans|plans)(\/|$)/.test(normalized)) return true;
+  // e-Dönüşüm KARAR uçları (2026-10-15): deneme kilitliyken kararın verilebilmesi
+  // için servis katmanında AÇIKTIR. Bunlar veri ucu DEĞİLDİR — yalnız firmanın
+  // kendi karar/başvuru durumunu okur/yazar (tenant kapsamlı). Asıl e-belge
+  // uçları efatura/e-documents/e-invoice/taxpayers/edefter/hizli-bayi altında
+  // menü+servis denetimine TABİDİR. Yeni bir e-donusum/* yolu eklenirse bu
+  // desene DAHİL DEĞİLDİR — varsayılan deny (aşağıdaki `!!menu`) sürer.
+  if (/^e-donusum\/(choice|applications)(\/|$)/.test(normalized)) return true;
   if (/^(search|import|sync)(\/|$)/.test(normalized)) return ERP_MENUS.every(m => menus.includes(m.id));
   const resource = normalized.split('/')[0];
   const extras: Record<string, string> = { categories: 'stok', units: 'stok', warehouses: 'stok', 'invoice-designs': 'faturalar', 'form-designs': 'form-designer', 'cost-centers': 'gider', 'document-ai': 'ai', tasks: 'documents', approvals: 'documents', messages: 'documents', client: 'documents', visits: 'kasa', mobile: 'pos' };

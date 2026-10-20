@@ -58,6 +58,14 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({ isOpen, 
       showToast('Lütfen geçerli bir ürün ve miktar giriniz.', 'warning');
       return;
     }
+    // 2026-10-17: Depo ZORUNLU. Eski hâlde `<select>` boşken gövdede
+    // `warehouseId: ''` gidiyor ve sunucu varsayılan depoya düşüyordu.
+    // Sunucu artık boş değeri reddediyor; kullanıcıya bunu burada, kaydetmeden
+    // önce ve anlaşılır biçimde söylüyoruz.
+    if (!warehouseId) {
+      showToast('Depo seçimi zorunludur. Lütfen önce bir depo tanımlayın.', 'warning');
+      return;
+    }
 
     try {
       const res = await api.adjustStock({
@@ -180,17 +188,31 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({ isOpen, 
 
         <div className="form-group">
           <label className="form-label required">Depo</label>
+          {/* 2026-10-17: Depo yoksa liste BOŞ kalır ve `warehouseId` '' olur;
+              kaydetmeye çalışınca yukarıdaki kapı anlaşılır hata verir.
+              Sessizce başka firmaya yazmak yerine kullanıcı yönlendirilir. */}
           <select
             className="form-select"
             value={warehouseId}
             onChange={e => setWarehouseId(e.target.value)}
+            disabled={warehouses.length === 0}
           >
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
+            {warehouses.length === 0 ? (
+              <option value="">Depo tanımlı değil — önce depo tanımlayın</option>
+            ) : (
+              warehouses.map(w => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))
+            )}
           </select>
+          {warehouses.length === 0 && (
+            <div style={{ fontSize: '11px', color: 'var(--danger, #ef4444)', marginTop: '4px' }}>
+              Bu firma için tanımlı depo yok. Stok hareketi kaydedilemez; lütfen Depolar
+              ekranından bir depo tanımlayın.
+            </div>
+          )}
         </div>
 
         <div className="form-group">

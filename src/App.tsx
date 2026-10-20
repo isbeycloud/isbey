@@ -61,6 +61,8 @@ import { BankReconciliationView } from './components/modules/banka/BankReconcili
 import { PaymentLinksView } from './components/modules/paymentlinks/PaymentLinksView';
 import { AdvancedReportsView } from './components/modules/raporlar/AdvancedReportsView';
 import { ReportDesignerView } from './components/modules/raporlar/ReportDesignerView';
+// 2026-10-17: kapsamlı filtreli detay raporları (cari ekstre / stok-varyant / kasa-banka)
+import { ReportDetailView } from './components/modules/raporlar/ReportDetailView';
 import { MobileAppView } from './components/modules/mobile/MobileAppView';
 import { PublicPaymentPage } from './pages/PublicPaymentPage';
 
@@ -163,6 +165,7 @@ const MainLayout: React.FC = () => {
       case 'odeme-linkleri': return guard('odeme-linkleri', <PaymentLinksView />);
       case 'gelismis-raporlar': return guard('gelismis-raporlar', <AdvancedReportsView />);
       case 'rapor-tasarimci': return guard('rapor-tasarimci', <ReportDesignerView />);
+      case 'rapor-detay': return guard('rapor-detay', <ReportDetailView />);
       case 'mobil-uygulama': return guard('mobil-uygulama', <MobileAppView />);
       case 'ai-merkezi': return guard('ai-merkezi', <AIMerkeziView />);
       case 'document-ai': return guard('document-ai', <DocumentAIView />);

@@ -7,7 +7,10 @@ test.beforeAll(async ({ request }) => {
 async function open(page: Page) {
   await page.addInitScript(t => localStorage.setItem('isbey_token', t), token);
   await page.goto('/');
-  await page.locator('aside').getByText('e-Belge & GİB', { exact: true }).click();
+  // 414dc99: 'e-Belge & GİB' yan menüden bilerek kaldırıldı (SIDEBAR_HIDDEN_MODULES).
+  // Erişim: Faturalar hub'ı → 'e-Fatura & e-Arşiv Portalı' sekmesi.
+  await page.locator('aside').getByText('Faturalar', { exact: true }).click();
+  await page.getByRole('button', { name: /e-Fatura & e-Arşiv Portalı/ }).first().click();
   await page.getByRole('button', { name: 'Yeni e-Fatura / e-Arşiv Oluştur', exact: true }).click();
 }
 const profile = (page: Page) => page.locator('select').filter({ has: page.locator('option[value="TICARIFATURA"]') });

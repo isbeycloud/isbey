@@ -6,6 +6,7 @@ import { resolveInvoiceRecipient } from '../services/invoiceRecipientService';
 import { reconcileSendingInvoice } from '../services/hizliInvoiceReconcile';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { PERMISSIONS, requireAuth, requireRole, requirePermission, resolveTenant } from '../middleware/authGuards';
+import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 import { getDataDirectory } from '../config/environment';
 
 const router = Router();
@@ -1112,11 +1113,16 @@ router.post('/release-sending', requireRole('SUPER_ADMIN', 'platform_admin'), as
 });
 
 // GET /api/efatura/incoming - Gelen e-Faturalar Listesi
-router.get('/incoming', (req: Request, res: Response) => {
+router.get('/incoming', resolveTenant, (req: Request, res: Response) => {
   try {
     const db = storage.getState();
-    // Invoices marked as incoming or purchase invoices with e-Invoice data
-    const incomingList = db.invoices.filter(i => !i.isDeleted && (i.isIncomingEInvoice || i.type === 'PURCHASE'));
+    const tenantId = req.tenantId!;
+    // 2026-10-17 GÜVENLİK: Bu liste ESKİDEN FİLTRESİZDİ — her firmanın
+    // kullanıcısı BAŞKA firmaların gelen faturalarını (tedarikçi VKN, tutar,
+    // kalemler dâhil) görebiliyordu (okuma IDOR'u). Artık sahiplikle süzülür.
+    const incomingList = db.invoices.filter(
+      i => !i.isDeleted && (i.isIncomingEInvoice || i.type === 'PURCHASE') && isOwnedBy(i, tenantId)
+    );
     res.json({ success: true, incomingInvoices: incomingList });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -1124,25 +1130,50 @@ router.get('/incoming', (req: Request, res: Response) => {
 });
 
 // POST /api/efatura/incoming/:id/convert-to-purchase - Gelen e-Faturayı Alış Faturasına ve Stoğa Aktar
-router.post('/incoming/:id/convert-to-purchase', async (req: Request, res: Response) => {
+router.post('/incoming/:id/convert-to-purchase', resolveTenant, async (req: Request, res: Response) => {
   try {
     const { warehouseId, updateStock = true } = req.body;
+    const tenantId = req.tenantId!;
+    const actingUserId = req.user?.id || 'system';
     const db = storage.getState();
-    const inv = db.invoices.find(i => i.id === req.params.id);
+    // 2026-10-17: Kayıt SAHİPLİKLE aranır (eskiden filtresizdi → başka firmanın
+    // gelen faturası kendi stok/cari kayıtlarına aktarılabiliyordu, yazma IDOR'u).
+    const inv = db.invoices.find(i => i.id === req.params.id && isOwnedBy(i, tenantId));
     if (!inv) {
       return res.status(404).json({ success: false, message: 'Gelen fatura kaydı bulunamadı.' });
     }
 
+    // 2026-10-17: Hedef depo ZORUNLU ve sahiplikli. Eski hâlde
+    // `warehouseId || target.warehouseId || 'wh-default'` idi: `'wh-default'`
+    // canlıda VAR OLMAYAN bir kimliktir ve filtresizdi. Sessiz düşme YOK.
+    // Kural: istekte depo verilmişse o; yoksa faturanın kendi deposu; yoksa
+    // firmanın TEK deposu; hiçbiri yoksa açık hata.
+    let gateWhId: string | undefined =
+      typeof warehouseId === 'string' && warehouseId.trim() !== '' ? warehouseId.trim() : undefined;
+    if (!gateWhId && typeof inv.warehouseId === 'string' && inv.warehouseId.trim() !== '') {
+      gateWhId = inv.warehouseId.trim();
+    }
+    if (!gateWhId) {
+      const owned = (db.warehouses || []).filter(w => isOwnedBy(w, tenantId));
+      gateWhId = owned.length === 1 ? owned[0].id : undefined;
+    }
+    assertOwnedWarehouse(db.warehouses, gateWhId, tenantId);
+
     await storage.runTransaction(draft => {
-      const target = draft.invoices.find(i => i.id === req.params.id);
+      const target = draft.invoices.find(i => i.id === req.params.id && isOwnedBy(i, tenantId));
       if (target) {
+        // Kapı transaction içinde yeniden doğrulanır (arada değişmiş olabilir).
+        const warehouse = assertOwnedWarehouse(draft.warehouses, gateWhId, tenantId);
         target.type = 'PURCHASE';
         target.status = 'ACTIVE';
-        target.warehouseId = warehouseId || target.warehouseId || 'wh-default';
+        target.warehouseId = warehouse.id;
         target.updatedAt = new Date().toISOString();
 
         // Update supplier balance (Payable / Alacak)
-        const supplier = draft.customers.find(c => c.id === target.customerId || c.taxNumber === target.incomingSupplierVkn);
+        // 2026-10-17: Tedarikçi de SAHİPLİKLE aranır (eskiden filtresizdi).
+        const supplier = draft.customers.find(
+          c => isOwnedBy(c, tenantId) && (c.id === target.customerId || c.taxNumber === target.incomingSupplierVkn)
+        );
         if (supplier) {
           supplier.balance = (supplier.balance || 0) - target.grandTotal; // Tedarikçiye borçlandık
         }
@@ -1150,15 +1181,20 @@ router.post('/incoming/:id/convert-to-purchase', async (req: Request, res: Respo
         // Add Stock Movements
         if (updateStock && Array.isArray(target.items)) {
           for (const item of target.items) {
-            const prod = draft.products.find(p => p.id === item.productId || p.code === item.productCode);
+            // 2026-10-17: Ürün SAHİPLİKLE aranır (eskiden filtresizdi → başka
+            // firmanın ürününün stoğu bu aktarımla artırılabiliyordu).
+            const prod = draft.products.find(
+              p => isOwnedBy(p, tenantId) && (p.id === item.productId || p.code === item.productCode)
+            );
             if (prod) {
               prod.stock = (prod.stock || 0) + item.quantity;
               draft.stockMovements.push({
                 id: `sm-inc-${Date.now()}-${item.productId}`,
+                // 2026-10-17: `tenantId` + doğrulanmış depo kimliği/adı yazılır.
+                ...stockMovementOwnedFields(tenantId, warehouse),
                 productId: prod.id,
                 productCode: prod.code,
                 productName: prod.name,
-                warehouseId: target.warehouseId,
                 documentNo: target.invoiceNo,
                 documentType: 'INVOICE',
                 documentId: target.id,
@@ -1169,7 +1205,7 @@ router.post('/incoming/:id/convert-to-purchase', async (req: Request, res: Respo
                 totalAmount: item.lineTotal,
                 date: target.date,
                 notes: `Gelen e-Fatura Aktarımı (${target.invoiceNo})`,
-                userId: 'admin',
+                userId: actingUserId,
                 createdAt: new Date().toISOString(),
               });
             }
@@ -1183,7 +1219,8 @@ router.post('/incoming/:id/convert-to-purchase', async (req: Request, res: Respo
       message: `${inv.invoiceNo} nolu gelen e-Fatura başarıyla Alış Faturası ve Depo Stok Girişi olarak sisteme işlendi.`,
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    // Depo kapısı hatası ise HTTP kodu ve `code` alanı korunur (403/400).
+    res.status(err?.statusCode || 500).json({ success: false, code: err?.code, message: err.message });
   }
 });
 

@@ -1,0 +1,124 @@
+#!/bin/sh
+#
+# İŞBEY CLOUD — pre-push KAPISI (2026-10-17)
+# ==========================================
+# NEDEN: Bu depoda `main`'e push, GitHub Actions'tan BAĞIMSIZ olarak Hostinger
+# `hbuilds` webhook'unu tetikler ve CANLIYA dağıtım yapar. Kırmızı CI'ya
+# rağmen push canlıya gidebiliyordu (bkz. "CI bekçisi kör noktası": 414dc99 ve
+# 04f8430 main'e CI koşmadan girmişti). Bu kanca, dağıtımı tetikleyen eylemin
+# önüne gerçek bir kapı koyar.
+#
+# KURULUM (bir kez, depo başına):
+#     git config core.hooksPath .githooks
+# .git/hooks altına kopyalamaya GEREK YOK; `core.hooksPath` sürümlenmiş
+# `.githooks/` dizinini kullanır, böylece kanca depoyla birlikte taşınır.
+#
+# KANCA NE YAPAR?
+#   1. Force push'u REDDEDER (CLAUDE.md: "Force push yapma").
+#   2. main/master'a giden push'ta yayın kapısını (`npm run release:gate`)
+#      koşturur. Kapı kırmızıysa push REDDEDİLİR.
+#   3. Diğer dallara push'ta yalnız typecheck koşar (hızlı geri bildirim).
+#
+# BİLİNÇLİ ATLAMA: Acil durumda `ISBEY_SKIP_RELEASE_GATE=1 git push ...`
+# kullanılabilir. Bu, kapıyı ATLADIĞINIZI ekrana AÇIKÇA yazar — sessiz kaçış
+# yoktur. `git push --no-verify` de aynı anlama gelir ve iz bırakır.
+#
+# SINIR (önemli): Bu kanca yalnızca YEREL bir güvenlik ağıdır, sunucu tarafı
+# zorlaması DEĞİLDİR — `--no-verify` ile atlanır. Gerçek sunucu tarafı kapı
+# için depo ayarlarında branch protection + required status checks gerekir
+# (docs/87). Kanca o boşluğun YERİNE geçmez, yalnızca varsayılan yolu güvenli
+# hâle getirir.
+
+set -u
+
+ZERO="0000000000000000000000000000000000000000"
+
+# ── Girdiyi BAŞTAN tamponla ────────────────────────────────────────────────
+# git, pre-push girdisini stdin'de YALNIZ BİR KEZ verir:
+#     <local-ref> <local-sha> <remote-ref> <remote-sha>
+# İki kez okumak (iki ayrı `while read`) ikinci döngüyü boş bırakır ve
+# "canlı dal" kararı yanlış çıkar — kapı sessizce atlanır. Bu yüzden önce
+# tamponlarız, sonra tampon üzerinde birden çok kez gezeriz.
+STDIN_BUFFER=$(cat)
+
+# ── 1. Force push engeli ───────────────────────────────────────────────────
+# DİKKAT: `echo ... | while` boru hattının SAĞ tarafı ALT KABUKTA koşar; oradaki
+# `exit 1` yalnız alt kabuğu bitirir ve push YİNE geçerdi (sessiz işlevsizlik).
+# Bu yüzden boru DEĞİL, here-document kullanılır — akış ana kabukta kalır.
+FORCE_PUSH_REF=""
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [ -z "${REMOTE_REF:-}" ] && continue
+  # Uzak dal SİLİNİYORSA (remote-sha sıfır) force push değildir; atla.
+  [ "$REMOTE_SHA" = "$ZERO" ] && continue
+  if ! git merge-base --is-ancestor "$REMOTE_SHA" "$LOCAL_SHA" 2>/dev/null; then
+    FORCE_PUSH_REF="$REMOTE_REF"
+  fi
+done <<EOF
+$STDIN_BUFFER
+EOF
+
+if [ -n "$FORCE_PUSH_REF" ]; then
+  echo ""
+  echo "❌ PRE-PUSH REDDEDİLDİ — ileri sarmayan (non-fast-forward) push."
+  echo "   Uzak dal: $FORCE_PUSH_REF"
+  echo "   Bu bir FORCE PUSH'tır ve proje kuralı gereği YASAKTIR."
+  echo "   (CLAUDE.md: 'Force push yapma' — geçmişi yeniden yazmak canlıdaki"
+  echo "    dağıtılmış sürümle uyumsuzluk doğurur.)"
+  echo "   Önce 'git pull --rebase' ile uzak geçmişi birleştirin."
+  echo ""
+  exit 1
+fi
+
+# ── 2. Hedef dalı belirle (tampon ÜZERİNDEN, stdin tüketmeden) ─────────────
+TARGETS_MAIN=0
+if echo "$STDIN_BUFFER" | grep -qE 'refs/heads/(main|master)([[:space:]]|$)'; then
+  TARGETS_MAIN=1
+fi
+
+echo "════════════════════════════════════════════════════════════════"
+if [ "$TARGETS_MAIN" = "1" ]; then
+  echo " İŞBEY PRE-PUSH — hedef: CANLI DAL (main/master)"
+else
+  echo " İŞBEY PRE-PUSH — hedef: canlı olmayan dal (hızlı kontrol)"
+fi
+echo "════════════════════════════════════════════════════════════════"
+
+# ── 3. Bilinçli atlama ─────────────────────────────────────────────────────
+if [ "${ISBEY_SKIP_RELEASE_GATE:-}" = "1" ]; then
+  echo ""
+  echo "⚠️  ISBEY_SKIP_RELEASE_GATE=1 — YAYIN KAPISI BİLEREK ATLANDI."
+  echo "   Bu push canlıya dağıtım tetikleyebilir ve testler KOŞULMADI."
+  echo "   Bu bilinçli bir karardır; raporda belirtilmelidir."
+  echo ""
+  exit 0
+fi
+
+# ── 4. Kapı ────────────────────────────────────────────────────────────────
+if [ "$TARGETS_MAIN" = "1" ]; then
+  echo " Yayın kapısı koşuluyor (typecheck → lint → build → yerel süitler)..."
+  echo " Kırmızı sonuç push'u REDDEDER. Atlama: ISBEY_SKIP_RELEASE_GATE=1"
+  echo ""
+  if ! npm run release:gate; then
+    echo ""
+    echo "❌ PRE-PUSH REDDEDİLDİ — YAYIN KAPISI KIRMIZI."
+    echo "   Bu push CANLIYA DAĞITIM yapacaktı ve yapılmadı."
+    echo "   Kırmızı adımı düzeltip yeniden deneyin."
+    echo ""
+    exit 1
+  fi
+  echo ""
+  echo "✅ Yayın kapısı yeşil — push canlıya dağıtım tetikleyecek."
+  echo ""
+else
+  echo " Hızlı tip kontrolü (tsc -b)..."
+  if ! npm run typecheck; then
+    echo ""
+    echo "❌ PRE-PUSH REDDEDİLDİ — tip hatası var (tsc -b)."
+    echo ""
+    exit 1
+  fi
+  echo "✅ Tip kontrolü temiz."
+  echo ""
+fi
+
+exit 0

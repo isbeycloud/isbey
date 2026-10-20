@@ -114,6 +114,69 @@ const suites = [
   // (KONAKLAMA + SGK dahil) aynen saklanır, geçersiz tip 400, hesap formülü
   // değişmez. Ağa ÇIKMAZ.
   'invoiceTaxTypeContractTest.ts',
+  // 2026-10-15: RAPOR TENANT İZOLASYONU. Legacy `/api/reports/*` (7 uç)
+  // tenant filtresizdi — HER firma TÜM firmaların verisini görüyordu.
+  // İki tenant'lı veride A kendi verisini görür, B sıfır görür. Ağa ÇIKMAZ.
+  'reportsTenantIsolationTest.ts',
+  // 2026-10-17: KASA/BANKA TENANT İZOLASYONU. `/api/cash`, `/api/banks`,
+  // `/api/dashboard/summary` ve `/api/products` (depo) sahipliği kayıt
+  // KİMLİĞİ dizesinden çıkarıyordu (`id.includes(tenantId)`, `isDefault`,
+  // `!id.startsWith('cash-tnt-')`). B firmasının token'ı A'nın kasa/banka
+  // kayıtlarını ve HAREKETLERİNİ okuyabiliyor; `POST /api/cash/transaction`
+  // yabancı kasanın BAKİYESİNİ değiştirebiliyordu. Bu dosya sahipliğin TEK
+  // KAYNAKTAN (tenantId/companyId alanı) okunduğunu, yazma yolunun IDOR
+  // kapısını, geçiş verisinin varsayılan firmada kaldığını ve yeni kayıtların
+  // AÇIK damgayla yazıldığını ölçer. Ağa ÇIKMAZ.
+  'cashBankTenantIsolationTest.ts',
+  // 2026-10-17: DEPO SAHİPLİĞİ + STOK HAREKETİ KAPISI (P0).
+  // Eski hâlde `POST /api/products` ve `POST /api/products/adjust` depo
+  // seçimini `|| draft.warehouses[0]` ile DOLDURUYORDU: B firması A'nın
+  // deposuna stok yazabiliyor, hiç depo yoksa ürün `warehouseId`'siz
+  // kalıyordu. Bu dosya boş/geçersiz/yabancı deponun REDDEDİLDİĞİNİ,
+  // `StockMovement`'ın tenantId'siz yazılamadığını, geri alınan işlemin
+  // stoğu DEĞİŞTİRMEDİĞİNİ ve sahipsiz deponun HİÇBİR firmaya açılmadığını
+  // ölçer. N1–N8 negatif senaryoları tek tek kanıtlanır. Ağa ÇIKMAZ.
+  'warehouseTenantIsolationTest.ts',
+  // 2026-10-19: ÇAPRAZ-TENANT IDOR TARAMASI (P0 devamı).
+  // Depo kapısı kapandıktan sonra geriye "başka firmanın KAYDINI kimliğiyle
+  // okuyup/yazabilme" sınıfı kaldı. Bu dosya B firmasının gerçek kayıtlarını
+  // kurar, A kimliğiyle 12 router'ın `/:id` uçlarını dener: yabancı kayıt
+  // 403/404 almalı, kendi kaydı 2xx almalı (aşırı kilit de hata sayılır).
+  // Liste uçlarında gövde sızıntısı da taranır. Ağa ÇIKMAZ.
+  'crossTenantIdorTest.ts',
+  // 2026-10-17: KAPSAMLI RAPOR FİLTRELERİ + DETAY RAPORLARI.
+  // `/api/v1/reports/detail/*` uçları geçersiz filtreyi SESSİZCE boş liste
+  // yapmıyor, açık 400 dönüyor (bozuk tarih/tutar/ters aralık); cari ekstre
+  // defteri, varyant stok kırılımı ve kasa/banka hareket dökümü tutarlılığı
+  // ölçülüyor; B firması A'nın kimliğini filtre olarak verse bile kayıt
+  // göremiyor (parametre yetki kanıtı değildir). Ağa ÇIKMAZ.
+  'reportFilterDetailTest.ts',
+  // 2026-10-17: v1 DOĞRUDAN KAYIT KALICILIĞI (orders/quotes/waybills/cash).
+  // HTTP 201 dönmek kayıt anlamına GELMEZ: bayat `db` referansı yüzünden uç
+  // "kaydedildi" derken satır diske yazılmıyordu. Test her uç için kaydı DİSKTEN
+  // yeniden okuyarak doğrular; irsaliyede stok hareketi + ürün stoğu düşümü de
+  // ölçülür. Yalnız localhost'a bağlanır.
+  'directCreatePersistTest.ts',
+  // 2026-10-17: RAPOR OLUŞTURUCU MANTIĞI (saf fonksiyonlar). Boş filtre
+  // "seçili değil" demektir ve satır ELENMEZ; dolu ürün/varyant/durum/tutar
+  // filtreleri KATI süzer (alanı taşımayan satır da elenir, tarih hariç);
+  // tutar MUTLAK değerle ölçülür (çıkış satırı da eşiğe takılır); gruplama
+  // toplamı satır toplamına EŞİTTİR. Ağa ÇIKMAZ.
+  'reportBuilderLogicTest.ts',
+  // 2026-10-15: VKN İLE KAYIT + 14 GÜN DENEME + E-DÖNÜŞÜM KARAR KAPISI.
+  // Kayıtta e-Fatura/e-Belge seçimi sorulmaz (ön muhasebe doğrudan açılır),
+  // deneme bitince karar zorunludur (kilitli veri uçları 403). Hızlı Bilişim
+  // YEREL taklit edilir; dışarı tek istek (SMTP dahil) çıkmaz. SMTP
+  // bilerek boştur: mail QUEUED kalır, SENT asla uydurulmaz. Ağa ÇIKMAZ.
+  'registrationTrialGateTest.ts',
+  // 2026-10-20: SIFIR TUTAR KAPISI. Canlıda SAT-2026-000005 (RETAIL_POS, 3×0 TL)
+  // stok çıkışı doğurdu, alacak doğurmadı, nedeni hiçbir yerde yazmıyordu.
+  // Bu dosya kapının İKİ yazma yolunda da (legacy `/api/invoices` ve
+  // `/api/v1/invoices`) çalıştığını, gerekçesiz sıfır satışın HİÇBİR ŞEY
+  // yazmadan reddedildiğini, gerekçelinin belgeye + denetim kaydına geçtiğini
+  // ve ALIŞ/PROFORMA ile toplamı > 0 olan işlemlerin ENGELLENMEDİĞİNİ ölçer.
+  // Ağa ÇIKMAZ.
+  'zeroPriceGateContractTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {
