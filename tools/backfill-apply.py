@@ -18,6 +18,10 @@ Kapılar (herhangi biri düşerse YAZILMAZ):
       (Yanlış dosyayı — ör. bayat kopyayı — uygulamayı engeller.)
   G2. BELİRSİZ kayıt varsa → DUR. Sahipliği kanıtlanamayan kayıt taşınmaz.
   G3. Değişmezlik ihlali varsa → DUR. (stok/cari/fatura/finansal alan)
+  G3b. Değişiklik muhasebesi tutmuyorsa → DUR. Raporlanan değişiklik sayısı,
+       plan ile kaynak DB'nin alan alan karşılaştırmasından ölçülen sayıya
+       eşit olmak zorundadır (2026-10-20: 42 vs 43 sapması bu yüzden fark
+       edilmişti — rapor kendi kendini doğrulamamalı).
   G4. Kalan sahipsiz iş kaydı varsa → DUR (açık `--allow-remaining` yoksa).
   G5. Değişiklik yoksa → yazmaz, "zaten uygulanmış" der (IDEMPOTENT).
 
@@ -170,6 +174,14 @@ def main():
         inv_ok = inv_ok and ok
         print(f'  {"OK " if ok else "İHLAL"} {label:44} {b} -> {a}')
 
+    # Değişiklik sayısı kendi kendini raporlamasın: plan alan alan ölçülür.
+    rap, ger, ekle, sil, muhasebe_ok = lib.change_accounting(original, res)
+    print(f'\n  değişiklik muhasebesi: {rap} + {ekle} yeni = {rap + ekle}; '
+          f'planda {ger}; silinen {sil} → {"TUTUYOR" if muhasebe_ok else "TUTMUYOR"}')
+    cari, kosan, fark, _ = lib.chain_balance_drift(res['plan'])
+    print(f'  cari bakiye (customers) = {cari} | koşan bakiye (hareketler) = {kosan} | fark = {fark}')
+    print('  (iki farklı büyüklük — backfill ikisini de değiştirmez)')
+
     # ── KAPILAR ──
     print('\n' + '─' * 74)
     blocked = []
@@ -181,6 +193,13 @@ def main():
         blocked.append(f'G2: {len(uncertain)} belirsiz kayıt — sahipliği kanıtlanamayan kayıt TAŞINMAZ')
     if not inv_ok:
         blocked.append('G3: değişmezlik ihlali')
+    if not muhasebe_ok:
+        # Bileşenleri AYRI göster: 42 alan + 1 yeni kayıt = 43 ile "gerçek 43"
+        # aynı görünür ve kapının neden düştüğü anlaşılmaz. Operatör hangi
+        # bileşenin tutmadığını görmeli.
+        blocked.append(f'G3b: değişiklik muhasebesi tutmuyor '
+                       f'({rap} alan + {ekle} yeni kayıt = {rap + ekle}; '
+                       f'planda ölçülen {ger}; silinen {sil})')
     if total and not args.allow_remaining:
         blocked.append(f'G4: {total} sahipsiz iş kaydı kalıyor (--allow-remaining verilmedi)')
     if args.confirm != CONFIRM_TOKEN:
@@ -229,14 +248,26 @@ def main():
     print(f'\nYAZILDI    : {args.db}')
     print(f'yeni sha   : {new_sha}')
 
-    with open(f'{args.db}.backfill-{stamp}.report.json', 'w', encoding='utf-8') as f:
-        json.dump({'ts': stamp, 'from_sha256': src_sha, 'to_sha256': new_sha,
-                   'backup': backup, 'beads': beads_path,
-                   'changes': changes,
-                   'invariants': [{'ad': a, 'once': b, 'sonra': c, 'gecti': d}
-                                  for a, b, c, d in inv]},
-                  f, ensure_ascii=False, indent=2)
-    print(f'rapor      : {args.db}.backfill-{stamp}.report.json')
+    # RAPOR YAZIMI YAZMADAN SONRA AMA KONTROLLÜ: `invariants` para değerlerini
+    # Decimal döndürür (tam eşitlik için). json bunu serileştiremez. 2026-10-20'de
+    # ölçüldü: yazma başarılı olduktan SONRA TypeError ile çöküyordu; DB doğru
+    # ama denetim izi (rapor) kayıp ve çıkış kodu yanlış oluyordu. `default=str`
+    # ile para değerleri metin olarak yazılır (bilgi kaybı yok, okunur).
+    report_path = f'{args.db}.backfill-{stamp}.report.json'
+    try:
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump({'ts': stamp, 'from_sha256': src_sha, 'to_sha256': new_sha,
+                       'backup': backup, 'beads': beads_path,
+                       'changes': changes,
+                       'invariants': [{'ad': a, 'once': str(b), 'sonra': str(c),
+                                       'gecti': d} for a, b, c, d in inv]},
+                      f, ensure_ascii=False, indent=2, default=str)
+        print(f'rapor      : {report_path}')
+    except OSError as e:
+        # Denetim izi yazılamadıysa bu SESSİZ geçmemeli: DB yazıldı, geri alma
+        # bilgisi yalnız ekranda. Operatörün bunu bilmesi gerekir.
+        print(f'UYARI: rapor yazılamadı ({e}). DB YAZILDI; yedek ve geri alma '
+              f'yolları aşağıda.', file=sys.stderr)
 
     print('\n' + '─' * 74)
     print('GERİ ALMA')

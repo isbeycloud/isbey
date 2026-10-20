@@ -99,7 +99,31 @@ def main():
     for label, b, a, ok in lib.invariants(d, res):
         all_ok = all_ok and ok
         print(f'  {label:42} {b:>14} -> {a:<14} {"AYNI" if ok else "DEĞİŞTİ !!"}')
-    print(f'  SONUÇ: {"TÜM DEĞİŞMEZLİKLER KORUNDU" if all_ok else "İHLAL VAR — UYGULAMA YAPILMAMALI"}')
+
+    # ── DEĞİŞİKLİK MUHASEBESİ ──
+    # Sayı, kendi kendini raporlamamalı: plan ile kaynak alan alan karşılaştırılır.
+    rap, ger, ekle, sil, tutuyor = lib.change_accounting(d, res)
+    all_ok = all_ok and tutuyor
+    print(f'\n  değişiklik muhasebesi: raporlanan {rap} alan + {ekle} yeni kayıt = '
+          f'{rap + ekle}; planda ölçülen {ger}; silinen {sil} → '
+          f'{"TUTUYOR" if tutuyor else "TUTMUYOR !!"}')
+
+    # ── İKİ PARA GERÇEĞİ ──
+    cari, kosan, fark, notlar = lib.chain_balance_drift(res['plan'])
+    print('\n' + '─' * 74)
+    print('CARİ BAKİYE: İKİ FARKLI BÜYÜKLÜK (karıştırılmamalı)')
+    print('─' * 74)
+    print(f'  customers[].balance toplamı           : {cari}   ← GERÇEK cari bakiye')
+    print(f'  currentTransactions[].balance toplamı : {kosan}   ← KOŞAN bakiye toplamı')
+    print(f'  fark                                  : {fark}')
+    print('  Açıklama: koşan bakiye her satırda "o ana kadarki" bakiyeyi taşır;')
+    print('  toplamı cari bakiyeye eşit DEĞİLDİR. Fark, tutarı 0 olan ama')
+    print('  koşan bakiyeyi taşıyan belgelerden gelir:')
+    for n in notlar:
+        print(f"    - {n['id']} {n['documentNo']}: bakiye {n['balance']} ({n['sebep']})")
+    print('  Backfill bu iki sayıyı DEĞİŞTİRMEZ; ikisi de aynı kalmalıdır.')
+
+    print(f'\n  SONUÇ: {"TÜM DEĞİŞMEZLİKLER KORUNDU" if all_ok else "İHLAL VAR — UYGULAMA YAPILMAMALI"}')
 
     # ── DOĞRULAMA SORGULARI ──
     print('\n' + '─' * 74)

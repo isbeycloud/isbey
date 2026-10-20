@@ -3,9 +3,15 @@
  * İŞBEY — DAĞITIM KİMLİĞİ GİRİŞİ (sohbete/loga YAZMADAN)
  * ======================================================
  * Amaç: yeni GitHub token'ını (ve istenirse SSH parolasını) kullanıcıdan
- * ALMAK, diske 0600 izniyle yazmak ve YALNIZ "çalışıyor / çalışmıyor"
- * bilgisini basmak. Token'ın kendisi hiçbir zaman ekrana, loga veya git'e
- * yazılmaz.
+ * ALMAK, diske yazmak ve YALNIZ "çalışıyor / çalışmıyor" bilgisini basmak.
+ * Token'ın kendisi hiçbir zaman ekrana, loga veya git'e yazılmaz.
+ *
+ * SINIR (2026-10-20): dosya 0600 ile yazılır AMA bu yalnız POSIX'te gerçek
+ * bir erişim kısıtıdır. Windows'ta Node `chmod` DOS ACL üretmez; orada
+ * "0600" görmek dosyanın başkasınca okunamayacağını KANITLAMAZ. Yani bu araç
+ * bir kasa değil, "token'ı sohbete yapıştırmamak" için bir kanaldır. Asıl
+ * koruma: kısa ömür (30 gün) + dar kapsam (tek depo, Contents: RW) + `clear`.
+ * Windows'ta gerçek denetim için: icacls "%USERPROFILE%\.isbey-deploy.env"
  *
  * Kullanım:
  *   node tools/deploy-credentials.mjs set     # gizli giriş (ekranda görünmez)
@@ -69,7 +75,8 @@ function askHidden(question) {
 function writeEnv(vars) {
   const lines = [
     '# İŞBEY dağıtım kimlikleri — BU DOSYAYI COMMIT ETME, SOHBETE YAPIŞTIRMA.',
-    '# Üreten: tools/deploy-credentials.mjs (0600 izinle yazıldı).',
+    '# Üreten: tools/deploy-credentials.mjs.',
+    '# NOT: 0600 yalnız POSIX iznidir. Windows\'ta erişim kısıtı KANITLANMAMIŞTIR.',
     ...Object.entries(vars).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`),
   ];
   fs.writeFileSync(ENV_PATH, lines.join('\n') + '\n', { mode: 0o600 });
@@ -166,7 +173,16 @@ function statusCmd() {
   console.log(`dosya            : ${ENV_PATH} ${fs.existsSync(ENV_PATH) ? '(mevcut)' : '(yok)'}`);
   if (fs.existsSync(ENV_PATH)) {
     const mode = (fs.statSync(ENV_PATH).mode & 0o777).toString(8);
-    console.log(`izin             : ${mode} ${mode === '600' ? '(doğru)' : '(0600 ÖNERİLİR)'}`);
+    // DİKKAT: `mode` Windows'ta POSIX izni DEĞİLDİR. Node'un fs.chmod'u orada
+    // yalnız salt-okunur bayrağını çevirir; DOS ACL üretmez. Yani "600" görmek
+    // "başkası okuyamaz" demek DEĞİLDİR (2026-10-20: kullanıcı bu varsayımı
+    // açıkça sorguladı). Ekranda bunu "doğru" diye onaylamak SAHTE güvence olur.
+    if (process.platform === 'win32') {
+      console.log(`izin             : ${mode} — Windows'ta POSIX izni DEĞİL, erişim `
+        + 'denetimi DOĞRULANMADI (bkz. icacls)');
+    } else {
+      console.log(`izin             : ${mode} ${mode === '600' ? '(doğru)' : '(0600 ÖNERİLİR)'}`);
+    }
   }
   console.log(`GitHub kullanıcı : ${has('ISBEY_GIT_USERNAME')}`);
   console.log(`GitHub token     : ${env.ISBEY_GIT_TOKEN ? mask(env.ISBEY_GIT_TOKEN) : 'YOK'}`);

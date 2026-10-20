@@ -56,6 +56,19 @@ gömülmez (`GIT_ASKPASS` kullanılır) — böylece `ps` çıktısında da gör
 > görünmedi, geçici `askpass` dosyası silindi. Gizli giriş PTY altında
 > doğrulandı: yazılan değerler ekrana basılmıyor.
 
+> **Windows uyarısı — `0600` GARANTİ DEĞİLDİR.** `chmod 0600` POSIX iznidir;
+> Windows'ta Node `fs.chmod` yalnız salt-okunur bayrağını çevirir, DOS ACL
+> üretmez. Bu proje Windows 11'de geliştirildiği için `~/.isbey-deploy.env`
+> dosyasının gerçek erişim denetimi **doğrulanmamıştır**. Yani:
+> - Aracı "güvenli kasa" sayma; **kısa ömürlü token** (30 gün) ve dar kapsam
+>   (`Contents: RW`, tek depo) asıl korumadır.
+> - Dosyayı diskte tutmak istemiyorsan `clear` ile sil; oturum başına
+>   `set` → kullan → `clear` en dar penceredir.
+> - Paylaşılan/yedeklenen bir profilde (OneDrive, roaming profile) token
+>   senkronize olabilir; o durumda `clear` sonrası bulut sürümünü de sil.
+> - `icacls "%USERPROFILE%\.isbey-deploy.env"` ile kimin okuyabildiğini
+>   **kendin** kontrol et; aracın `status` çıktısı bunu kanıtlamaz.
+
 ---
 
 ## 2. Dalı yayınla (main'e DEĞİL)
@@ -112,12 +125,13 @@ Beklenen (2026-10-20 ölçümü, o günkü canlı kopya):
 
 | Ölçüm | Değer |
 |---|---|
-| Planlanan değişiklik | 10 |
+| Planlanan değişiklik | **43** (42 alan + 1 yeni kayıt) |
 | Belirsiz kayıt | **0** |
 | Kalan sahipsiz iş kaydı | **0** |
 | Sarkan `warehouseId` | **0** |
 | Toplam stok | 903 → 903 |
 | Cari bakiye (customers.balance) | −252.924,59 → aynı |
+| Koşan bakiye (hareketler toplamı) | −253.500,59 → aynı |
 | Fatura toplamı (grandTotal) | 253.404,59 → aynı |
 | Beyoğlu depo sayısı | 0 → 1 |
 
@@ -126,6 +140,47 @@ Beklenen (2026-10-20 ölçümü, o günkü canlı kopya):
 > belirsiz = 0, değişmezlik = GEÇTİ, sarkan = 0.
 
 Dry-run çıkış kodu 0 değilse (3 = kapı düştü) **DUR**.
+
+### "43 mü, 10 mu?" — aynı veri, iki raporlama
+
+2026-10-20'de iki farklı sayı rapor edildi ve bu bir çelişki gibi göründü.
+Ölçüm: **çelişki yok, aynı plan farklı tanelikte raporlanmış.**
+
+Eski dry-run (`f811264:tools/backfill-dryrun.py`, sha256 `daffd44f…`) D4b
+adımının 34 kaydını **tek bir özet satırında** topluyordu
+(`(products|stockMovements|invoices) 34 kayıt`). O betiğin çıktısı, aynı
+`database.prod.json` üzerinde tam olarak **10 satırdır**:
+
+```
+1 yeni depo + 4 D1 (2 depo + 2 kasa) + 3 D2 + 1 D3 + 1 özet "34 kayıt"
+1 + 4 + 3 + 1 + 34 = 43
+```
+
+Yani 10 **satır**, 43 **alan**. Yeni `backfill_lib.py` her kaydı ayrı
+raporlar ve `change_accounting()` planı kaynak DB ile alan alan
+karşılaştırarak iki sayının eşitliğini **kanıtlar**. Apply artık bunu
+**G3b kapısı** olarak zorunlu tutar: raporlanan ≠ ölçülen ise **yazmaz**.
+
+### "−253.500,59 mu, −252.924,59 mu?" — iki farklı para gerçeği
+
+576,00 TL'lik fark bir veri hatası değil, **iki farklı büyüklüğün**
+karşılaştırılmasıdır. İkisi de aynı dosyada, aynı anda doğrudur:
+
+- `customers[].balance` → carinin **güncel** bakiyesi. Toplam: **−252.924,59**
+- `currentTransactions[].balance` → **koşan** bakiye; her satır "o ana
+  kadarki" bakiyeyi taşır. Toplamı cari bakiye değildir: **−253.500,59**
+
+Farkın tam kaynağı `SAT-2026-000005` (`ctx-1791372483711`): borç 0, alacak 0,
+ama koşan bakiye −576 taşıyor. Tutarı sıfır olduğu için cari bakiyeye
+girmiyor, koşan toplama giriyor. `ALI-2026-000001`'in −576'sını ileri taşıyor.
+
+```
+Σ borç = 0,00 | Σ alacak = 252.924,59 | net = −252.924,59  ✓ (cari ile aynı)
+```
+
+**Yapılmaması gereken:** eski bakiyeyi "düzeltmek" için zorla geri yazmak.
+Ortada düzeltilecek bir şey yok; backfill bu iki sayıyı da değiştirmez ve
+`invariants()` ikisini de ayrı ayrı ölçer.
 
 ### Neden sıra kritik — ölçülmüş kanıt
 
@@ -155,9 +210,18 @@ Kapılar (biri düşerse **hiçbir şey yazılmaz**):
 | G1 | `--expect-sha256` eşleşmeli (yanlış/bayat dosyayı engeller) |
 | G2 | Belirsiz kayıt = 0 (sahipliği kanıtlanamayan kayıt TAŞINMAZ) |
 | G3 | Değişmezlik geçmeli |
+| **G3b** | **Değişiklik muhasebesi tutmalı** — raporlanan sayı, planın kaynak DB ile alan alan karşılaştırmasından ölçülen sayıya eşit; silinen kayıt 0 |
 | G4 | Kalan sahipsiz iş kaydı = 0 |
 | G5 | `--confirm APPLY` verilmeli |
 | G6 | Yapılacak değişiklik olmalı (idempotent) |
+
+> **G3b neden var (2026-10-20'de bulunan gerçek kusur):** D4b raporlaması
+> yeniden düzenlenirken `r['warehouseId'] = NEW_WAREHOUSE_ID` ataması
+> düşmüştü. Plan 42 değişiklik **raporluyordu**, gerçekte 9 alan değişiyordu
+> ve hiçbir kayıt bağlanmıyordu. Değişmezlik kapıları bunu görmez — çünkü
+> değişmezlik "bir şey değişmesin" der, "plan eksik uygulanmasın" demez.
+> `change_accounting()` ikisini karşılaştırır; G3b düşünce yazım olmaz.
+> Negatif kontrolle doğrulandı (muhasebe bozulunca rc=3, dosya değişmiyor).
 
 Yazım **atomiktir**: aynı dizinde geçici dosya + `fsync` + `os.replace`.
 Ölçüldü: yazma sırasında süreç `SIGKILL` ile öldürüldüğünde DB **sağlam**

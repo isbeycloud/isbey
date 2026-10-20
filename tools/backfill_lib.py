@@ -26,6 +26,7 @@ import copy
 import json
 import re
 from collections import defaultdict
+from decimal import Decimal
 
 
 BEYOGLU = 'f0af349d-da17-419c-b9e4-1fde66beec3d'
@@ -165,13 +166,17 @@ def build_plan(original, tenants_filter=None):
                 if owner != BEYOGLU:
                     continue
                 r['warehouseId'] = NEW_WAREHOUSE_ID
+                # 2026-10-20 DÜZELTME: önce burada tek bir özet satırı
+                # ("34 kayıt") ekleniyordu. Sonuç: raporlanan satır sayısı
+                # gerçekten değişen alan sayısını göstermiyordu ve "10
+                # değişiklik" ile "43 değişiklik" aynı veri için aynı şeyi
+                # anlatmıyordu. Artık her kayıt AYRI raporlanır.
+                changes.append({
+                    'collection': coll, 'id': r.get('id'), 'field': 'warehouseId',
+                    'from': v, 'to': NEW_WAREHOUSE_ID,
+                    'reason': "D4b: Beyoğlu'nun kırık depo referansı yeni depoya bağlandı",
+                })
                 rebind += 1
-    if rebind:
-        changes.append({
-            'collection': '(products|stockMovements|invoices)', 'id': f'{rebind} kayıt',
-            'field': 'warehouseId', 'from': 'wh-default / wh-1', 'to': NEW_WAREHOUSE_ID,
-            'reason': "D4b: Beyoğlu'nun kırık depo referansları yeni depoya bağlandı",
-        })
 
     # ══ LIBERAL KONTROL: kalan sahipsiz kayıtlar (D5 hariç) ══
     remaining = defaultdict(list)
@@ -188,6 +193,57 @@ def build_plan(original, tenants_filter=None):
     return {'plan': plan, 'changes': changes, 'uncertain': uncertain,
             'remaining': dict(remaining), 'existing': existing, 'tenants': tenants,
             'rebind': rebind, 'created': created}
+
+
+def money_sum(rows, field):
+    """Para toplamı — Decimal, tam eşitlik.
+
+    NEDEN: float toplamı 0,01–0,005 düzeyinde yapay fark üretir. Bu, gerçek bir
+    veri değişikliği olmadığı hâlde "DEĞİŞTİ" alarmı verir; alarm yanlış
+    olduğunda insan kapıyı kapatmayı öğrenir ve kapı işlevsizleşir.
+    """
+    total = Decimal('0')
+    for r in rows:
+        v = r.get(field)
+        if v is None or v == '':
+            continue
+        total += Decimal(str(v))
+    return total
+
+
+def chain_balance_drift(db):
+    """Cari defterindeki iki farklı para gerçeğini karşılaştırır.
+
+    `customers[].balance`      = carinin GÜNCEL bakiyesi (tek gerçek).
+    `currentTransactions[].balance` = KOŞAN bakiyedir; her satır o ana kadarki
+    bakiyeyi taşır. Satırların toplamı "cari bakiye" DEĞİLDİR — matematiksel
+    olarak cari bakiyenin eksiğine eşittir:
+
+        Σ koşan = Σ(cari bakiyeler) − Σ(belgesiz satırların koşan değeri)
+
+    Canlıda ölçülen fark tam olarak buradan gelir: 0,00 tutarlı bir belge
+    (SAT-2026-000005) carinin koşan bakiyesini TAŞIMAKTA ama toplama
+    girmemektedir. 576,00 TL'lik fark bir veri hatası değil, iki farklı
+    büyüklüğün karşılaştırılmasıdır.
+
+    Dönen: (cari_toplam, kosan_toplam, fark, aciklamalar)
+    """
+    cari = money_sum(db.get('customers', []), 'balance')
+    kosan = money_sum(db.get('currentTransactions', []), 'balance')
+    notes = []
+    for x in db.get('currentTransactions', []):
+        debit = Decimal(str(x.get('debit') or 0))
+        credit = Decimal(str(x.get('credit') or 0))
+        bal = x.get('balance')
+        if bal is None:
+            continue
+        if debit == 0 and credit == 0:
+            notes.append({
+                'id': x.get('id'), 'documentNo': x.get('documentNo'),
+                'customerId': x.get('customerId'), 'balance': str(bal),
+                'sebep': 'belge tutarı 0 — koşan bakiyeyi taşıyor, toplama girmiyor',
+            })
+    return cari, kosan, (kosan - cari), notes
 
 
 def invariants(original, result):
@@ -211,15 +267,18 @@ def invariants(original, result):
     # kadarki bakiye). Toplamı "cari bakiye" DEĞİLDİR. Gerçek cari bakiye
     # `customers.balance` alanındadır. İkisi de ölçülür ki rapor yanlış sayı
     # göstermesin.
-    bb = round(sum(c.get('balance', 0) for c in original.get('customers', [])), 2)
-    ba = round(sum(c.get('balance', 0) for c in plan.get('customers', [])), 2)
+    # PARA: float toplamı 0,005 düzeyinde yapay fark üretebilir ve "DEĞİŞTİ"
+    # diye yanlış alarm verir. Tüm tutarlar Decimal ile (string üzerinden)
+    # toplanır; karşılaştırma tam eşitliktir.
+    bb = money_sum(original.get('customers', []), 'balance')
+    ba = money_sum(plan.get('customers', []), 'balance')
     out.append(('cari bakiye toplamı (customers.balance)', bb, ba, bb == ba))
 
     # DİKKAT (2026-10-20 ölçümü): fatura tutarı `total` DEĞİL `grandTotal`
     # alanındadır. `total` diye ölçmek 0 -> 0 karşılaştırması yapar ve HER ZAMAN
     # "AYNI" der — yani hiçbir şey kanıtlamayan SAHTE bir kapı olurdu.
-    ib = round(sum(i.get('grandTotal') or 0 for i in original.get('invoices', [])), 2)
-    ia = round(sum(i.get('grandTotal') or 0 for i in plan.get('invoices', [])), 2)
+    ib = money_sum(original.get('invoices', []), 'grandTotal')
+    ia = money_sum(plan.get('invoices', []), 'grandTotal')
     out.append(('fatura toplamı (grandTotal)', ib, ia, ib == ia))
 
     # Kayıt kayıt finansal alan karşılaştırması: toplam aynı olsa bile iki
@@ -279,6 +338,44 @@ def invariants(original, result):
     out.append(('ürün stok/fiyat/ad değişen alan', 0, changed, changed == 0))
 
     return out
+
+
+def change_accounting(original, result):
+    """Raporlanan değişiklik sayısı, GERÇEKTEN değişen alan sayısına eşit mi?
+
+    NEDEN AYRI BİR KONTROL: `changes` listesi kendi kendini raporlar; liste
+    eksik doldurulursa sayı da eksik çıkar ve kimse fark etmez. Burada plan
+    ile kaynak DB alan alan karşılaştırılır ve iki sayı EŞLEŞMEK ZORUNDADIR.
+
+    Dönen: (raporlanan, gerçek, eklenen_kayıt, silinen_kayıt, tutuyor_mu)
+    """
+    plan = result['plan']
+    gercek = 0
+    for coll, rows in plan.items():
+        if not isinstance(rows, list):
+            continue
+        old_rows = original.get(coll, [])
+        old_by_id = {r.get('id'): r for r in old_rows if isinstance(r, dict)}
+        new_by_id = {r.get('id'): r for r in rows if isinstance(r, dict)}
+        for rid, r in new_by_id.items():
+            old = old_by_id.get(rid)
+            if old is None:
+                gercek += 1  # yeni kayıt
+                continue
+            for f in set(r) | set(old):
+                if old.get(f) != r.get(f):
+                    gercek += 1
+    # Alan bazında sayım, "yeni kayıt" satırını da içerir. Raporlanan tarafta
+    # yeni kayıt TEK satırdır; bu yüzden onu ayrıca sayıp düşüyoruz.
+    raporlanan = sum(1 for c in result['changes'] if c['field'] != '(YENİ KAYIT)')
+    eklenen = len(result.get('created', []))
+    silinen = 0
+    for coll in original:
+        if isinstance(original[coll], list):
+            old_ids = {r.get('id') for r in original[coll] if isinstance(r, dict)}
+            new_ids = {r.get('id') for r in plan.get(coll, []) if isinstance(r, dict)}
+            silinen += len(old_ids - new_ids)
+    return raporlanan, gercek, eklenen, silinen, (raporlanan + eklenen == gercek and silinen == 0)
 
 
 def dangling(plan):

@@ -107,18 +107,40 @@ def main():
     if before_path:
         old = load(before_path)
         pairs = []
-        sb = sum(p.get('currentStock', 0) for p in old.get('products', []))
-        sa = sum(p.get('currentStock', 0) for p in db.get('products', []))
-        pairs.append(('toplam stok', sb, sa))
-        cb = round(sum(c.get('balance', 0) for c in old.get('customers', [])), 2)
-        ca = round(sum(c.get('balance', 0) for c in db.get('customers', [])), 2)
-        pairs.append(('cari bakiye', cb, ca))
-        ib = round(sum(i.get('grandTotal') or 0 for i in old.get('invoices', [])), 2)
-        ia = round(sum(i.get('grandTotal') or 0 for i in db.get('invoices', [])), 2)
-        pairs.append(('fatura toplamı', ib, ia))
+        # PARA: dry-run/apply ile AYNI Decimal tabanı kullanılmalı. `round(sum(...),2)`
+        # float toplamı 0,01 düzeyinde yapay fark üretir ve "DEĞİŞTİ" diye yanlış
+        # alarm verir; yanlış alarm veren kapı kapatılmayı öğretir, kapı ölür.
+        pairs.append(('toplam stok',
+                      sum(p.get('currentStock', 0) for p in old.get('products', [])),
+                      sum(p.get('currentStock', 0) for p in db.get('products', []))))
+        pairs.append(('cari bakiye (customers.balance)',
+                      lib.money_sum(old.get('customers', []), 'balance'),
+                      lib.money_sum(db.get('customers', []), 'balance')))
+        pairs.append(('fatura toplamı (grandTotal)',
+                      lib.money_sum(old.get('invoices', []), 'grandTotal'),
+                      lib.money_sum(db.get('invoices', []), 'grandTotal')))
         for coll in ('products', 'invoices', 'stockMovements', 'currentTransactions',
                      'customers', 'cashRegisters', 'bankAccounts'):
             pairs.append((f'{coll} sayısı', len(old.get(coll, [])), len(db.get(coll, []))))
+        # Kayıt kayıt: toplam aynı kalsa bile iki faturanın tutarı yer
+        # değiştirebilir; toplam bunu GİZLER.
+        drift = 0
+        for coll, fields in (
+            ('invoices', ('grandTotal', 'subTotal', 'totalVat', 'totalDiscount',
+                          'paidAmount', 'remainingAmount', 'status', 'invoiceNo',
+                          'customerId', 'date', 'items')),
+            ('customers', ('balance', 'totalDebit', 'totalCredit', 'taxNumber')),
+            ('currentTransactions', ('debit', 'credit', 'balance', 'documentNo',
+                                     'customerId', 'date')),
+            ('products', ('currentStock', 'salePrice', 'purchasePrice', 'name', 'code')),
+        ):
+            before_by_id = {r['id']: r for r in old.get(coll, []) if isinstance(r, dict)}
+            for r in db.get(coll, []):
+                o = before_by_id.get(r.get('id'))
+                if not o:
+                    continue
+                drift += sum(1 for f in fields if o.get(f) != r.get(f))
+        pairs.append(('kayıt bazlı finansal sürüklenme', 0, drift))
         bad = [p for p in pairs if p[1] != p[2]]
         checks.append(('V6', 'Finansal değişmezlik (yedekle karşılaştırma)', not bad,
                        'AYNI' if not bad else f'DEĞİŞTİ: {bad}'))
@@ -156,6 +178,17 @@ def main():
             failed += 1
         print(f'  [{"GEÇTİ" if ok else "KALDI"}] {code:4} {desc}')
         print(f'           {detail}')
+
+    # BİLGİ (kapı değil): iki para gerçeği. 2026-10-20'de raporlarda
+    # "−253.500,59" ile "−252.924,59" çelişkisi buradan çıkmıştı: biri koşan
+    # bakiye toplamı, diğeri gerçek cari bakiye. İkisi EŞİT DEĞİLDİR.
+    cari, kosan, fark, notlar = lib.chain_balance_drift(db)
+    print('─' * 74)
+    print(f'  cari bakiye (customers.balance)      : {cari}')
+    print(f'  koşan bakiye (hareketler toplamı)    : {kosan}')
+    print(f'  fark (tasarım gereği, hata değil)    : {fark}')
+    for n in notlar:
+        print(f'    - {n["id"]} {n["documentNo"]}: bakiye {n["balance"]} ({n["sebep"]})')
     print('─' * 74)
     print(f'SONUÇ: {len(checks) - failed}/{len(checks)} GEÇTİ')
     if failed:
