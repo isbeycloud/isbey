@@ -169,6 +169,14 @@ const suites = [
   // YEREL taklit edilir; dışarı tek istek (SMTP dahil) çıkmaz. SMTP
   // bilerek boştur: mail QUEUED kalır, SENT asla uydurulmaz. Ağa ÇIKMAZ.
   'registrationTrialGateTest.ts',
+  // 2026-10-20: SIFIR TUTAR KAPISI. Canlıda SAT-2026-000005 (RETAIL_POS, 3×0 TL)
+  // stok çıkışı doğurdu, alacak doğurmadı, nedeni hiçbir yerde yazmıyordu.
+  // Bu dosya kapının İKİ yazma yolunda da (legacy `/api/invoices` ve
+  // `/api/v1/invoices`) çalıştığını, gerekçesiz sıfır satışın HİÇBİR ŞEY
+  // yazmadan reddedildiğini, gerekçelinin belgeye + denetim kaydına geçtiğini
+  // ve ALIŞ/PROFORMA ile toplamı > 0 olan işlemlerin ENGELLENMEDİĞİNİ ölçer.
+  // Ağa ÇIKMAZ.
+  'zeroPriceGateContractTest.ts',
 ];
 let failures = 0;
 for (const suite of suites) {

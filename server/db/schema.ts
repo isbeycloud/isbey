@@ -601,6 +601,17 @@ export interface Invoice {
   recipientAliasGB?: string;
   senderAliasPK?: string;
   /**
+   * 2026-10-20: SIFIR TUTARLI SATIŞIN GEREKÇESİ.
+   *
+   * `SAT-2026-000005` 0 TL kesildi ama 3 adet stok çıkışı doğurdu (mal çıktı,
+   * alacak doğmadı) ve hiçbir yerde "neden" yazmıyordu. Sıfır tutar meşru
+   * olabilir (numune, promosyon, bedelsiz değişim); bu yüzden yasaklanmıyor —
+   * ama artık SESSİZ geçemiyor. Gerekçe yazılmadan satış faturası kesilemez
+   * (`services/zeroPriceGate.ts`), yazılırsa hem buraya hem denetim kaydına
+   * işlenir. Toplam > 0 olan faturalarda boş kalır.
+   */
+  zeroTotalReason?: string;
+  /**
    * 2026-10-12: Faturanın HANGİ seriden numaralandığı (İZ kaydı). Seri
    * seçilmeden kesilen faturalarda undefined (eski tek sayaçtan gelmiştir).
    */

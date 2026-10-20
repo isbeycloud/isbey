@@ -194,6 +194,9 @@ v1InvoicesRouter.post('/', requirePermission(PERMISSIONS.INVOICES_CREATE), async
     // sahiplik kanıtı sayılmaz.
     const invoice = await DocumentConversionService.createInvoice({
       ...req.body,
+      // 2026-10-20: Sıfır tutarlı satışta zorunlu gerekçe. Gövdeden gelir ama
+      // kapı SUNUCUDA (`services/zeroPriceGate.ts`) — istemciye güvenilmez.
+      zeroTotalReason: typeof req.body?.zeroTotalReason === 'string' ? req.body.zeroTotalReason : undefined,
       tenantId,
       ...(recipient ? { invoiceProfile: recipient.profile, recipientTaxNumber: recipient.identifier, recipientAliasGB: recipient.aliasGB } : {}),
       userId: user.id,

@@ -11,6 +11,7 @@ import {
 import { FinancialTransactionService } from './financialTransactionService';
 import { ProviderFactory } from './providers/providerFactory';
 import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
+import { assertZeroTotalAllowed, type ZeroPriceLineInput } from './zeroPriceGate';
 
 export interface CreateInvoiceParams {
   tenantId: string;
@@ -42,6 +43,11 @@ export interface CreateInvoiceParams {
   invoiceProfile?: Invoice['invoiceProfile'];
   recipientTaxNumber?: string;
   recipientAliasGB?: string;
+  /**
+   * 2026-10-20: Sıfır tutarlı SATIŞ faturasının GEREKÇESİ. Toplam > 0 ise
+   * yok sayılır. Boşsa/yetersizse `zeroPriceGate` faturasız 400 döndürür.
+   */
+  zeroTotalReason?: string;
 }
 
 export class DocumentConversionService {
@@ -121,6 +127,10 @@ export class DocumentConversionService {
 
     const formattedItems: InvoiceItem[] = [];
     const stockMovementsToCreate: StockMovement[] = [];
+    // Sıfır-tutar kapısının girdisi (bkz. services/zeroPriceGate.ts). Ürünün
+    // KENDİ satış fiyatı da taşınır: "fiyatı var ama satıra 0 girilmiş" satırı
+    // toplam 0 olmasa bile görünür kılabilmek için.
+    const kapiSatirlari: ZeroPriceLineInput[] = [];
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
@@ -175,6 +185,13 @@ export class DocumentConversionService {
         lineTotal: lineNet,
         lineGrandTotal: lineGrand,
       });
+      kapiSatirlari.push({
+        productCode: product.code,
+        productName: product.name,
+        quantity: qty,
+        unitPrice: price,
+        productSalePrice: Number(product.salePrice),
+      });
 
       // İrsaliyeden aktarılmadıysa fiili stok hareketi oluştur
       if (!sourceWaybillId) {
@@ -218,6 +235,18 @@ export class DocumentConversionService {
     const payableVat = totalVat - totalWithholding;
     const grandTotal = subTotal + payableVat;
 
+    // ── SIFIR TUTAR KAPISI (2026-10-20) ──────────────────────────────────────
+    // Sıfır tutarlı satış YASAK DEĞİL (numune/promosyon meşru) ama SESSİZ de
+    // değil: gerekçe yoksa burada, hiçbir kayıt yazılmadan durur. Kapı
+    // transaction'ın İÇİNDE ve yazmalardan ÖNCE çalışır; düşerse `runTransaction`
+    // tüm taslağı atar (yarım fatura/stok hareketi kalmaz).
+    const sifirUyarilari = assertZeroTotalAllowed(
+      type,
+      Math.round(grandTotal * 100) / 100,
+      kapiSatirlari,
+      params.zeroTotalReason
+    );
+
     const isSalesInvoice = type === 'SALES' || type === 'RETAIL_POS';
     const isPaid = paidAmount >= grandTotal;
     const paymentStatus = isPaid ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
@@ -254,6 +283,11 @@ export class DocumentConversionService {
       invoiceProfile: params.invoiceProfile,
       recipientTaxNumber: params.recipientTaxNumber,
       recipientAliasGB: params.recipientAliasGB,
+      // Gerekçe YALNIZ sıfır/negatif toplamlı satışta yazılır; meşru bir
+      // gerekçeyle kesilmiş 0 TL belge altı ay sonra "neden" sorusunu yanıtlar.
+      zeroTotalReason: !Number.isFinite(grandTotal) || grandTotal <= 0
+        ? String(params.zeroTotalReason || '').trim() || undefined
+        : undefined,
       userId,
       isDeleted: false,
       createdAt: now,
@@ -342,7 +376,16 @@ export class DocumentConversionService {
       module: 'INVOICES',
       documentNo: invoiceNo,
       ipAddress: '127.0.0.1',
-      details: `${customer.title} adına ${grandTotal} TL tutarında ${type} faturası (${invoiceNo}) oluşturuldu.`,
+      // Sıfır tutarlı satışta GEREKÇE denetim kaydına AYNEN geçer: belge altı
+      // ay sonra "bu mal neden bedelsiz çıktı" sorusuna cevap verebilmelidir.
+      // (Canlıda SAT-2026-000005 için bu cevap HİÇBİR YERDE yoktu.)
+      details: `${customer.title} adına ${grandTotal} TL tutarında ${type} faturası (${invoiceNo}) oluşturuldu.`
+        + (newInvoice.zeroTotalReason
+          ? ` SIFIR TUTAR GEREKÇESİ: ${newInvoice.zeroTotalReason}`
+          : '')
+        + (sifirUyarilari.length
+          ? ` · UYARI (0 fiyatlı satır): ${sifirUyarilari.join('; ')}`
+          : ''),
     });
 
     // `storage.save()` KALDIRILDI: commit `runTransaction` içinde yapılır.

@@ -449,6 +449,40 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
       return;
     }
 
+    // 2026-10-20: SIFIR TUTARLI SATIŞ — sessiz geçemez.
+    // Sunucu kapısı (`server/services/zeroPriceGate.ts`) gerekçesiz 0 TL satışı
+    // reddediyor. Kullanıcı bunu ancak kaydettikten sonra hata olarak görmesin:
+    // burada, göndermeden ÖNCE sorulur. Vazgeçerse hiç istek gitmez; yazarsa
+    // gerekçe gövdeye eklenir ve belgeyle birlikte saklanır.
+    // (Canlıda SAT-2026-000005 0 TL kesilip 3 adet stok çıkmış, nedeni hiçbir
+    // yerde yazmıyordu.)
+    let zeroTotalReason: string | undefined;
+    // Modal yalnız SALES/PURCHASE üretir (perakende yolu `POSSalesView`'dir ve
+    // kendi sorusunu sorar). ALIŞ kapsam dışı — sunucu kapısı da almaz.
+    if (grandTotal <= 0 && invoiceType === 'SALES') {
+      const sifirSatirlar = items
+        .filter(it => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) <= 0)
+        .map(it => `${it.productCode} ${it.productName} (${it.quantity} × ${Number(it.unitPrice) || 0} TL)`)
+        .join(', ');
+      const cevap = window.prompt(
+        `Bu faturanın toplamı ${grandTotal.toFixed(2)} TL.\n\n` +
+        `Sıfır tutarlı satış stok çıkışı doğurur ama alacak doğurmaz.\n` +
+        `Kalemler: ${sifirSatirlar || `${items.length} satır`}\n\n` +
+        `Bu bilinçli bir işlemse GEREKÇESİNİ yazın (en az 10 karakter).\n` +
+        `Vazgeçerseniz fatura kaydedilmez; fiyatları düzeltebilirsiniz.`,
+        ''
+      );
+      if (cevap === null) {
+        showToast('Sıfır tutarlı fatura kaydedilmedi. Fiyatları kontrol edin.', 'warning');
+        return;
+      }
+      if (cevap.trim().length < 10) {
+        showToast('Gerekçe en az 10 karakter olmalı. Fatura kaydedilmedi.', 'warning');
+        return;
+      }
+      zeroTotalReason = cevap.trim();
+    }
+
     try {
       const res = await api.createInvoice({
         type: invoiceType,
@@ -472,6 +506,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         exemptionCode: exemptionCode || undefined,
         recipientTaxNumber: selectedCustomer.taxNumber,
         recipientAliasGB: taxpayerInfo?.aliases?.find((a: any) => a.type === 'GB')?.alias,
+        zeroTotalReason,
         items,
       });
 

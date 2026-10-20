@@ -4,6 +4,7 @@ import { Invoice, InvoiceItem, StockMovement, CurrentTransaction, CashTransactio
 import { requireAuth, resolveTenant } from '../middleware/authGuards';
 import { DocumentConversionService } from '../services/documentConversionService';
 import { resolveInvoiceRecipient } from '../services/invoiceRecipientService';
+import { assertZeroTotalAllowed } from '../services/zeroPriceGate';
 import {
   isOwnedBy,
   assertOwnedWarehouse,
@@ -131,6 +132,8 @@ invoicesRouter.post('/', async (req, res) => {
     // 2026-10-12: Fatura SERİSİ (A/B Serisi…). Verilmezse mevcut tek sayaç
     // kullanılır (geriye dönük uyum). Verilirse numara o seriden gelir.
     invoiceSeriesId,
+    // 2026-10-20: sıfır tutarlı satışta zorunlu gerekçe (bkz. zeroPriceGate).
+    zeroTotalReason,
   } = req.body;
 
   if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
@@ -156,6 +159,9 @@ invoicesRouter.post('/', async (req, res) => {
     const selectedCustomer = storage.getState().customers.find(c => c.id === customerId && c.tenantId === req.tenantId);
     if (!selectedCustomer) throw new Error('Seçilen cari kart sistemde bulunamadı!');
     const recipient = invoiceType === 'SALES' ? await resolveInvoiceRecipient(selectedCustomer.taxNumber || '', req.tenantId!, invoiceProfile) : undefined;
+    // Sıfır-tutar kapısının UYARI listesi (engellemeyen gözlemler). Transaction
+    // içinde doldurulur, denetim kaydında kullanılır (bkz. zeroPriceGate.ts).
+    let sifirUyarilari: string[] = [];
     const createdInvoice = await storage.runTransaction(draft => {
       // 1. Verify Customer
       // 2026-10-17: Cari SAHİPLİKLE aranır. Eski hâlde transaction içindeki
@@ -379,6 +385,27 @@ invoicesRouter.post('/', async (req, res) => {
       const isPartial = pPaidAmount > 0 && pPaidAmount < grandTotal;
       const paymentStatus = isFullyPaid ? 'PAID' : (isPartial ? 'PARTIAL' : 'UNPAID');
 
+      // ── SIFIR TUTAR KAPISI (2026-10-20) ─────────────────────────────────
+      // Bu rota `DocumentConversionService`'i KULLANMIYOR (kendi transaction'ı
+      // var), o yüzden kapı burada da çağrılır. Kural TEK kaynakta
+      // (`services/zeroPriceGate.ts`); burada yalnız çağrılır. Kalemler
+      // fiyatlarıyla birlikte geçirilir ki mesaj hangi satırın 0 olduğunu
+      // söylesin. Satış yönü dışındaki türler kapıdan zaten muaftır.
+      sifirUyarilari = assertZeroTotalAllowed(
+        invoiceType,
+        Math.round(grandTotal * 100) / 100,
+        processedItems.map(it => ({
+          productCode: it.productCode,
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          productSalePrice: Number(
+            (draft.products || []).find(p => p.id === it.productId)?.salePrice
+          ),
+        })),
+        zeroTotalReason
+      );
+
       // 5. Create Invoice Record
       const invoice: Invoice = {
         id: invoiceId,
@@ -418,6 +445,10 @@ invoicesRouter.post('/', async (req, res) => {
         exemptionCode: exemptionCode || undefined,
         recipientTaxNumber: recipient?.identifier || recipientTaxNumber || customer.taxNumber,
         recipientAliasGB: recipient ? recipient.aliasGB : recipientAliasGB || undefined,
+        // 2026-10-20: sıfır/negatif toplamlı satışta gerekçe belgeye yazılır.
+        zeroTotalReason: grandTotal <= 0 && typeof zeroTotalReason === 'string' && zeroTotalReason.trim()
+          ? zeroTotalReason.trim()
+          : undefined,
         notes: notes || '',
         items: processedItems,
         eInvoiceStatus: 'DRAFT',
@@ -537,7 +568,12 @@ invoicesRouter.post('/', async (req, res) => {
       module: 'INVOICE',
       documentNo: createdInvoice.invoiceNo,
       ipAddress: req.ip || '127.0.0.1',
-      details: `${createdInvoice.customerTitle} için ${createdInvoice.grandTotal.toLocaleString('tr-TR')} TL tutarında ${createdInvoice.invoiceNo} oluşturuldu.`,
+      // 2026-10-20: Sıfır tutarlı satışta GEREKÇE ve UYARILAR denetim kaydına
+      // girer (bkz. zeroPriceGate.ts). Canlıda SAT-2026-000005 için "bu mal
+      // neden bedelsiz çıktı" sorusunun cevabı HİÇBİR YERDE yoktu.
+      details: `${createdInvoice.customerTitle} için ${createdInvoice.grandTotal.toLocaleString('tr-TR')} TL tutarında ${createdInvoice.invoiceNo} oluşturuldu.`
+        + (createdInvoice.zeroTotalReason ? ` SIFIR TUTAR GEREKÇESİ: ${createdInvoice.zeroTotalReason}` : '')
+        + (sifirUyarilari.length ? ` · UYARI (0 fiyatlı satır): ${sifirUyarilari.join('; ')}` : ''),
     });
 
     res.json({ success: true, invoice: createdInvoice, message: 'Fatura başarıyla kaydedildi ve tüm muhasebe hareketleri işlendi.' });

@@ -219,15 +219,30 @@ düzeltmediği bir kayıt. İptal edilen 3 kardeşi (000002–000004) de aynı
 
 Otomatik düzeltme **yapılmaz** (mali kayıt). Karar kullanıcınındır: ya
 backfill'den ayrı bir iş emri olarak cari bağlantısı kurulur, ya da geçmiş
-dönem kaydı olarak belgelenir. Geçmek için gerekçe zorunlu:
+dönem kaydı olarak belgelenir. Geçmek için **kayda özgü** ve **süreli** onay
+zorunlu — ayrıntı `docs/87`:
 
 ```
+# 1) kimliği RAPORDAN oku (tahmin etme):
+python3 tools/cari-tutarlilik.py <db.json>
+#    → İHLAL: [('SAT-2026-000001@<firma>', …)]
+
+# 2) yalnız o kaydı, son kullanma tarihiyle onayla:
 python3 tools/cari-tutarlilik.py <db.json> \
-  --kabul C5="cari kaydi hic olusmamis; ayri is emri, backfill kapsami disinda"
+  --kabul "C5:SAT-2026-000001@<firma>=Fatura carisi hic olusmamis; ayri mali duzeltme is emri acildi" \
+  --gecerlilik 2026-11-03
 ```
 
-Gerekçesiz (10 karakterden kısa) onay **reddedilir**; onaylar raporda
-gerekçesiyle birlikte "KABUL" olarak basılır.
+Kurallar (hepsi testle kanıtlı, `npm run test:cari`):
+kimliksiz onay (`--kabul C5="…"`) **reddedilir** — kapının tamamını affederdi;
+joker (`C5:*`) **reddedilir**; `--gecerlilik` olmadan onay **reddedilir**;
+süresi geçmiş onay **geçersizdir** (kapı yeniden düşer); karşılığı kalmamış
+onay raporda **KULLANILMADI** basılır; onay yalnız kendi kapısını affeder.
+Gerekçe 10 karakterden kısaysa reddedilir.
+
+> Bu, iş emrinin 5. maddesidir: istisna **yalnız** `SAT-2026-000001` içindir,
+> **diğer mali tutarsızlıkları otomatik kabul etmez** ve mali düzeltmenin
+> yerine geçmez. İstisna hiçbir kayıt yazmaz — DB'ye işlemez.
 
 **Uyarılar (kapı değil, inceleme konusu):**
 

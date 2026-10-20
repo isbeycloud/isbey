@@ -39,23 +39,50 @@ export interface ReconcileOutcome {
   message: string;
 }
 
+/** GUID ucunun `guids` filtresini uygulamadığı ölçüldü (docs/50 S-G4). */
+function kimlikEslesti(d: any, uuid: string): boolean {
+  if (!d || typeof d !== 'object') return false;
+  const hedef = uuid.toLowerCase();
+  return Object.values(d).some(v => typeof v === 'string' && v.toLowerCase() === hedef);
+}
+
 /**
  * Belgeyi sağlayıcıda arar. AppType tahmin edilmez; iki kapsamda da denenir.
  * Uç çağrısı `HizliConnectService` üzerinden yapılır — kimlik/token başlığı
  * tek noktada yönetilsin diye burada HTTP katmanı tekrar yazılmaz.
+ *
+ * ── 2026-10-20 (YANLIŞ-NEGATİF ONARIMI — canlı ölçümle bulundu) ─────────────
+ * Önce yalnız `GetDocumentListGUID` sorgulanıyordu ve "uçta çıkmadı" sonucu
+ * doğrudan `NOT_FOUND` sayılıyordu. CANLI ÖLÇÜM bunun yanlış olduğunu gösterdi:
+ *
+ *   · `SAT-2026-000001` (ETTN 7e03cd4b…) için GUID ucu appType 1'de 3,
+ *     appType 2'de 2 belge döndürdü — hiçbiri aranan belge DEĞİL.
+ *   · Aynı belge `GetDocumentList` + tarih aralığıyla appType 2'de BULUNDU
+ *     (BTF2026000000144, zarf 1300, "Otomatik Onaylandı").
+ *
+ * Yani unutulan `guids` filtresi yüzünden uç, filtresiz çağrıyla AYNI küçük
+ * kümeyi (yalnız çok yakın tarihli belgeler) döndürüyor. BU BİR "YOK" KANITI
+ * DEĞİLDİR. Sonucu: eski bir SENDING fatura "sağlayıcıda yok" sanılıp kilidi
+ * `release-sending` ile serbest bırakılabiliyordu → belge ZATEN GİB'e
+ * iletilmişken yeniden gönderim = MÜKERRER FATURA.
+ *
+ * Onarım: GUID ucu bulamazsa `GetDocumentList` ile fatura tarihi ±45 gün
+ * taranır. Hiçbir uç bulamazsa ve HER İKİ sorgu da başarılıysa "yok" denir.
  */
 async function findDocument(
   uuid: string,
   token: string,
-  isTest: boolean
+  isTest: boolean,
+  tarihHint?: string
 ): Promise<
-  | { status: 'FOUND'; doc: any }
-  | { status: 'ABSENT' }      // sorgu başarılı, belge listede yok
+  | { status: 'FOUND'; doc: any; via: 'GUID' | 'LIST' }
+  | { status: 'ABSENT' }      // iki uç da başarılı, belge hiçbirinde yok
   | { status: 'FAILED'; message: string }  // sorgu yapılamadı — "yok" DENEMEZ
 > {
   let lastError = '';
   let basariliSorgu = false;
 
+  // ── 1) Hızlı yol: GUID ──
   for (const appType of [1, 2]) {
     const res = await HizliConnectService.getDocumentListByGUID([uuid], appType, token, isTest);
     if (!res.success) {
@@ -72,15 +99,47 @@ async function findDocument(
     const documents = Array.isArray(res.data.documents) ? res.data.documents : [];
     // Uç `guids` filtresini uygulamayabilir; İSTENEN kimlik listede aranır.
     // Başka bir belgenin sonucunu "bizim belgemiz" saymak uydurma olurdu.
-    const doc = documents.find(
-      (d: any) => d && Object.values(d).some(
-        v => typeof v === 'string' && v.toLowerCase() === uuid.toLowerCase()
-      )
-    );
-    if (doc) return { status: 'FOUND', doc };
+    const doc = documents.find((d: any) => kimlikEslesti(d, uuid));
+    if (doc) return { status: 'FOUND', doc, via: 'GUID' };
   }
 
-  // Sorgu en az bir kez başarıyla yapıldıysa ve belge çıkmadıysa "yok" denebilir.
+  // ── 2) Kesin yol: tarih aralıklı liste ──
+  // GUID ucunun "bulamadım" cevabı KANIT DEĞİL (yukarıdaki ölçüm). Tarih
+  // bilinmiyorsa taranacak aralık yok → yalnız GUID sonucuyla yetinilir ve
+  // bu durum çağırana AYNI şekilde raporlanır (uydurma tarih ÜRETİLMEZ).
+  const tarih = (tarihHint || '').trim();
+  if (tarih && /^\d{4}-\d{2}-\d{2}$/.test(tarih)) {
+    const merkez = new Date(`${tarih}T00:00:00.000Z`);
+    if (!Number.isNaN(merkez.getTime())) {
+      const startDate = new Date(merkez.getTime() - 45 * 86400000).toISOString();
+      const endDate = new Date(merkez.getTime() + 45 * 86400000).toISOString();
+      let listBasarili = false;
+      for (const appType of [1, 2]) {
+        const r: any = await HizliConnectService.getDocumentList(
+          { appType, dateType: 'CreateDate', startDate, endDate },
+          token,
+          isTest
+        );
+        if (!r?.success) {
+          lastError = r?.message || 'Tarih aralıklı belge listesi alınamadı.';
+          continue;
+        }
+        listBasarili = true;
+        const docs: any[] = Array.isArray(r.documents) ? r.documents : [];
+        const doc = docs.find(d => kimlikEslesti(d, uuid));
+        if (doc) return { status: 'FOUND', doc, via: 'LIST' };
+      }
+      // Liste sorgusu da doğrulanamadıysa "yok" DENMEZ.
+      if (!listBasarili && basariliSorgu) {
+        return {
+          status: 'FAILED',
+          message: `GUID ucu belgeyi bulamadı, tarih aralıklı doğrulama da yapılamadı: ${lastError || 'bilinmeyen hata'}. Belge "yok" sayılamaz.`,
+        };
+      }
+    }
+  }
+
+  // Sorgu(lar) başarıyla yapıldıysa ve belge çıkmadıysa "yok" denebilir.
   // Hiç başarılı sorgu yoksa bu bir ARIZADIR — "belge yok" DEĞİLDİR ve asla
   // öyle raporlanmamalıdır (mükerrer fatura riski).
   if (basariliSorgu) return { status: 'ABSENT' };
@@ -121,7 +180,10 @@ export async function reconcileSendingInvoice(
 
   const isTest = settings.environment !== 'PRODUCTION';
   const { token } = await ensureTenantToken(settings, isTest);
-  const lookup = await findDocument(uuid, token, isTest);
+  // Faturanın KENDİ tarihi taranacak aralığı belirler. Bugünün tarihi
+  // kullanılsaydı eski bir belge hiç taranmaz ve "yok" sanılırdı.
+  const tarihHint = String(invoice.date || invoice.issueDate || invoice.createdAt || '').slice(0, 10);
+  const lookup = await findDocument(uuid, token, isTest, tarihHint);
 
   if (lookup.status === 'FAILED') {
     // Sorgu yapılamadı. Bu "belge yok" DEĞİLDİR: belge gönderilmiş olabilir ve

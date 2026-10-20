@@ -45,6 +45,10 @@ const steps = [
   { label: 'Lint (oxlint src server)', script: 'lint' },
   { label: 'Production build (tsc -b && vite build)', script: 'build' },
   { label: 'Yerel izole test süitleri (tools/test-local.mjs)', script: 'test' },
+  // 2026-10-20: CARİ İSTİSNA KAPISI. `cari-tutarlilik.py --kabul` bir kaydı
+  // affederken kimlik + süre şartı arıyor; bu sözleşme Python tarafında ve
+  // Node süitlerinden geçmiyordu. Kapı olmadan mekanizma sessizce genişleyebilir.
+  { label: 'Cari tutarlılık istisna sözleşmesi (python)', script: 'test:cari' },
   ...(withE2E ? [{ label: 'Playwright E2E (dist/ üzerinde)', script: 'test:e2e' }] : []),
 ];
 

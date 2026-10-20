@@ -310,6 +310,36 @@ export const POSSalesView: React.FC = () => {
       return;
     }
 
+    // 2026-10-20: SIFIR TUTARLI PERAKENDE SATIŞ — sessiz geçemez.
+    // Canlıda SAT-2026-000005 tam bu yoldan (RETAIL_POS, 3 kalem × 0 TL)
+    // kesildi: 3 adet stok çıktı, alacak doğmadı, nedeni hiçbir yerde yazmıyor.
+    // Sunucu kapısı gerekçesiz 0 TL satışı reddediyor; kasiyer bunu satış
+    // tamamlandıktan sonra hata olarak görmesin diye burada ÖNCE sorulur.
+    let zeroTotalReason: string | undefined;
+    if (grandTotal <= 0) {
+      const sifirSatirlar = basket
+        .filter(it => (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) <= 0)
+        .map(it => `${it.productCode} ${it.productName} (${it.quantity} × ${Number(it.unitPrice) || 0} ₺)`)
+        .join(', ');
+      const cevap = window.prompt(
+        `Sepet toplamı ${grandTotal.toFixed(2)} ₺.\n\n` +
+        `Sıfır tutarlı satış stok çıkışı doğurur ama alacak doğurmaz.\n` +
+        `Kalemler: ${sifirSatirlar || `${basket.length} satır`}\n\n` +
+        `Bu bilinçli bir işlemse GEREKÇESİNİ yazın (en az 10 karakter).\n` +
+        `Vazgeçerseniz satış kaydedilmez; fiyatları düzeltebilirsiniz.`,
+        ''
+      );
+      if (cevap === null) {
+        showToast('Sıfır tutarlı satış kaydedilmedi. Fiyatları kontrol edin.', 'warning');
+        return;
+      }
+      if (cevap.trim().length < 10) {
+        showToast('Gerekçe en az 10 karakter olmalı. Satış kaydedilmedi.', 'warning');
+        return;
+      }
+      zeroTotalReason = cevap.trim();
+    }
+
     setIsProcessing(true);
     try {
       const payload = {
@@ -320,6 +350,7 @@ export const POSSalesView: React.FC = () => {
         paidAmount: paymentType === 'OPEN_ACCOUNT' ? 0 : grandTotal,
         date: new Date().toISOString().split('T')[0],
         warehouseId,
+        zeroTotalReason,
       };
 
       const res = await api.createInvoice(payload);
