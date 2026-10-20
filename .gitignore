@@ -50,6 +50,9 @@ cookies.txt
 # Depo PUBLIC olduğu için ASLA commit edilmemeli (2026-10-17: untracked duruyordu,
 # `git add .` ile commit'e girecekti).
 hostinger.txt
+# 2026-10-20: aynı kimlikler `host.txt` adıyla da kondu (SSH + 2 GitHub token).
+# Depo PUBLIC — bu dosya da ASLA commit edilmemeli.
+host.txt
 *.pem
 *.key
 *.p12
