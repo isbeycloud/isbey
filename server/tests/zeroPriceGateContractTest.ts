@@ -77,7 +77,16 @@ let token = '';
 
 function kurulum() {
   storage.update(db => {
-    db.tenants = [{ id: T, name: 'ZP', subdomain: 'zp', status: 'ACTIVE' } as any];
+    // 2026-10-21: Abonelik tarihleri ZORUNLU. Verilmezse `subscriptionState`
+    // UNCONFIGURED döner ve authGuards yazma isteklerini 403 ile keser —
+    // o zaman test sıfır fiyat kapısını değil ABONELİK kapısını ölçer
+    // (K13'te tam bu oldu). Platform admin bu kapıyı atladığı için yalnız
+    // yetkisiz kullanıcı senaryosunda ortaya çıktı.
+    db.tenants = [{
+      id: T, name: 'ZP', subdomain: 'zp', status: 'ACTIVE',
+      createdAt: '2026-01-01',
+      erpSubscription: { startDate: '2026-01-01', endDate: '2099-12-31', expiryPolicy: 'READ_ONLY' },
+    } as any];
     const now = new Date().toISOString();
     db.users = [
       { id: 'u', tenantId: T, username: 'zp', fullName: 'ZP', email: 'zp@x', phone: '', role: 'ADMIN', permissions: ['*'], active: true, createdAt: now, updatedAt: now } as any,
@@ -146,9 +155,31 @@ async function basla() {
   await new Promise<void>(r => server.once('listening', () => r()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   token = jwt.sign({ userId: 'u', tenantId: T }, process.env.JWT_SECRET!, { expiresIn: '5m' });
+  // Yetkisiz kullanıcı: SATIS_REP benzeri dar rol. Fatura kesme izni VAR
+  // (aksi hâlde 403 kapıdan değil yetki ara katmanından gelirdi ve test
+  // yanlış şeyi ölçerdi) ama YÖNETİCİ DEĞİL — bedelsiz satış yetkisi yok.
+  storage.update(db => {
+    const now = new Date().toISOString();
+    db.users = [
+      ...(db.users || []),
+      { id: 'u2', tenantId: T, username: 'zp2', fullName: 'ZP2', email: 'zp2@x', phone: '', role: 'SATIS', permissions: ['invoices.create', 'invoices.view'], active: true, createdAt: now, updatedAt: now } as any,
+    ];
+    db.tenantUsers = [
+      ...((db.tenantUsers as any) || []),
+      { id: 'tu2', userId: 'u2', tenantId: T, roleSlug: 'employee', status: 'active', isOwner: false, joinedAt: now, createdAt: now, updatedAt: now },
+    ] as any;
+  });
+  yetkisizToken = jwt.sign({ userId: 'u2', tenantId: T }, process.env.JWT_SECRET!, { expiresIn: '5m' });
 }
 
 const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+// 2026-10-21: YETKİSİZ oturum. Terminal (satış temsilcisi) rolü — kapının
+// beyaz listesinde YOK. Amaç: yetki kapısının HTTP katmanında da çalıştığını
+// ölçmek. Saf fonksiyon testi (K11) bunu zaten ölçüyor; buradaki fark,
+// `req.user`/`req.userRole`'nin GERÇEKTEN sunucudan geldiğini ve gövdeyle
+// EZİLEMEDİĞİNİ kanıtlamasıdır.
+let yetkisizToken = '';
+const HYetkisiz = () => ({ Authorization: `Bearer ${yetkisizToken}`, 'Content-Type': 'application/json' });
 /** Satır: ürün + adet + (verilirse) birim fiyat. Fiyat VERİLMEZSE legacy uç
  *  ürünün `salePrice`'ına düşer — canlıdaki sessiz 0 TL yolu tam budur. */
 const satir = (adet: number, fiyat?: number, urun = 'p') => [
@@ -278,6 +309,69 @@ test('K12b: yetki kontrolü ALIŞ/PROFORMA ve toplam>0 işlemleri ETKİLEMEZ', (
   assert.equal(evaluateZeroTotalGate('SALES', 500, [{ quantity: 1, unitPrice: 500 }], undefined, { role: 'SALES_REP' }).blocked, false);
   // Alış zaten kapsam dışı.
   assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }], undefined, { role: 'SALES_REP' }).blocked, false);
+});
+
+// ─────────────── YETKİ KAPISI — UÇTAN UCA (HTTP, 2026-10-21) ───────────────
+// Saf fonksiyon testi (K11) kapıyı ölçer; buradaki testler kapının UÇTA,
+// SUNUCUDAN gelen aktörle çalıştığını ölçer. Fark önemli: aktör istek
+// gövdesinden gelirse istemci kendini yönetici ilan edebilir.
+
+test('K13: YETKİSİZ kullanıcı sıfır satışta 403 alır (gerekçe yazsa bile)', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE }),
+  });
+  const govde = await res.json() as any;
+  assert.equal(res.status, 403, 'yetkisiz kullanıcı 403 almalı (gerekçe geçerli olsa da)');
+  assert.equal(govde.code, 'ZERO_TOTAL_FORBIDDEN');
+  const sonra = muhasebeOzeti();
+  assert.deepEqual(sonra, once, 'yetkisiz denemede HİÇBİR ŞEY yazılmamalı');
+});
+
+test('K13b: gövdeye role:SUPER_ADMIN koymak yetki VERMEZ (aktör sunucudan)', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({
+      type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE,
+      // Saldırı denemesi: istemci kendini yönetici ilan ediyor.
+      role: 'SUPER_ADMIN', userRole: 'platform_admin', user: { role: 'SUPER_ADMIN' },
+    }),
+  });
+  assert.equal(res.status, 403, 'gövdeden gelen rol YOK SAYILMALI');
+  assert.deepEqual(muhasebeOzeti(), once, 'HİÇBİR ŞEY yazılmamalı');
+});
+
+test('K13c: YETKİLİ ama gerekçesiz → 400; YETKİLİ ve gerekçeli → yazılır', async () => {
+  // Yetkili (yönetici) + gerekçe yok → 400
+  const r1 = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: H(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0) }),
+  });
+  assert.equal(r1.status, 400);
+  assert.equal((await r1.json() as any).code, 'ZERO_TOTAL_REASON_REQUIRED');
+
+  // Yetkili + anlamlı gerekçe → yazılır
+  const once = muhasebeOzeti();
+  const r2 = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: H(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE }),
+  });
+  // Legacy uç `200` döner (v1 uç `201`); ikisi de "yazıldı" demektir.
+  assert.equal(r2.status, 200, 'yetkili ve gerekçeli işlem yazılmalı');
+  const sonra = muhasebeOzeti();
+  assert.equal(sonra.fatura, once.fatura + 1);
+});
+
+test('K13d: v1 uçta da yetkisiz kullanıcı 403 alır', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/v1/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(2, 0), zeroTotalReason: GEREKCE }),
+  });
+  assert.equal(res.status, 403, 'v1 uçta da yetki kapısı çalışmalı');
+  assert.deepEqual(muhasebeOzeti(), once, 'HİÇBİR ŞEY yazılmamalı');
 });
 
 // ─────────────────────────── LEGACY POST /api/invoices ───────────────────────────
