@@ -49,6 +49,10 @@ const steps = [
   // affederken kimlik + süre şartı arıyor; bu sözleşme Python tarafında ve
   // Node süitlerinden geçmiyordu. Kapı olmadan mekanizma sessizce genişleyebilir.
   { label: 'Cari tutarlılık istisna sözleşmesi (python)', script: 'test:cari' },
+  // 2026-10-21: MALİ DÜZELTME KAPILARI. Araç gerçek para yazıyor (cari bağlantısı
+  // + tek seferlik hareket). K1/K3/K4/K5/K6/K7 kapılarının her birinin düştüğünü
+  // ve düşen kapının dosyayı DEĞİŞTİRMEDİĞİNİ ölçen sözleşme testi kapıya alındı.
+  { label: 'Mali düzeltme sözleşmesi (python)', script: 'test:mali' },
   ...(withE2E ? [{ label: 'Playwright E2E (dist/ üzerinde)', script: 'test:e2e' }] : []),
 ];
 

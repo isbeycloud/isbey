@@ -10,6 +10,7 @@
     "release:package": "node tools/package-release.mjs",
     "test": "node tools/test-local.mjs",
     "test:cari": "python3 tools/cari-tutarlilik-test.py",
+    "test:mali": "python3 tools/mali-duzeltme-test.py",
     "test:e2e": "playwright test",
     "release:check": "npm run build && npm run lint && npm test && npm run test:e2e && npm run security-audit",
     "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run server\" \"npm run client\"",

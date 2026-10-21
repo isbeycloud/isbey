@@ -53,6 +53,9 @@ hostinger.txt
 # 2026-10-20: aynı kimlikler `host.txt` adıyla da kondu (SSH + 2 GitHub token).
 # Depo PUBLIC — bu dosya da ASLA commit edilmemeli.
 host.txt
+# 2026-10-21: rotasyon doğrulaması için eski kimliklerin PARMAK İZLERİ
+# (sha256 ilk 16). Kimliğin kendisi yok ama yine de depoya girmez.
+tools/.eski-kimlik-parmak-izleri.json
 *.pem
 *.key
 *.p12

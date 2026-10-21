@@ -449,6 +449,23 @@ def plan_olustur(db, fatura_no, kanit, allow_cari_tipi, hatalar, uyarilar):
         'createdAt': simdi,
     }
 
+    # ── BEKLENEN BAKİYE: "cari.balance + tutar" DEĞİL (2026-10-21 ölçülen kusur) ──
+    # İlk sürüm beklenen değeri `cari.balance + inv_tutar` diye hesaplıyordu; bu,
+    # `recalculate_cari` ile ÇELİŞEBİLİR. Sebep: `recalculate_cari` (ve sunucunun
+    # `storage.recalculateBalances`'ı) bakiyeyi HAREKETLERDEN sıfırdan üretir —
+    # `cari.balance` alanını başlangıç değeri olarak KULLANMAZ.
+    #
+    # Ölçülen vaka: yeni açılmış, hiç hareketi olmayan ama `balance` alanı 0
+    # OLMAYAN bir cari. Prova sırasında sentetik cari `balance: 0` ile açıldığı
+    # için kapı (K6) geçti; `balance` başka bir değer olsaydı düzeltme K6'da
+    # DURACAK, yani canlıda hiç uygulanamayacaktı. Sessiz bir yanlış değil, ama
+    # yanlış: beklenen değer defterin GERÇEK kuralından türetilmeli.
+    #
+    # Doğru kural: bu cariye ait mevcut hareketlerin neti + yeni hareket.
+    mevcut_net = sum((d(t.get('debit')) - d(t.get('credit'))
+                      for t in ctx_tum if t.get('customerId') == cari.get('id')), Decimal('0'))
+    beklenen_yeni = q(mevcut_net + inv_tutar)
+
     return {
         'degisiklik_yok': False,
         'fatura': inv,
@@ -457,7 +474,7 @@ def plan_olustur(db, fatura_no, kanit, allow_cari_tipi, hatalar, uyarilar):
         'hareket': hareket,
         'eski_cari_bakiye': q(d(cari.get('balance'))),
         'beklenen_bakiye_farki': inv_tutar,
-        'beklenen_yeni_bakiye': q(d(cari.get('balance')) + inv_tutar),
+        'beklenen_yeni_bakiye': beklenen_yeni,
     }
 
 
@@ -727,8 +744,31 @@ def main():
     cari_sonra = lib.money_sum(calisma.get('customers', []), 'balance')
     kosan_sonra = lib.money_sum(calisma.get('currentTransactions', []), 'balance')
     if q(cari_sonra - cari_once) != q(plan['beklenen_bakiye_farki']):
-        son_hatalar.append(f'K6: cari toplam farkı {q(cari_sonra - cari_once)} ≠ '
-                           f'beklenen {plan["beklenen_bakiye_farki"]}')
+        # ── 2026-10-21: "fark" beklenen TOPLAM DEĞİŞİMİ DEĞİLDİR ────────────
+        # Bu kapı ilk yazıldığında doğruydu: prova verisinde düzeltilecek cari
+        # hiç hareketi olmayan, `balance` alanı 0 olan yeni bir karttı, yani
+        # "sonra − önce" tesadüfen +tutar veriyordu.
+        #
+        # Ölçülen kusur: `recalculate_cari` YALNIZ hareketi olan carilerin
+        # bakiyesini yeniden üretir; `cari.balance` alanı 0'dan farklı ama
+        # hareketi olmayan bir caride alan olduğu gibi kalır. O durumda toplam
+        # fark `(doğru bakiye) − (bayat alan)` olur — ör. 120 − 50 = 70.
+        # Kapı bu yüzden MEŞRU bir düzeltmeyi reddediyordu (K6).
+        #
+        # Bu bir GEVŞETME DEĞİL: aşağıdaki `dogrula_sonrasi` zaten kayıt
+        # bazında ölçüyor (faturanın carisi = beklenen bakiye, tek hareket,
+        # tutar eşitliği). Buradaki toplam kontrolünün işi "defterde BAŞKA bir
+        # yere dokunulmadı" demek; bunun doğru ölçüsü beklenen fark değil,
+        # DOKUNULMAMASI GEREKEN carilerin değişmemesidir.
+        hedef_cari = plan['cari']['id']
+        onceki = {c.get('id'): q(d(c.get('balance'))) for c in original.get('customers', [])}
+        dokunulmamis = [(c.get('id'), onceki.get(c.get('id')), q(d(c.get('balance'))))
+                        for c in calisma.get('customers', [])
+                        if c.get('id') != hedef_cari and onceki.get(c.get('id')) != q(d(c.get('balance')))]
+        if dokunulmamis:
+            son_hatalar.append(f'K6: HEDEF DIŞI cari bakiyesi değişti: {dokunulmamis[:3]}')
+        if len(calisma.get('customers', [])) != len(original.get('customers', [])):
+            son_hatalar.append('K6: cari sayısı değişti — düzeltme cari OLUŞTURMAMALI')
     if q(kosan_sonra - kosan_once) != q(plan['beklenen_bakiye_farki']):
         son_hatalar.append(f'K6: koşan bakiye toplam farkı {q(kosan_sonra - kosan_once)} ≠ '
                            f'beklenen {plan["beklenen_bakiye_farki"]}')

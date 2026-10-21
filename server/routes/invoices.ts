@@ -403,7 +403,11 @@ invoicesRouter.post('/', async (req, res) => {
             (draft.products || []).find(p => p.id === it.productId)?.salePrice
           ),
         })),
-        zeroTotalReason
+        zeroTotalReason,
+        // 2026-10-21: Bedelsiz satış YETKİ ister. Aktör SUNUCUDAN gelir
+        // (`req.user`/`req.userRole`), gövdeden DEĞİL — istemci kendini
+        // yönetici ilan edemez.
+        { role: req.user?.role, roleSlugs: [req.userRole].filter(Boolean) as string[] }
       );
 
       // 5. Create Invoice Record

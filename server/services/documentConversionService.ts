@@ -48,6 +48,13 @@ export interface CreateInvoiceParams {
    * yok sayılır. Boşsa/yetersizse `zeroPriceGate` faturasız 400 döndürür.
    */
   zeroTotalReason?: string;
+  /**
+   * 2026-10-21: Bedelsiz satışın YETKİSİ. Çağıran route bunu `req.user` ve
+   * `req.userRole`'den doldurur — istemci gövdesinden ASLA. Boş bırakılırsa
+   * kapı "yetkisiz" sayar (fail-closed): sıfır tutarlı satış yazılmaz.
+   */
+  actorRole?: string;
+  actorRoleSlugs?: string[];
 }
 
 export class DocumentConversionService {
@@ -244,7 +251,9 @@ export class DocumentConversionService {
       type,
       Math.round(grandTotal * 100) / 100,
       kapiSatirlari,
-      params.zeroTotalReason
+      params.zeroTotalReason,
+      // 2026-10-21: Yetki SUNUCUDAN gelen aktörden okunur; gövdeye güvenilmez.
+      { role: params.actorRole, roleSlugs: params.actorRoleSlugs }
     );
 
     const isSalesInvoice = type === 'SALES' || type === 'RETAIL_POS';

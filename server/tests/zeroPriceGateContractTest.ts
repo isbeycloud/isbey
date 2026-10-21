@@ -67,6 +67,9 @@ const { v1InvoicesRouter } = await import('../routes/v1/invoices');
 
 const T = 'tnt-zp';
 const GEREKCE = 'Numune amaçlı bedelsiz gönderim — pazarlama';
+// 2026-10-21: Kapı artık YETKİ de soruyor. Testlerin çoğu "yönetici"
+// aktörüyle koşar; yetki senaryoları K10'da AYRI ve dar ölçülür.
+const AKTOR = { role: 'COMPANY_ADMIN', roleSlugs: ['company_admin'] };
 
 let server: ReturnType<ReturnType<typeof express>['listen']>;
 let base = '';
@@ -160,7 +163,7 @@ function test(name: string, fn: () => Promise<void> | void) { tests.push({ name,
 // ─────────────────────────── SAF FONKSİYON KAPISI ───────────────────────────
 
 test('K1: sıfır tutarlı SALES gerekçesiz DURUR (kod + ne yapmalı mesajı)', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 3, unitPrice: 0 }]);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 3, unitPrice: 0 }], undefined, AKTOR);
   assert.equal(r.blocked, true);
   assert.equal(r.code, 'ZERO_TOTAL_REASON_REQUIRED');
   assert.match(r.message!, /GEREKÇE/);
@@ -168,51 +171,51 @@ test('K1: sıfır tutarlı SALES gerekçesiz DURUR (kod + ne yapmalı mesajı)',
 });
 
 test('K1b: sıfır tutarlı RETAIL_POS da DURUR (canlı SAT-2026-000005 yolu)', () => {
-  const r = evaluateZeroTotalGate('RETAIL_POS', 0, [{ productCode: 'URN-1', quantity: 3, unitPrice: 0 }]);
+  const r = evaluateZeroTotalGate('RETAIL_POS', 0, [{ productCode: 'URN-1', quantity: 3, unitPrice: 0 }], undefined, AKTOR);
   assert.equal(r.blocked, true);
   assert.equal(r.code, 'ZERO_TOTAL_REASON_REQUIRED');
 });
 
 test('K2: yeterli gerekçeyle GEÇER', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], GEREKCE);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], GEREKCE, AKTOR);
   assert.equal(r.blocked, false);
 });
 
 test('K3: kısa/kaçamak gerekçe kabul EDİLMEZ', () => {
   for (const kisa of ['', '   ', '0', 'yok', 'bedava', 'a'.repeat(ZERO_TOTAL_REASON_MIN - 1)]) {
-    assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], kisa).blocked, true, `"${kisa}" reddedilmeli`);
+    assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], kisa, AKTOR).blocked, true, `"${kisa}" reddedilmeli`);
   }
-  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], 'a'.repeat(ZERO_TOTAL_REASON_MIN)).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], 'numune promosyon', AKTOR).blocked, false);
 });
 
 test('K4: negatif toplam da gerekçe ister (sıfırdan farkı yok)', () => {
   const satirlar = [{ quantity: 1, unitPrice: -50 }];
-  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar).blocked, true);
-  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, GEREKCE).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, undefined, AKTOR).blocked, true);
+  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, GEREKCE, AKTOR).blocked, false);
 });
 
 test('K5: ALIŞ ve PROFORMA kapsam DIŞI (tedarikçi belgesi / teklif)', () => {
-  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }]).blocked, false);
-  assert.equal(evaluateZeroTotalGate('PROFORMA', 0, [{ quantity: 1, unitPrice: 0 }]).blocked, false);
+  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR).blocked, false);
+  assert.equal(evaluateZeroTotalGate('PROFORMA', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR).blocked, false);
 });
 
 test('K6: toplamı > 0 olan fatura gerekçesiz geçer', () => {
-  assert.equal(evaluateZeroTotalGate('SALES', 120, [{ quantity: 1, unitPrice: 100 }]).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', 120, [{ quantity: 1, unitPrice: 100 }], undefined, AKTOR).blocked, false);
 });
 
 test('K9: fiyatı olan ürüne 0 girilmişse UYARI üretilir (engellemez)', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 2, unitPrice: 0, productSalePrice: 100 }], GEREKCE);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 2, unitPrice: 0, productSalePrice: 100 }], GEREKCE, AKTOR);
   assert.equal(r.blocked, false, 'uyarı engel DEĞİLDİR');
   assert.equal(r.warnings.length, 1);
   assert.match(r.warnings[0], /URN-1/);
   assert.match(r.warnings[0], /100/);
   // Satış fiyatı zaten 0 ise "fiyatı var ama 0 girilmiş" uyarısı YOK.
-  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 0 }], GEREKCE).warnings.length, 0);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 0 }], GEREKCE, AKTOR).warnings.length, 0);
 });
 
 test('K10: assertZeroTotalAllowed düşünce ZeroTotalGateError (400 + kod)', () => {
   try {
-    assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0 }]);
+    assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR);
     assert.fail('fırlatmalıydı');
   } catch (err: any) {
     assert.ok(err instanceof ZeroTotalGateError);
@@ -220,8 +223,61 @@ test('K10: assertZeroTotalAllowed düşünce ZeroTotalGateError (400 + kod)', ()
     assert.equal(err.code, 'ZERO_TOTAL_REASON_REQUIRED');
   }
   // Geçen durumda uyarı listesi döner (denetim kaydı için).
-  const uyarilar = assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 100 }], GEREKCE);
+  const uyarilar = assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 100 }], GEREKCE, AKTOR);
   assert.equal(uyarilar.length, 1);
+});
+
+// ─────────────────── YETKİ KAPISI (2026-10-21, P3) ───────────────────
+// ÖLÇÜLEN KUSUR: 2026-10-20 sürümü yalnız "≥10 karakter" istiyordu.
+// `"asdfasdfasdf"` ve `"1111111111"` kapıyı GEÇİYORDU — yani yetki
+// sorulmuyordu. Aşağıdaki testler yetkinin gerçekten arandığını ölçer.
+
+test('K11: YETKİSİZ kullanıcı gerekçe yazsa bile sıfır satış YAZAMAZ (403)', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  // Kastî olarak geçerli ve anlamlı gerekçe veriliyor: yalnız yetki eksik.
+  const r = evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE, { role: 'SALES_REP' });
+  assert.equal(r.blocked, true, 'yetkisiz rol geçmemeli');
+  assert.equal(r.code, 'ZERO_TOTAL_FORBIDDEN');
+  // Aktör hiç verilmezse fail-closed: yazılmaz.
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE).blocked, true);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE, {}).blocked, true);
+});
+
+test('K11b: yetkisiz rolde 403, yetkili rolde 400 döner (istemci ayırt edebilsin)', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  try {
+    assertZeroTotalAllowed('SALES', 0, satirlar, undefined, { role: 'SALES_REP' });
+    assert.fail('fırlatmalıydı');
+  } catch (err: any) {
+    assert.equal(err.statusCode, 403);
+    assert.equal(err.code, 'ZERO_TOTAL_FORBIDDEN');
+  }
+  try {
+    assertZeroTotalAllowed('SALES', 0, satirlar, undefined, AKTOR);
+    assert.fail('fırlatmalıydı');
+  } catch (err: any) {
+    assert.equal(err.statusCode, 400);
+    assert.equal(err.code, 'ZERO_TOTAL_REASON_REQUIRED');
+  }
+});
+
+test('K12: anlamsız gerekçe YETKİLİ kullanıcıyı da geçirmez ("asdf", "1111")', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  for (const anlamsiz of ['asdfasdfasdf', '1111111111', '------------', 'aaaaaaaaaaaa', 'aaaa bbbb']) {
+    assert.equal(
+      evaluateZeroTotalGate('SALES', 0, satirlar, anlamsiz, AKTOR).blocked, true,
+      `"${anlamsiz}" anlamlı gerekçe sayılmamalı`,
+    );
+  }
+  // Gerçek gerekçe geçer (iki kelime + ayırt edici karakterler).
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, 'numune promosyon', AKTOR).blocked, false);
+});
+
+test('K12b: yetki kontrolü ALIŞ/PROFORMA ve toplam>0 işlemleri ETKİLEMEZ', () => {
+  // Yetkisiz kullanıcı bile normal (tutarlı) satış kesebilmeli.
+  assert.equal(evaluateZeroTotalGate('SALES', 500, [{ quantity: 1, unitPrice: 500 }], undefined, { role: 'SALES_REP' }).blocked, false);
+  // Alış zaten kapsam dışı.
+  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }], undefined, { role: 'SALES_REP' }).blocked, false);
 });
 
 // ─────────────────────────── LEGACY POST /api/invoices ───────────────────────────
