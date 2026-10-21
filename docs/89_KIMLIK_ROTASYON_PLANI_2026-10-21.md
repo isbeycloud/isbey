@@ -50,6 +50,30 @@ olmadığını gösterir.
 Sıra önemli: **önce yeniyi üret, sonra eskiyi iptal et.** Tersi yapılırsa
 arada kalınır ve acil bir düzeltme gerekirse erişim kalmaz.
 
+### 3.0 ÖN KOŞUL — kimlik dosyası AJANIN GÖREBİLDİĞİ yere yazılmalı
+
+**2026-10-21'de ölçülen tuzak:** ajan ayrı bir Linux sanal makinesinde çalışıyor;
+`os.homedir()` orada `/sessions/...` dönüyor, kullanıcının Windows profilini
+(`C:\Users\<ad>`) **göremiyor**. `set` komutu varsayılan olarak
+`C:\Users\<ad>\.isbey-deploy.env` dosyasına yazar — dosya oluşur ama ajan
+okuyamaz ve push **sessizce imkânsız** kalır.
+
+Bu yüzden kimlik dosyası **proje klasörünün içine**, git dışında kalan
+`.verify-tmp/` altına yazılır:
+
+```powershell
+cd D:\İŞBEY
+$env:ISBEY_DEPLOY_ENV = "D:\İŞBEY\.verify-tmp\deploy.env"
+node tools/deploy-credentials.mjs set
+node tools/deploy-credentials.mjs test     # "YETKİ VAR" görmeli
+```
+
+`set` çıktısı dosyanın **neredeyse** yazdığını açıkça söyler — kontrol edin.
+`ISBEY_DEPLOY_ENV` tanımlı **değilse** davranış eski hâlindedir (`~`), yani
+geriye dönük uyum bozulmaz.
+
+> `.verify-tmp/` `.gitignore`'da. Ek olarak `*deploy.env` deseni de eklendi.
+
 ### 3.1 GitHub token'ları
 
 1. GitHub → Settings → Developer settings → **Personal access tokens**.
@@ -99,6 +123,13 @@ Beklenen çıktı ve anlamı:
 | `❌ <iz> HÂLÂ GEÇERLİ` | **Rotasyon yapılmamış** — çıkış 3 |
 | `⚠️ <iz> HÂLÂ DİSKTE` | Değer silinmemiş; yeni bir ifşa riski sürüyor |
 | `? <iz> değeri diskte yok → sınanamadı` | Dosya silinmiş; iptal **varsayılmaz** |
+
+**2026-10-21'de kapatılan kusur:** eski değerler silindiğinde araç "diskte yok"
+diyor, canlılık sınamasını atlıyor ve **"ROTASYON DOĞRULANDI"** hükmü
+çıkarabiliyordu — token'lar hâlâ geçerliyken. Artık değeri bulunamayan token
+`DOĞRULANAMADI` sayılır ve çıkış kodu **4** olur; tek kanıt GitHub'ın `401`'idir.
+Değerleri silmeden ÖNCE `parmak-izlerini-yaz` çalıştırın, ya da token listesinden
+kaydın **artık olmadığını** teyit edin.
 
 **Tam başarı:** çıkış kodu `0` — hiçbir token geçerli değil, hiçbir eski değer
 diskte değil. SSH parolası ayrıca elle teyit edilir (§3.2/3).
