@@ -115,6 +115,30 @@ async function dogrula() {
   const izler = JSON.parse(fs.readFileSync(IZ_DOSYASI, 'utf8')).kimlikler;
   const tokenlar = izler.filter(k => k.tur === 'github_token');
 
+  // ── 0) ESKİ DEĞER YOKSA "İPTAL EDİLDİ" DEME ──────────────────────────────
+  // 2026-10-21'de ölçülen kusur: kullanıcı `host.txt`/`hostinger.txt` dosyalarını
+  // sildiğinde eski değerler ortadan kalkıyor, araç bunları "diskte yok" diye
+  // raporluyor ve canlılık sınaması atlanıyordu. Sonuç: "ROTASYON DOĞRULANDI"
+  // hükmü, token'lar hâlâ geçerliyken ÇIKABİLİRDİ. Dosyanın silinmiş olması
+  // iptal KANITI DEĞİLDİR; yalnız GitHub'ın 401'i kanıttır.
+  //
+  // Çözüm: elinde eski token DEĞERİ yoksa "bilinmiyor" say ve DOĞRULANMADI
+  // hükmü ver. Kullanıcı yeni aracı çalıştırmadan önce değeri bir kez
+  // kaydetmeli (`parmak-izlerini-yaz`), ya da GitHub ayarlarından token'ın
+  // "last used" bilgisine bakmalıdır.
+  const degerler0 = new Map();
+  for (const a of adaylariTopla()) degerler0.set(fp(a.deger), a.deger);
+  const sinanamayan = tokenlar.filter(k => !degerler0.has(k.iz));
+  if (sinanamayan.length) {
+    console.log('── 0) SINANAMAYAN ESKİ TOKEN ──');
+    for (const k of sinanamayan) {
+      console.log(`  ?  ${k.iz} değeri bulunamadı → İPTAL EDİLDİĞİ KANITLANAMAZ`);
+    }
+    console.log('  Bu token\'lar için "iptal edildi" DEMEK İÇİN: GitHub → Settings →');
+    console.log('  Developer settings → token listesinde kaydın ARTIK OLMAMASI gerekir.');
+    console.log('  Kayıt listede yoksa iptal edilmiştir; varsa geçerlidir.\n');
+  }
+
   // ── 1) Eski değerler hâlâ diskte mi? ──────────────────────────────────────
   // Sızıntı diskte duruyorsa "iptal edildi" olsa bile yeni bir ifşa riski sürer.
   const mevcut = new Map(adaylariTopla().map(a => [fp(a.deger), a.tur]));
@@ -128,14 +152,13 @@ async function dogrula() {
 
   // ── 2) Eski token'lar öldü mü? ────────────────────────────────────────────
   console.log('\n── 2) ESKİ GITHUB TOKEN\'LARI ÖLDÜ MÜ? ──');
-  const degerler = new Map();
-  for (const a of adaylariTopla()) degerler.set(fp(a.deger), a.deger);
+  const degerler = degerler0;
   let yasayan = 0;
   for (const k of tokenlar) {
     const deger = degerler.get(k.iz);
     if (!deger) {
-      console.log(`  ?  ${k.iz} değeri diskte yok → canlılık sınanamadı (iptal edildiği VARSAYILAMAZ)`);
-      yasayan++;
+      // Yukarıdaki "0)" bölümünde zaten raporlandı; burada SAYILMAZ ama
+      // DOĞRULANMADI hükmüne girer (aşağıdaki `sinanamayan` ile toplanır).
       continue;
     }
     try {
@@ -157,6 +180,11 @@ async function dogrula() {
   console.log('  bağlanmayı DENEYİN — reddedilmelidir. Sonucu siz teyit edin.');
 
   console.log('\n── SONUÇ ──');
+  if (sinanamayan.length) {
+    console.log(`  ⛔ ROTASYON DOĞRULANAMADI: ${sinanamayan.length} eski token'ın değeri yok,`);
+    console.log('     iptal edildiği KANITLANAMAZ. GitHub token listesinden teyit edin.');
+    return 4;
+  }
   if (yasayan === 0 && diskteKalan === 0) {
     console.log('  ROTASYON DOĞRULANDI: eski token\'lar geçersiz, eski değerler diskte yok.');
     console.log('  (SSH parolası yukarıdaki elle kontrole bağlıdır.)');

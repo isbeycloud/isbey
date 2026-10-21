@@ -32,7 +32,31 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const ENV_PATH = path.join(os.homedir(), '.isbey-deploy.env');
+/**
+ * KİMLİK DOSYASININ YERİ — 2026-10-21 düzeltmesi
+ * ==============================================
+ * Varsayılan: `~/.isbey-deploy.env`.
+ *
+ * SORUN (ölçüldü): ajan ayrı bir Linux sanal makinesinde çalışıyor ve
+ * `os.homedir()` orada `/sessions/...` dönüyor — kullanıcının Windows
+ * profilini (`C:\Users\<ad>`) GÖREMİYOR. Kullanıcı `set` ile kimliği
+ * `C:\Users\<ad>\.isbey-deploy.env` dosyasına yazdığında dosya oluşuyor
+ * ama ajan onu okuyamıyor; push sessizce imkânsız kalıyordu.
+ *
+ * ÇÖZÜM: `ISBEY_DEPLOY_ENV` ortam değişkeni ile dosya yolu AÇIKÇA
+ * verilebilir. Ajanın görebildiği tek yer proje klasörüdür; bu yüzden
+ * `.verify-tmp/` (gitignore'da) altına yazılır.
+ *
+ *   PowerShell:  $env:ISBEY_DEPLOY_ENV = "D:\İŞBEY\.verify-tmp\deploy.env"
+ *   bash:        ISBEY_DEPLOY_ENV=... node tools/deploy-credentials.mjs set
+ *
+ * GÜVENLİK: dosya yolu değişse de içerik kuralları aynıdır — kimlik hiçbir
+ * çıktıya basılmaz, `status` yalnız parmak izi verir. Yol `set` çıktısında
+ * AÇIKÇA yazılır ki kullanıcı nereye yazdığını görsün.
+ */
+const ENV_PATH = process.env.ISBEY_DEPLOY_ENV
+  ? path.resolve(process.env.ISBEY_DEPLOY_ENV)
+  : path.join(os.homedir(), '.isbey-deploy.env');
 const REPO = 'https://github.com/isbeycloud/isbey.git';
 const BRANCH = 'release/p0-tenant-depo';
 
