@@ -79,19 +79,42 @@ function readEnv() {
   return out;
 }
 
-/** Gizli satır okuma: yazılan karakterler ekrana BASILMAZ. */
+/**
+ * Gizli satır okuma: yazılan karakterler ekrana BASILMAZ.
+ *
+ * ── 2026-10-22'de ÖLÇÜLEN KUSUR (bu fonksiyonun ilk sürümü) ──────────────
+ * `rl._writeToOutput` TAMAMEN susturulmuştu. Windows PowerShell'de bu, SORU
+ * METNİNİ de yutuyor: kullanıcı üç boş satır görüyor, ne yazacağını bilmiyor
+ * ve boş Enter'lara basıyor → "token boş — hiçbir şey yazılmadı".
+ * Yani gizlilik sağlanmıştı ama araç KULLANILAMAZ hâle gelmişti.
+ *
+ * DÜZELTME: readline'ın yankısını susturmaya devam ediyoruz, ama KENDİ
+ * yazdığımız soru metnine dokunmuyoruz. Ayrıca `rl.close()` çağrısı
+ * `_writeToOutput` üzerinden çalıştığı için soru satırı silinebiliyordu;
+ * bu yüzden satır sonu AÇIKÇA ve close'tan SONRA yazılıyor.
+ *
+ * Kabul ölçütü: kullanıcı her adımda SORUYU görür, yazdığını GÖRMEZ.
+ */
 function askHidden(question) {
   return new Promise(resolve => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // readline her tuş vuruşunu yankılar. Yankıyı susturuyoruz: kullanıcı
-    // yazdığını GÖRMEZ, yalnız soru satırı ekranda kalır. (Bu, gizli girişin
-    // standart yoludur; alternatifi kimliği sohbete yapıştırmaktır.)
-    rl._writeToOutput = function () {};
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: Boolean(process.stdin.isTTY),
+    });
+    // Yalnız KARAKTER yankısını sustur; soru metni bizim yazdığımız.
+    rl._writeToOutput = function (str) {
+      // readline'ın kendi yankıladığı içerik prompt + yazılan karakterlerdir.
+      // prompt'u biz yazdığımız için burada hiçbir şey basmıyoruz.
+      void str;
+    };
     process.stdout.write(question);
     rl.question('', answer => {
-      rl.close();
+      // Önce satırı bitir, SONRA kapat — close() yankıyı temizlerken
+      // soru satırını da silmesin.
       process.stdout.write('\n');
-      resolve(answer.trim());
+      rl.close();
+      resolve(String(answer).trim());
     });
   });
 }
@@ -112,9 +135,10 @@ function setCmd() {
   console.log('sohbete/loga yazılmaz. Boş bırakılan alan korunur.\n');
   const cur = readEnv();
   return (async () => {
-    const user = await askHidden('GitHub kullanıcı adı [boş = korunur]: ');
-    const token = await askHidden('GitHub token (fine-grained, contents:write) [boş = korunur]: ');
-    const sshPass = await askHidden('SSH parolası [boş = korunur, gerekmiyorsa boş geçin]: ');
+    console.log('  (Yazdıklarınız görünmez. Her alandan sonra Enter.)\n');
+    const user = await askHidden('1/3  GitHub kullanıcı adı [boş = korunur]:\n     > ');
+    const token = await askHidden('2/3  GitHub token (fine-grained, contents:write) [boş = korunur]:\n     > ');
+    const sshPass = await askHidden('3/3  SSH parolası [boş = korunur, gerekmiyorsa boş geçin]:\n     > ');
     const next = {
       ISBEY_GIT_USERNAME: user || cur.ISBEY_GIT_USERNAME || '',
       ISBEY_GIT_TOKEN: token || cur.ISBEY_GIT_TOKEN || '',
