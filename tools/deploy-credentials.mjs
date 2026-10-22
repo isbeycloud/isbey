@@ -158,6 +158,81 @@ function setCmd() {
   })();
 }
 
+/**
+ * PANODAN OKUMA — 2026-10-22
+ * ==========================
+ * NEDEN: `set` komutunun gizli girişi Windows PowerShell'de ÖLÇÜLEN biçimde
+ * çalışmadı. Kullanıcı üç soruyu arka arkaya basılmış ve HEPSİ BOŞ dönmüş
+ * hâlde gördü ("HATA: token boş"). Soruların görünür olması düzelmişti ama
+ * stdin gerçek terminalde boş okuma veriyordu — yani etkileşimli yol bu
+ * ortamda güvenilir değil.
+ *
+ * ÇÖZÜM: etkileşimi tamamen kaldır. Token zaten kullanıcının PANOSUNDA
+ * (GitHub'da üretip kopyaladı). Bu komut panoyu okur, doğrular, dosyaya
+ * yazar. Ekranda hiçbir şey sorulmaz, token basılmaz.
+ *
+ *   PowerShell:  Get-Clipboard | Set-Clipboard          # token zaten panoda
+ *                node tools/deploy-credentials.mjs set-pano
+ *
+ * GÜVENLİK: pano içeriği HİÇBİR çıktıya yazılmaz. Yalnız "panoda token var
+ * mı, biçimi doğru mu, sha256 parmak izi ne" bilgisi basılır. Hatalı panoda
+ * (boş, çok kısa, satır sonu dışı boşluk) yazma YAPILMAZ.
+ */
+function panoOku() {
+  // PowerShell: Get-Clipboard ; macOS: pbpaste ; Linux: xclip/wl-paste
+  const denemeler = process.platform === 'win32'
+    ? [['powershell', ['-NoProfile', '-Command', 'Get-Clipboard -Raw']]]
+    : process.platform === 'darwin'
+      ? [['pbpaste', []]]
+      : [['wl-paste', ['--no-newline']], ['xclip', ['-selection', 'clipboard', '-o']]];
+
+  for (const [cmd, args] of denemeler) {
+    const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: 15000 });
+    if (r.status === 0 && typeof r.stdout === 'string' && r.stdout.trim()) {
+      return { metin: r.stdout.trim(), kaynak: cmd };
+    }
+  }
+  return { metin: '', kaynak: null };
+}
+
+function setPanoCmd() {
+  const { metin, kaynak } = panoOku();
+  if (!metin) {
+    console.error('HATA: pano okunamadı ya da boş. Token\'ı kopyalayıp tekrar deneyin.');
+    console.error('      (Desteklenen: Windows PowerShell panosu, pbpaste, wl-paste, xclip)');
+    return 2;
+  }
+  // Biçim denetimi: yalnız GitHub token önekleri. Yanlış pano (ör. bir URL)
+  // sessizce kimlik olarak yazılmasın.
+  if (!/^(ghp_|github_pat_|gho_|ghs_|ghu_)/.test(metin)) {
+    console.error('HATA: panodaki metin GitHub token biçiminde değil.');
+    console.error(`      Beklenen önek: ghp_ / github_pat_ …  (gelen: ${metin.slice(0, 4)}…, ${metin.length} karakter)`);
+    console.error('      Panoya YANLIŞ şey kopyalanmış olabilir; yazma YAPILMADI.');
+    return 2;
+  }
+  if (/\s/.test(metin)) {
+    console.error('HATA: panodaki token boşluk/satır sonu içeriyor — kopyalama bozulmuş.');
+    console.error('      Yazma YAPILMADI.');
+    return 2;
+  }
+  const cur = readEnv();
+  const next = {
+    ISBEY_GIT_USERNAME: cur.ISBEY_GIT_USERNAME || '',
+    ISBEY_GIT_TOKEN: metin,
+    ISBEY_SSH_PASSWORD: cur.ISBEY_SSH_PASSWORD || '',
+  };
+  writeEnv(next);
+  console.log(`Pano kaynağı   : ${kaynak}`);
+  console.log(`Yazıldı        : ${ENV_PATH}`);
+  console.log(`  GitHub token : ${mask(metin)} (${metin.length} karakter, biçim DOĞRU)`);
+  if (!next.ISBEY_GIT_USERNAME) {
+    console.log('  NOT: GitHub kullanıcı adı boş. `gitEnv` bunu "x-access-token" ile');
+    console.log('       değiştirir; fine-grained token için bu genelde yeterlidir.');
+  }
+  console.log('\nŞimdi doğrulayın:  node tools/deploy-credentials.mjs test');
+  return 0;
+}
+
 function gitEnv() {
   const env = readEnv();
   if (!env.ISBEY_GIT_TOKEN) {
@@ -252,9 +327,18 @@ function clearCmd() {
 }
 
 const cmd = process.argv[2] || 'status';
-const handlers = { set: setCmd, test: testCmd, status: statusCmd, clear: clearCmd };
+const handlers = {
+  set: setCmd,
+  // 2026-10-22: etkileşimsiz yol. PowerShell'de gizli giriş ölçülen biçimde
+  // çalışmadığı için eklendi; token panodan okunur, ekrana basılmaz.
+  'set-pano': setPanoCmd,
+  test: testCmd,
+  status: statusCmd,
+  clear: clearCmd,
+};
 if (!handlers[cmd]) {
-  console.error('Kullanım: node tools/deploy-credentials.mjs [set|test|status|clear]');
+  console.error('Kullanım: node tools/deploy-credentials.mjs [set|set-pano|test|status|clear]');
+  console.error('  set-pano : token\'ı PANODAN okur (PowerShell\'de önerilen yol)');
   process.exit(2);
 }
 Promise.resolve(handlers[cmd]()).then(code => { process.exitCode = code ?? 0; });
