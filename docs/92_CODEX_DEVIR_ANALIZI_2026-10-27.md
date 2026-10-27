@@ -102,3 +102,21 @@ kanıtlanamadı sayıp çıkış 3 verdi; bunu 7/7 başarı olarak raporlamıyor
 Bu oturumda migration yapılmadı; güncel kod değişiklikleri migration gerektirmiyor.
 
 Loglar `.verify-tmp/codex-20261027-*` altında, Git dışında tutulur.
+
+## Yayın hazırlığı ve kalan kararlar
+
+`codex/continue-release-20261027` dalında düzeltmeler commit edildi ve uzak
+main geçmişi birleştirildi. Yeni anahtar kullanıcıyı doğrulasa da gerçek git
+push denemesi HTTP 403 ile reddedildi. Repo yanıtındaki `permissions.push`
+kullanıcı yetkisidir; tek başına token'ın Contents/Workflows yazma yetkisini
+kanıtlamaz. Kullanıcıdan bu iki token iznini güncellemesi istendi.
+
+Güncel canlı kopyada cari defter denetimi **5/6**, C5 başarısız: bilinen
+`SAT-2026-000001` kaydının 120 TL hareketi hâlâ yok. Diğer beş kapı başarılı;
+13 ürünün satış fiyatı hâlâ sıfır. Geçici tek kayıt istisnası için kullanıcı
+kararı istendi; otomatik mali düzeltme yapılmadı.
+
+Doğrulanmış dağıtım paketi üretildi:
+`releases/isbey-release-2026-10-27T17-27-14-627Z.tar.gz` (263 dosya).
+Paket uygulama kodu ve derlenmiş arayüz içerir; gerçek ortam ayarları,
+veritabanı, müşteri dosyaları ve node_modules içermez.
