@@ -116,6 +116,14 @@ Güncel canlı kopyada cari defter denetimi **5/6**, C5 başarısız: bilinen
 13 ürünün satış fiyatı hâlâ sıfır. Geçici tek kayıt istisnası için kullanıcı
 kararı istendi; otomatik mali düzeltme yapılmadı.
 
+**Sonraki kullanıcı kararı ve güncel sonuç:** Kullanıcı istisnayı tercih etmedi,
+mali düzeltmeyi istedi ve somut cari/120 TL hareket planını canlıda uygulamak
+için açık onay verdi. Düzeltme 27 Ekim 2026 21:12'de uygulandı: CAR-005,
+tek 120 TL borç hareketi, canlı defter 6/6, cari/ekstre/fatura API'leri 200,
+tek uygulama süreci. Yukarıdaki 5/6 ölçümü düzeltme öncesine aittir.
+Ayrıntı ve yedek kanıtları docs/93 içinde. Güvenlik sürümünün GitHub yayını
+ayrı olarak bekliyor; mali düzeltme kod dağıtımı yapmadı.
+
 Doğrulanmış dağıtım paketi üretildi:
 `releases/isbey-release-2026-10-27T17-27-14-627Z.tar.gz` (263 dosya).
 Paket uygulama kodu ve derlenmiş arayüz içerir; gerçek ortam ayarları,
