@@ -44,6 +44,7 @@ const steps = [
   { label: 'Typecheck (tsc -b)', script: 'typecheck' },
   { label: 'Lint (oxlint src server)', script: 'lint' },
   { label: 'Production build (tsc -b && vite build)', script: 'build' },
+  { label: 'Dependency security audit', script: 'security-audit' },
   { label: 'Yerel izole test süitleri (tools/test-local.mjs)', script: 'test' },
   // 2026-10-20: CARİ İSTİSNA KAPISI. `cari-tutarlilik.py --kabul` bir kaydı
   // affederken kimlik + süre şartı arıyor; bu sözleşme Python tarafında ve

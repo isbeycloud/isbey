@@ -2,9 +2,10 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'release/**', 'codex/**' ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build-and-verify:
@@ -39,3 +40,9 @@ jobs:
 
       - name: Local regression suites (isolated databases)
         run: npm test
+
+      - name: Cari consistency contracts
+        run: npm run test:cari
+
+      - name: Financial correction contracts
+        run: npm run test:mali
