@@ -9,6 +9,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { NewCompanyModal } from './NewCompanyModal';
 import { CompanyDetailModal } from './CompanyDetailModal';
 import { CompanyDeleteConfirmModal } from './CompanyDeleteConfirmModal';
+import { CompanyPackageBadge, CompanyPackageModal } from './CompanyPackageManager';
 import {
   Building,
   Plus,
@@ -57,6 +58,9 @@ export const CompanyManagementView: React.FC = () => {
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [deletingCompany, setDeletingCompany] = useState<Tenant | null>(null);
+  const [packageCompanyId, setPackageCompanyId] = useState<string | null>(null);
+  const [billingFilter, setBillingFilter] = useState('ALL');
+  const canManagePackages = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
 
   useEffect(() => {
     loadData();
@@ -252,7 +256,8 @@ export const CompanyManagementView: React.FC = () => {
       key: 'plan',
       title: 'Paket',
       width: '110px',
-      render: c => planBadge(c.plan),
+      render: c => <div style={{ display: 'grid', gap: 4 }}>{planBadge(c.plan)}<CompanyPackageBadge company={c} />
+        {c.commercialSubscription?.billingMode === 'PAID' && <small>{c.commercialSubscription.amount.toLocaleString('tr-TR')} {c.commercialSubscription.currency} / {c.commercialSubscription.billingCycle === 'yearly' ? 'yıl' : 'ay'}</small>}</div>,
     },
     {
       key: 'status',
@@ -274,11 +279,12 @@ export const CompanyManagementView: React.FC = () => {
       key: 'actions',
       title: 'İşlemler',
       sortable: false,
-      width: '210px',
+      width: '310px',
       render: c => {
         const isCurrent = c.id === activeTenantId;
         return (
           <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+            {canManagePackages && <button className="btn btn-secondary btn-sm" title="Paket yükseltme, değiştirme ve ücret yönetimi" onClick={() => setPackageCompanyId(c.id)}><Crown size={12} /> Paket / Ücret</button>}
             <button
               className="btn btn-primary btn-sm"
               title="Firma Yönetim Detayı (11 Sekme)"
@@ -436,6 +442,9 @@ export const CompanyManagementView: React.FC = () => {
             <option value="ENTERPRISE">Enterprise</option>
           </select>
 
+          <select aria-label="Kullanım türü filtresi" className="form-input" value={billingFilter} onChange={e => setBillingFilter(e.target.value)} style={{ width: 150 }}>
+            <option value="ALL">Tüm kullanım türleri</option><option value="FREE">Ücretsiz</option><option value="PAID">Ücretli</option><option value="TRIAL">Deneme</option><option value="UNSPECIFIED">Belirtilmemiş</option>
+          </select>
           <button type="submit" className="btn btn-secondary btn-sm" title="Yenile">
             <RefreshCw size={13} />
           </button>
@@ -446,7 +455,7 @@ export const CompanyManagementView: React.FC = () => {
       <div className="card-panel" style={{ padding: '0' }}>
         <DataGrid
           columns={columns}
-          data={companies}
+          data={companies.filter(c => billingFilter === 'ALL' || (c.commercialSubscription?.billingMode || (c.status === 'TRIAL' ? 'TRIAL' : c.plan === 'FREE' ? 'FREE' : 'UNSPECIFIED')) === billingFilter)}
           rowKey="id"
           loading={loading}
           emptyMessage="Kriterlere uygun kayıtlı firma bulunamadı."
@@ -469,6 +478,7 @@ export const CompanyManagementView: React.FC = () => {
         companyId={detailCompanyId}
         onRefresh={() => { loadData(); triggerRefresh(); }}
       />
+      <CompanyPackageModal companyId={packageCompanyId} onClose={() => setPackageCompanyId(null)} onSaved={() => { loadData(); triggerRefresh(); }} />
 
       {/* 3. Güvenli Silme / Arşivleme Doğrulaması */}
       <CompanyDeleteConfirmModal

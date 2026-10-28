@@ -117,13 +117,26 @@ test('ERP subscription dates can be renewed from company license screen', async 
   await page.getByRole('button', { name: 'Firma & Şirketler', exact: true }).click();
   await page.getByTitle('Firma Yönetim Detayı (11 Sekme)').first().click();
   await page.getByRole('button', { name: 'Paket / Lisans', exact: true }).click();
-  const editor = page.getByRole('region', { name: 'ERP aboneliği' });
-  await editor.getByLabel('ERP başlangıç tarihi').fill('2020-01-01');
-  await editor.getByLabel('ERP bitiş tarihi').fill('2030-12-31');
-  const saved = page.waitForResponse(r => r.url().includes('/erp-subscription') && r.request().method() === 'PUT');
-  await editor.getByRole('button', { name: 'ERP Aboneliğini Kaydet / Yenile' }).click();
-  expect((await saved).status()).toBe(200);
-  await expect(editor.getByLabel('ERP bitiş tarihi')).toHaveValue('2030-12-31');
+  const editor = page.getByRole('region', { name: 'Müşteri paket yönetimi' });
+  const packages = editor.getByRole('group', { name: 'Hizmet paketleri' }).getByRole('checkbox');
+  await expect(packages.first()).toBeVisible();
+  // Tarih yenileme senaryosunda mevcut test firmasını küçük pakete düşürmeyin.
+  const packageCount = await packages.count();
+  for (let i = 0; i < packageCount; i++) await packages.nth(i).setChecked(i === packageCount - 1);
+  await editor.getByRole('radio', { name: 'Ücretsiz', exact: true }).check();
+  await editor.getByLabel('Başlangıç tarihi', { exact: true }).fill('2020-01-01');
+  await editor.getByLabel('Bitiş tarihi', { exact: true }).fill('2030-12-31');
+  await editor.getByLabel('Değişiklik gerekçesi').fill('ERP kullanım süresi yönetici tarafından yenilendi');
+  const saved = page.waitForResponse(r => r.url().endsWith('/package') && r.request().method() === 'PUT');
+  await editor.getByRole('button', { name: 'Paket Değişikliğini Kaydet' }).click();
+  const response = await saved;
+  expect(response.status()).toBe(200);
+  await expect(editor.getByLabel('Değişiklik gerekçesi')).toHaveValue('');
+  await editor.getByRole('button', { name: 'Paket bilgilerini yenile' }).click();
+  await expect(editor.getByLabel('Bitiş tarihi', { exact: true })).toHaveValue('2030-12-31');
+  const stored = await (await request.get(response.url(), { headers: { Authorization: `Bearer ${session.token}` } })).json();
+  expect(stored.tenant.erpSubscription).toMatchObject({ startDate: '2020-01-01', endDate: '2030-12-31' });
+  expect(stored.subscription.endDate).toBe('2030-12-31T23:59:59.999+03:00');
   await page.screenshot({ path: '.verify-tmp/erp-subscription.png', fullPage: true });
 });
 

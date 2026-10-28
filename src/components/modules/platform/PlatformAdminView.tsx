@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
+import { CompanyPackageBadge, CompanyPackageModal } from '../companies/CompanyPackageManager';
 import type { SubscriptionPlan, CreditPackage, Dealer, DealerCommission, Payment } from '../../../types';
 
 export const PlatformAdminView: React.FC = () => {
@@ -43,6 +44,7 @@ export const PlatformAdminView: React.FC = () => {
   const [commissions, setCommissions] = useState<DealerCommission[]>([]);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [search, setSearch] = useState('');
+  const [billingFilter, setBillingFilter] = useState('ALL');
   const [isLoading, setIsLoading] = useState(true);
 
   // Impersonation Modal
@@ -60,6 +62,7 @@ export const PlatformAdminView: React.FC = () => {
 
   // Edit Plan Modal
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
+  const [packageCompanyId, setPackageCompanyId] = useState<string | null>(null);
 
   // New Credit Package Modal
   const [isCreditPkgModalOpen, setIsCreditPkgModalOpen] = useState(false);
@@ -167,7 +170,7 @@ export const PlatformAdminView: React.FC = () => {
   const filteredTenants = tenants.filter(t =>
     t.name?.toLowerCase().includes(search.toLowerCase()) ||
     t.companyCode?.toLowerCase().includes(search.toLowerCase())
-  );
+  ).filter(t => billingFilter === 'ALL' || (t.commercialSubscription?.billingMode || (t.status === 'TRIAL' ? 'TRIAL' : t.plan === 'FREE' ? 'FREE' : 'UNSPECIFIED')) === billingFilter);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-surface-secondary)', color: 'var(--text-main)' }}>
@@ -278,6 +281,7 @@ export const PlatformAdminView: React.FC = () => {
               <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md, 8px)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: 'var(--fs-lg, 16px)' }}>Kayıtlı Firmalar ({filteredTenants.length})</span>
+                  <label>Kullanım türü <select aria-label="Kullanım türü filtresi" className="form-select" value={billingFilter} onChange={e => setBillingFilter(e.target.value)}><option value="ALL">Tüm kullanım türleri</option><option value="FREE">Ücretsiz</option><option value="PAID">Ücretli</option><option value="TRIAL">Deneme</option><option value="UNSPECIFIED">Belirtilmemiş</option></select></label>
                   <input type="text" placeholder="Firma Ara..." value={search} onChange={e => setSearch(e.target.value)} style={{ padding: '6px 12px', background: 'var(--bg-surface-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-main)', borderRadius: 'var(--radius-sm, 6px)', fontSize: 'var(--fs-sm, 12px)' }} />
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-base, 13px)' }}>
@@ -294,10 +298,12 @@ export const PlatformAdminView: React.FC = () => {
                     {filteredTenants.map((t: any) => (
                       <tr key={t.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                         <td style={{ padding: '12px 16px', fontWeight: 700 }}>{t.name} <span style={{ fontSize: 'var(--fs-xs, 11px)', color: 'var(--text-muted)' }}>({t.companyCode || t.id})</span></td>
-                        <td style={{ padding: '12px 16px' }}><span className="badge badge-info">{t.plan || 'PRO'}</span></td>
+                        <td style={{ padding: '12px 16px' }}><span className="badge badge-info">{plans.filter(p => t.selectedServicePlanIds?.includes(p.id)).map(p => p.name).join(' + ') || t.plan || 'PRO'}</span><div style={{ marginTop: 4 }}><CompanyPackageBadge company={t} /></div>
+                          {t.commercialSubscription?.billingMode === 'PAID' && <small>{t.commercialSubscription.amount.toLocaleString('tr-TR')} {t.commercialSubscription.currency} / {t.commercialSubscription.billingCycle === 'yearly' ? 'yıl' : 'ay'}</small>}</td>
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--success)' }}>{t.eInvoiceCredits || 500} Adet</td>
                         <td style={{ padding: '12px 16px' }}><span className="badge badge-success">Aktif</span></td>
                         <td style={{ padding: '12px 16px' }}>
+                          <button className="btn btn-secondary btn-sm" style={{ marginBottom: 6 }} onClick={() => setPackageCompanyId(t.id)}><Crown size={12} /> Paket / Ücret</button>
                           <button
                             onClick={() => setImpersonateTenantId(t.id)}
                             style={{ padding: '4px 10px', background: 'var(--danger)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-sm, 6px)', fontSize: 'var(--fs-xs, 11px)', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
@@ -390,6 +396,7 @@ export const PlatformAdminView: React.FC = () => {
       )}
 
       {/* Duyuru Modalı */}
+      <CompanyPackageModal companyId={packageCompanyId} onClose={() => setPackageCompanyId(null)} onSaved={loadData} />
       {isAnnounceModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--bg-surface)', width: '480px', borderRadius: 'var(--radius-lg, 10px)', padding: '24px', border: '1px solid var(--border-color)' }}>

@@ -1,4 +1,5 @@
 import { validSubscriptionDates } from '../security/erpSubscription';
+import { manageCompanyPackage, managedMonthlyRevenue, PackageManagementError } from '../services/companyPackageManagement';
 import { migrateMemberships } from '../security/memberships';
 import { redactSecretsDeep } from '../security/credentialMask';
 // 2026-10-17: Şirket açılışında üretilen kasa/banka/depo AÇIK sahiplikle yazılır.
@@ -24,6 +25,26 @@ companiesRouter.use(requireAuth);
 companiesRouter.param('id', (req, res, next, id) => {
   if (!isPlatformUser(req.user) && id !== req.tenantId && !req.path.endsWith('/switch')) return res.status(403).json({ success: false, message: 'Başka firma üzerinde işlem yapamazsınız.' });
   next();
+});
+
+companiesRouter.get('/:id/package', requireRole('SUPER_ADMIN', 'ADMIN'), (req, res) => {
+  const db = storage.getState();
+  const tenant = db.tenants.find(t => t.id === req.params.id && !t.isArchived);
+  if (!tenant) return res.status(404).json({ success: false, message: 'Firma bulunamadı.' });
+  return res.json({ success: true, tenant: redactSecretsDeep(tenant),
+    plans: (db.subscriptionPlans || []).filter(p => p.status === 'ACTIVE'),
+    subscription: db.subscriptions?.find(s => s.tenantId === tenant.id) || null,
+    history: db.auditLogs.filter(a => a.tenantId === tenant.id && a.action === 'PACKAGE_CHANGED').slice(0, 10) });
+});
+
+companiesRouter.put('/:id/package', requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
+  try {
+    const tenant = await storage.runTransaction(db => manageCompanyPackage(db, String(req.params.id), req.body,
+      { id: req.user.id, username: req.user.username, ipAddress: req.ip || '127.0.0.1' }));
+    return res.json({ success: true, tenant: redactSecretsDeep(tenant), message: 'Paket ve kullanım koşulları güncellendi. Tahsilat yapılmadı.' });
+  } catch (error) {
+    return res.status(error instanceof PackageManagementError ? error.status : 400).json({ success: false, message: (error as Error).message });
+  }
 });
 
 companiesRouter.put('/:id/erp-subscription', requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
@@ -102,7 +123,7 @@ companiesRouter.get('/', requireAuth, (req: Request, res: Response) => {
       PROFESSIONAL: 2450,
       ENTERPRISE: 6900,
     };
-    const totalMRR = allTenants.reduce((acc, t) => acc + (t.status === 'ACTIVE' ? (planPrices[t.plan] || 0) : 0), 0);
+    const totalMRR = allTenants.reduce((acc, t) => acc + (managedMonthlyRevenue(t) ?? (t.status === 'ACTIVE' ? (planPrices[t.plan] || 0) : 0)), 0);
 
     res.json({
       success: true,

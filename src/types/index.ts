@@ -211,6 +211,16 @@ export interface TenantStats {
 }
 
 export interface Tenant {
+  commercialSubscription?: {
+    billingMode: 'FREE' | 'PAID' | 'TRIAL';
+    billingCycle: 'monthly' | 'yearly';
+    amount: number;
+    currency: 'TRY' | 'USD' | 'EUR';
+    reason: string;
+    updatedBy: string;
+    updatedAt: string;
+  };
+  erpSubscription?: { startDate: string; endDate: string; expiryPolicy: 'READ_ONLY'; updatedAt: string };
   selectedServicePlanIds?: string[];
   id: string;
   companyCode?: string;

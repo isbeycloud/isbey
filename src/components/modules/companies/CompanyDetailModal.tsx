@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ErpSubscriptionEditor } from './ErpSubscriptionEditor';
+import { CompanyPackagePanel } from './CompanyPackageManager';
 import { Modal } from '../../common/Modal';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
@@ -515,7 +515,7 @@ export const CompanyDetailModal: React.FC<CompanyDetailModalProps> = ({
         {/* ─── 4. PAKET / LİSANS ─── */}
         {activeTab === 'LICENSE' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <ErpSubscriptionEditor key={company.id} company={company} onSaved={() => { loadData(company.id); onRefresh(); }} />
+            <CompanyPackagePanel key={company.id} companyId={company.id} onSaved={() => { loadData(company.id); onRefresh(); }} />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
               <div className="card-panel" style={{ padding: '16px' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Mevcut Abonelik Paketi</div>
