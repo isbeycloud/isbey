@@ -23,6 +23,8 @@ import {
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useAuth } from '../../../context/AuthContext';
+import type { SubscriptionPlan } from '../../../types';
+import type { PackageCheckoutPreview } from '../../../types/packageCheckout';
 
 export const CustomerBillingPortalView: React.FC = () => {
   const { showToast } = useToast();
@@ -38,6 +40,9 @@ export const CustomerBillingPortalView: React.FC = () => {
   const [appliedDiscount, setAppliedDiscount] = useState<{ amount: number; message: string } | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [isLoading, setIsLoading] = useState(true);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [checkoutPreview, setCheckoutPreview] = useState<PackageCheckoutPreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
 
   // Buy Credits Modal
   const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
@@ -54,13 +59,15 @@ export const CustomerBillingPortalView: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [bRes, subRes, payRes]: any[] = await Promise.all([
+      const [bRes, subRes, payRes, planRes]: any[] = await Promise.all([
         api.getBillingPortalSummary().catch(() => ({ success: false })),
         api.getCurrentSubscription().catch(() => ({ success: false })),
         api.getPaymentHistory().catch(() => ({ success: false })),
+        api.getSubscriptionPlans().catch(() => ({ success: false })),
       ]);
 
       if (bRes && bRes.success) setBillingData(bRes.data);
+      if (planRes?.success) setPlans((planRes.plans || []).filter((p: SubscriptionPlan) => p.status === 'ACTIVE'));
       if (subRes && subRes.success) {
         setSubscription(subRes.subscription);
         setUsages(subRes.usage || []);
@@ -92,21 +99,17 @@ export const CustomerBillingPortalView: React.FC = () => {
     }
   };
 
-  const handleUpgradePlan = async (planSlug: string) => {
+  const handleUpgradePlan = async (planId: string) => {
+    setPreviewBusy(true);
     try {
-      const res = await api.upgradeBillingPlan({
-        planSlug,
+      const res = await api.previewPackageCheckout({
+        planId,
         billingCycle: selectedCycle,
-        couponCode: couponCode || undefined,
       });
-
-      if (res.success) {
-        showToast(`Tebrikler! ${planSlug.toUpperCase()} paketine başarıyla geçiş yapıldı.`, 'success');
-        loadData();
-      }
+      if (res.success) setCheckoutPreview(res.preview);
     } catch (err: any) {
-      showToast(err.message || 'Paket geçişi yapılamadı.', 'error');
-    }
+      showToast(err.message || 'Paket önizlemesi alınamadı.', 'error');
+    } finally { setPreviewBusy(false); }
   };
 
   const handleBuyCredits = async (e: React.FormEvent) => {
@@ -274,32 +277,30 @@ export const CustomerBillingPortalView: React.FC = () => {
             {/* 2. PAKETLER VE YÜKSELTME */}
             {activeTab === 'plans' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <p role="status" style={{ margin: 0 }}>Garanti BBVA online ödeme hazırlığı sürüyor. Tarife önizlemesi paketinizde değişiklik yapmaz.</p>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
                   <button onClick={() => setSelectedCycle('monthly')} style={{ padding: '8px 16px', background: selectedCycle === 'monthly' ? 'var(--primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm, 6px)', color: selectedCycle === 'monthly' ? '#ffffff' : 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Aylık Faturalama</button>
-                  <button onClick={() => setSelectedCycle('yearly')} style={{ padding: '8px 16px', background: selectedCycle === 'yearly' ? 'var(--primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm, 6px)', color: selectedCycle === 'yearly' ? '#ffffff' : 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Yıllık (%20 İndirimli)</button>
+                  <button onClick={() => setSelectedCycle('yearly')} style={{ padding: '8px 16px', background: selectedCycle === 'yearly' ? 'var(--primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm, 6px)', color: selectedCycle === 'yearly' ? '#ffffff' : 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Yıllık Tarife</button>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-                  {[
-                    { slug: 'starter', name: 'Starter Plan', price: selectedCycle === 'yearly' ? 390 : 490, features: ['1 Kullanıcı', 'Temel Ön Muhasebe', 'e-Fatura Entegrasyonu', '100 Kontör Hediye'] },
-                    { slug: 'pro', name: 'Pro Plan', price: selectedCycle === 'yearly' ? 1190 : 1490, popular: true, features: ['5 Kullanıcı', 'Gelişmiş Stok & Depolar', 'Çoklu Şirket', 'Banka Entegrasyonu', '500 Kontör'] },
-                    { slug: 'enterprise', name: 'Kurumsal Plan', price: selectedCycle === 'yearly' ? 2390 : 2990, features: ['Sınırsız Kullanıcı', 'Tam Muhasebe & Mizan', 'Saha Satış & POS', 'Mali Müşavir Portalı', '1.000 Kontör'] },
-                  ].map(p => (
+                  {plans.map(plan => ({ ...plan, price: selectedCycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice, popular: plan.isPopular })).map(p => (
                     <div key={p.slug} style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md, 8px)', border: p.popular ? '2px solid var(--primary)' : '1px solid var(--border-color)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3 style={{ margin: 0, fontWeight: 700 }}>{p.name}</h3>
                         {p.popular && <span className="badge badge-primary">En Popüler</span>}
                       </div>
-                      <div style={{ fontSize: 'var(--fs-2xl, 26px)', fontWeight: 700 }}>{p.price.toLocaleString('tr-TR')} ₺ <span style={{ fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)' }}>/ ay</span></div>
+                      <div style={{ fontSize: 'var(--fs-2xl, 26px)', fontWeight: 700 }}>{p.price.toLocaleString('tr-TR')} {p.currency} <span style={{ fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)' }}>{selectedCycle === 'yearly' ? 'yıllık tarife' : 'aylık tarife'}</span></div>
                       <ul style={{ paddingLeft: '20px', margin: 0, fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {p.features.map((f, i) => <li key={i}>{f}</li>)}
+                        {(p.features || []).map((f, i) => <li key={i}>{f}</li>)}
                       </ul>
-                      <button onClick={() => handleUpgradePlan(p.slug)} style={{ width: '100%', padding: '10px', background: p.popular ? 'var(--primary)' : 'var(--bg-surface-secondary)', color: p.popular ? '#ffffff' : 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm, 6px)', fontWeight: 700, cursor: 'pointer', marginTop: 'auto' }}>
-                        Bu Pakete Geç
+                      <button disabled={previewBusy || p.currency !== 'TRY' || p.price <= 0} onClick={() => handleUpgradePlan(p.id)} style={{ width: '100%', padding: '10px', background: p.popular ? 'var(--primary)' : 'var(--bg-surface-secondary)', color: p.popular ? '#ffffff' : 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm, 6px)', fontWeight: 700, cursor: 'pointer', marginTop: 'auto' }}>
+                        Paket Önizlemesi
                       </button>
                     </div>
                   ))}
                 </div>
+                {!plans.length && <p>Satışa açık paket bulunamadı. Tarifeler için yöneticinizle iletişime geçin.</p>}
               </div>
             )}
 
@@ -310,6 +311,7 @@ export const CustomerBillingPortalView: React.FC = () => {
                   <div>
                     <h3 style={{ margin: 0, fontWeight: 700 }}>e-Belge Kontör Paketleri</h3>
                     <p style={{ margin: '4px 0 0', fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)' }}>e-Fatura, e-Arşiv ve e-İrsaliye gönderimlerinizde kullanabileceğiniz kontör paketleri.</p>
+                    <p role="status">Online kontör tahsilatı banka testleri tamamlanana kadar kapalıdır.</p>
                   </div>
                   <div style={{ fontSize: 'var(--fs-lg, 16px)', fontWeight: 700, color: 'var(--success)' }}>Mevcut: {billingData?.credits?.balance || 500} Kontör</div>
                 </div>
@@ -324,7 +326,7 @@ export const CustomerBillingPortalView: React.FC = () => {
                     <div key={pkg.qty} style={{ background: 'var(--bg-surface-secondary)', padding: '18px', borderRadius: 'var(--radius-sm, 6px)', border: '1px solid var(--border-color)', textAlign: 'center' }}>
                       <div style={{ fontSize: 'var(--fs-lg, 16px)', fontWeight: 700, color: 'var(--info)' }}>{pkg.qty} Kontör</div>
                       <div style={{ fontSize: 'var(--fs-xl, 20px)', fontWeight: 700, margin: '8px 0' }}>{pkg.price.toLocaleString('tr-TR')} ₺</div>
-                      <button onClick={() => { setCreditQuantity(pkg.qty); setIsCreditModalOpen(true); }} style={{ padding: '6px 14px', background: 'var(--success)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-sm, 6px)', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700, cursor: 'pointer' }}>Satın Al</button>
+                      <button disabled title="Banka testleri tamamlanınca açılacak" style={{ padding: '6px 14px', background: 'var(--success)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-sm, 6px)', fontSize: 'var(--fs-sm, 12px)', fontWeight: 700 }}>Satın Al — Yakında</button>
                     </div>
                   ))}
                 </div>
@@ -334,7 +336,7 @@ export const CustomerBillingPortalView: React.FC = () => {
             {/* 4. ÖDEME GEÇMİŞİ */}
             {activeTab === 'history' && (
               <div style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md, 8px)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700 }}>Faturalandırma & Ödeme Geçmişi ({payments.length || invoices.length || 1})</div>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 700 }}>Ödeme Geçmişi ({payments.length})</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm, 12px)' }}>
                   <thead>
                     <tr style={{ background: 'var(--bg-surface-secondary)', textAlign: 'left', color: 'var(--text-muted)' }}>
@@ -345,12 +347,13 @@ export const CustomerBillingPortalView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(payments.length ? payments : [{ id: 'p1', date: '01.04.2026', desc: 'Kurumsal Yıllık Lisans', amount: 28680 }]).map((p: any) => (
+                    {!payments.length && <tr><td colSpan={4} style={{ padding: 20 }}>Henüz ödeme kaydı bulunmuyor.</td></tr>}
+                    {payments.map((p: any) => (
                       <tr key={p.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{p.date || '01.04.2026'}</td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{p.paidAt || p.createdAt ? new Date(p.paidAt || p.createdAt).toLocaleDateString('tr-TR') : '—'}</td>
                         <td style={{ padding: '12px 16px', fontWeight: 700 }}>{p.desc || p.description || 'SaaS Lisans Paketi'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>{(p.amount || 28680).toLocaleString('tr-TR')} ₺</td>
-                        <td style={{ padding: '12px 16px' }}><span className="badge badge-success">Başarılı</span></td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700 }}>{(p.totalAmount ?? p.amount)?.toLocaleString('tr-TR') ?? '—'} {p.currency || '—'}</td>
+                        <td style={{ padding: '12px 16px' }}>{p.paymentProvider === 'MOCK' ? 'Deneme kaydı' : ({ successful: 'Başarılı', SUCCESS: 'Başarılı', failed: 'Başarısız', pending: 'Bekliyor', refunded: 'İade edildi', cancelled: 'İptal' } as Record<string, string>)[p.status] || p.status || 'Bilinmiyor'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -361,6 +364,18 @@ export const CustomerBillingPortalView: React.FC = () => {
         )}
       </div>
 
+      {checkoutPreview && <div className="modal-overlay" onClick={() => setCheckoutPreview(null)}>
+        <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="package-checkout-title" style={{ width: 'min(520px, calc(100vw - 32px))' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header"><h2 id="package-checkout-title">Paket Satın Alma Önizlemesi</h2><button type="button" aria-label="Önizlemeyi kapat" onClick={() => setCheckoutPreview(null)}><X size={20} /></button></div>
+          <div className="modal-body" style={{ padding: 20 }}>
+            <h3>{checkoutPreview.planName}</h3>
+            <p>{checkoutPreview.billingCycle === 'yearly' ? 'Yıllık' : 'Aylık'} tarife: <strong>{checkoutPreview.catalogAmount.toLocaleString('tr-TR')} TRY</strong></p>
+            <p>{checkoutPreview.message}</p>
+            <p role="status">Garanti BBVA banka testleri bekleniyor. Kart bilgisi alınmıyor.</p>
+            <button type="button" className="btn btn-primary" disabled>Garanti BBVA ile Öde — Yakında</button>
+          </div>
+        </div>
+      </div>}
       {/* Kontör Satın Alma Modalı */}
       {isCreditModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -379,7 +394,7 @@ export const CustomerBillingPortalView: React.FC = () => {
               </div>
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
                 <button type="button" onClick={() => setIsCreditModalOpen(false)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm, 6px)', cursor: 'pointer' }}>İptal</button>
-                <button type="submit" style={{ padding: '8px 14px', background: 'var(--success)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-sm, 6px)', fontWeight: 700, cursor: 'pointer' }}>Satın Alımı Tamamla</button>
+                <button type="submit" disabled title="Banka testleri tamamlanınca açılacak" style={{ padding: '8px 14px', background: 'var(--success)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-sm, 6px)', fontWeight: 700 }}>Online ödeme henüz açık değil</button>
               </div>
             </form>
           </div>

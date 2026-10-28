@@ -1,3 +1,4 @@
+import { requirePaymentSandbox } from '../payments/checkoutSafety';
 import crypto from 'crypto';
 import { SaasPaymentStatus, PaymentProviderType } from '../../db/schema';
 
@@ -35,6 +36,7 @@ export interface IPaymentProvider {
 
 export class MockPaymentProvider implements IPaymentProvider {
   async createPayment(params: PaymentRequestParams): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     const now = new Date().toISOString();
     const pid = `mock_pay_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     return {
@@ -51,6 +53,7 @@ export class MockPaymentProvider implements IPaymentProvider {
   }
 
   async checkPayment(providerPaymentId: string): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: 'MOCK',
@@ -62,6 +65,7 @@ export class MockPaymentProvider implements IPaymentProvider {
   }
 
   async refundPayment(providerPaymentId: string, amount?: number): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: 'MOCK',
@@ -73,6 +77,7 @@ export class MockPaymentProvider implements IPaymentProvider {
   }
 
   async cancelPayment(providerPaymentId: string): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: 'MOCK',
@@ -86,6 +91,7 @@ export class MockPaymentProvider implements IPaymentProvider {
 
 export class IyzicoPaymentProvider implements IPaymentProvider {
   async createPayment(params: PaymentRequestParams): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     // Simüle iyzico 3D Secure / Tokenized Checkout
     const pid = `iyz_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     return {
@@ -102,25 +108,28 @@ export class IyzicoPaymentProvider implements IPaymentProvider {
   }
 
   async checkPayment(providerPaymentId: string): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return { success: true, provider: 'IYZICO', providerPaymentId, status: 'successful', paidAmount: 0, currency: 'TRY' };
   }
 
   async refundPayment(providerPaymentId: string, amount?: number): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return { success: true, provider: 'IYZICO', providerPaymentId, status: 'refunded', paidAmount: amount || 0, currency: 'TRY' };
   }
 
   async cancelPayment(providerPaymentId: string): Promise<PaymentResponseResult> {
+    requirePaymentSandbox();
     return { success: true, provider: 'IYZICO', providerPaymentId, status: 'cancelled', paidAmount: 0, currency: 'TRY' };
   }
 }
 
 export class PaymentProviderFactory {
   public static getProvider(type: PaymentProviderType = 'MOCK'): IPaymentProvider {
+    requirePaymentSandbox();
     switch (type) {
       case 'IYZICO': return new IyzicoPaymentProvider();
-      case 'MOCK':
-      default:
-        return new MockPaymentProvider();
+      case 'MOCK': return new MockPaymentProvider();
+      default: throw new Error('Ödeme sağlayıcısı desteklenmiyor.');
     }
   }
 }

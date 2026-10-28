@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
 import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 import { PaymentGatewayAdapter } from '../../services/payments/paymentGatewayAdapter';
+import { sandboxPaymentOnly } from '../../services/payments/checkoutSafety';
 
 export const v1CheckoutRouter = Router();
 
@@ -22,14 +23,23 @@ v1CheckoutRouter.get('/orders', requirePermission(PERMISSIONS.COMPANY_VIEW), (re
  * POST /api/v1/checkout/pay
  * Doğrudan checkout ödeme motoru
  */
-v1CheckoutRouter.post('/pay', requirePermission(PERMISSIONS.COMPANY_UPDATE), async (req: Request, res: Response) => {
+v1CheckoutRouter.post('/pay', requirePermission(PERMISSIONS.COMPANY_UPDATE), sandboxPaymentOnly, async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const user = req.user!;
 
   try {
     const result = await PaymentGatewayAdapter.processPayment({
+      orderType: req.body.orderType,
+      amount: req.body.amount,
+      planSlug: req.body.planSlug,
+      billingPeriod: req.body.billingPeriod,
+      creditPackageId: req.body.creditPackageId,
+      cardNumber: req.body.cardNumber,
+      cardHolder: req.body.cardHolder,
+      expireMonth: req.body.expireMonth,
+      expireYear: req.body.expireYear,
+      cvv: req.body.cvv,
       tenantId,
-      ...req.body,
       userId: user.id,
       username: user.fullName || user.username,
     });

@@ -1,3 +1,4 @@
+import { requirePaymentSandbox } from './checkoutSafety';
 import crypto from 'crypto';
 import {
   PaymentProvider,
@@ -11,6 +12,7 @@ export class MockPaymentProvider implements PaymentProvider {
   public providerName = 'MOCK';
 
   public async createPayment(params: CreatePaymentParams): Promise<PaymentProviderResult> {
+    requirePaymentSandbox();
     const cleanCard = (params.cardNumber || '').replace(/[^0-9]/g, '');
     const cardLast4 = cleanCard.slice(-4) || '4242';
     const cardBrand = cleanCard.startsWith('5') ? 'Mastercard' : cleanCard.startsWith('4') ? 'Visa' : 'Troy';
@@ -59,6 +61,7 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   public async verifyPayment(providerPaymentId: string): Promise<PaymentProviderResult> {
+    requirePaymentSandbox();
     if (providerPaymentId.includes('FAIL')) {
       return {
         success: false,
@@ -76,6 +79,7 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   public async refundPayment(params: RefundPaymentParams): Promise<RefundResult> {
+    requirePaymentSandbox();
     const refundId = `REFUND-MOCK-${Date.now()}`;
     return {
       success: true,

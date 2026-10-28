@@ -9,11 +9,12 @@ import { BillingInvoiceService } from '../../services/billingInvoiceService';
 import { CreditWalletService } from '../../services/creditWalletService';
 import { Payment } from '../../db/schema';
 import { MonitoringService } from '../../services/monitoringService';
+import { sandboxPaymentOnly } from '../../services/payments/checkoutSafety';
 
 export const paymentsRouter = Router();
 
 // POST /api/v1/payments/webhook - Ödeme Sağlayıcı Webhook Bildirimi (Public - Signature Doğrulamalı)
-paymentsRouter.post('/webhook', webhookRateLimit, async (req: Request, res: Response) => {
+paymentsRouter.post('/webhook', webhookRateLimit, sandboxPaymentOnly, async (req: Request, res: Response) => {
   // FAZ 25.3 #2 (docs/09 §25.5): Fallback secret YASAK (CLAUDE.md kuralı).
   // Secret tanımsızsa fail-closed → 503; webhook işlemi reddedilir.
   const secretKey = process.env.PAYMENT_WEBHOOK_SECRET;

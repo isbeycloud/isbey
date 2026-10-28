@@ -1,0 +1,40 @@
+import { test, expect } from '@playwright/test';
+
+test('Garanti preparation shows no secrets and package preview cannot collect or activate', async ({ page, request }) => {
+  const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
+  expect(login.status()).toBe(200);
+  const { token, activeTenant } = await login.json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const before = await (await request.get(`/api/companies/${activeTenant.id}/package`, { headers })).json();
+  const writes: string[] = [];
+  page.on('request', req => {
+    if (req.url().includes('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method())) writes.push(new URL(req.url()).pathname);
+  });
+  await page.addInitScript(value => localStorage.setItem('isbey_token', value), token);
+  await page.goto('/');
+  await page.locator('aside').getByRole('button', { name: 'Müşteri & Firmalar', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Müşteri yönetimi bölümleri' }).getByRole('button', { name: /Platform Ayarları/ }).click();
+  await page.getByRole('button', { name: 'Sanal POS', exact: true }).click();
+  const preparation = page.getByRole('region', { name: 'Garanti BBVA sanal POS hazırlığı' });
+  await expect(preparation.getByRole('heading', { name: 'Garanti BBVA Sanal POS' })).toBeVisible();
+  await expect(preparation.getByText('Online tahsilat kapalı.', { exact: false })).toBeVisible();
+  await expect(preparation.getByText('Üye işyeri numarası:', { exact: false })).toBeVisible();
+  await expect(preparation.locator('input')).toHaveCount(0);
+  await page.screenshot({ path: '.verify-tmp/garanti-readiness-desktop.png', fullPage: true });
+  await page.locator('aside').getByRole('button', { name: 'Faturalama', exact: true }).click();
+  await page.getByRole('button', { name: 'Paket Değiştir / Yükselt' }).click();
+  await page.getByRole('button', { name: 'Aylık Faturalama', exact: true }).click();
+  await page.getByRole('button', { name: 'Paket Önizlemesi', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Paket Satın Alma Önizlemesi' });
+  await expect(dialog.getByRole('button', { name: 'Garanti BBVA ile Öde — Yakında' })).toBeDisabled();
+  await expect(dialog.getByText('Kart bilgisi alınmıyor.', { exact: false })).toBeVisible();
+  await expect(dialog.locator('input')).toHaveCount(0);
+  await page.screenshot({ path: '.verify-tmp/garanti-preview-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate(el => el.getBoundingClientRect().width <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: '.verify-tmp/garanti-preview-mobile.png', fullPage: true });
+  await dialog.getByRole('button', { name: 'Önizlemeyi kapat' }).click();
+  const after = await (await request.get(`/api/companies/${activeTenant.id}/package`, { headers })).json();
+  expect(after).toEqual(before);
+  expect(writes).toEqual(['/api/v1/package-checkout/preview']);
+});
