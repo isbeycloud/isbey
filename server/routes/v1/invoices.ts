@@ -197,6 +197,9 @@ v1InvoicesRouter.post('/', requirePermission(PERMISSIONS.INVOICES_CREATE), async
       // 2026-10-20: Sıfır tutarlı satışta zorunlu gerekçe. Gövdeden gelir ama
       // kapı SUNUCUDA (`services/zeroPriceGate.ts`) — istemciye güvenilmez.
       zeroTotalReason: typeof req.body?.zeroTotalReason === 'string' ? req.body.zeroTotalReason : undefined,
+      // 2026-10-21: Bedelsiz satış yetkisi — SUNUCUDAN, gövdeden DEĞİL.
+      actorRole: req.user?.role,
+      actorRoleSlugs: [req.userRole].filter(Boolean) as string[],
       tenantId,
       ...(recipient ? { invoiceProfile: recipient.profile, recipientTaxNumber: recipient.identifier, recipientAliasGB: recipient.aliasGB } : {}),
       userId: user.id,

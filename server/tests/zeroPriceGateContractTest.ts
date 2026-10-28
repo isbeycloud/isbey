@@ -67,6 +67,9 @@ const { v1InvoicesRouter } = await import('../routes/v1/invoices');
 
 const T = 'tnt-zp';
 const GEREKCE = 'Numune amaçlı bedelsiz gönderim — pazarlama';
+// 2026-10-21: Kapı artık YETKİ de soruyor. Testlerin çoğu "yönetici"
+// aktörüyle koşar; yetki senaryoları K10'da AYRI ve dar ölçülür.
+const AKTOR = { role: 'COMPANY_ADMIN', roleSlugs: ['company_admin'] };
 
 let server: ReturnType<ReturnType<typeof express>['listen']>;
 let base = '';
@@ -74,7 +77,16 @@ let token = '';
 
 function kurulum() {
   storage.update(db => {
-    db.tenants = [{ id: T, name: 'ZP', subdomain: 'zp', status: 'ACTIVE' } as any];
+    // 2026-10-21: Abonelik tarihleri ZORUNLU. Verilmezse `subscriptionState`
+    // UNCONFIGURED döner ve authGuards yazma isteklerini 403 ile keser —
+    // o zaman test sıfır fiyat kapısını değil ABONELİK kapısını ölçer
+    // (K13'te tam bu oldu). Platform admin bu kapıyı atladığı için yalnız
+    // yetkisiz kullanıcı senaryosunda ortaya çıktı.
+    db.tenants = [{
+      id: T, name: 'ZP', subdomain: 'zp', status: 'ACTIVE',
+      createdAt: '2026-01-01',
+      erpSubscription: { startDate: '2026-01-01', endDate: '2099-12-31', expiryPolicy: 'READ_ONLY' },
+    } as any];
     const now = new Date().toISOString();
     db.users = [
       { id: 'u', tenantId: T, username: 'zp', fullName: 'ZP', email: 'zp@x', phone: '', role: 'ADMIN', permissions: ['*'], active: true, createdAt: now, updatedAt: now } as any,
@@ -143,9 +155,31 @@ async function basla() {
   await new Promise<void>(r => server.once('listening', () => r()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   token = jwt.sign({ userId: 'u', tenantId: T }, process.env.JWT_SECRET!, { expiresIn: '5m' });
+  // Yetkisiz kullanıcı: SATIS_REP benzeri dar rol. Fatura kesme izni VAR
+  // (aksi hâlde 403 kapıdan değil yetki ara katmanından gelirdi ve test
+  // yanlış şeyi ölçerdi) ama YÖNETİCİ DEĞİL — bedelsiz satış yetkisi yok.
+  storage.update(db => {
+    const now = new Date().toISOString();
+    db.users = [
+      ...(db.users || []),
+      { id: 'u2', tenantId: T, username: 'zp2', fullName: 'ZP2', email: 'zp2@x', phone: '', role: 'SATIS', permissions: ['invoices.create', 'invoices.view'], active: true, createdAt: now, updatedAt: now } as any,
+    ];
+    db.tenantUsers = [
+      ...((db.tenantUsers as any) || []),
+      { id: 'tu2', userId: 'u2', tenantId: T, roleSlug: 'employee', status: 'active', isOwner: false, joinedAt: now, createdAt: now, updatedAt: now },
+    ] as any;
+  });
+  yetkisizToken = jwt.sign({ userId: 'u2', tenantId: T }, process.env.JWT_SECRET!, { expiresIn: '5m' });
 }
 
 const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+// 2026-10-21: YETKİSİZ oturum. Terminal (satış temsilcisi) rolü — kapının
+// beyaz listesinde YOK. Amaç: yetki kapısının HTTP katmanında da çalıştığını
+// ölçmek. Saf fonksiyon testi (K11) bunu zaten ölçüyor; buradaki fark,
+// `req.user`/`req.userRole`'nin GERÇEKTEN sunucudan geldiğini ve gövdeyle
+// EZİLEMEDİĞİNİ kanıtlamasıdır.
+let yetkisizToken = '';
+const HYetkisiz = () => ({ Authorization: `Bearer ${yetkisizToken}`, 'Content-Type': 'application/json' });
 /** Satır: ürün + adet + (verilirse) birim fiyat. Fiyat VERİLMEZSE legacy uç
  *  ürünün `salePrice`'ına düşer — canlıdaki sessiz 0 TL yolu tam budur. */
 const satir = (adet: number, fiyat?: number, urun = 'p') => [
@@ -160,7 +194,7 @@ function test(name: string, fn: () => Promise<void> | void) { tests.push({ name,
 // ─────────────────────────── SAF FONKSİYON KAPISI ───────────────────────────
 
 test('K1: sıfır tutarlı SALES gerekçesiz DURUR (kod + ne yapmalı mesajı)', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 3, unitPrice: 0 }]);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 3, unitPrice: 0 }], undefined, AKTOR);
   assert.equal(r.blocked, true);
   assert.equal(r.code, 'ZERO_TOTAL_REASON_REQUIRED');
   assert.match(r.message!, /GEREKÇE/);
@@ -168,51 +202,51 @@ test('K1: sıfır tutarlı SALES gerekçesiz DURUR (kod + ne yapmalı mesajı)',
 });
 
 test('K1b: sıfır tutarlı RETAIL_POS da DURUR (canlı SAT-2026-000005 yolu)', () => {
-  const r = evaluateZeroTotalGate('RETAIL_POS', 0, [{ productCode: 'URN-1', quantity: 3, unitPrice: 0 }]);
+  const r = evaluateZeroTotalGate('RETAIL_POS', 0, [{ productCode: 'URN-1', quantity: 3, unitPrice: 0 }], undefined, AKTOR);
   assert.equal(r.blocked, true);
   assert.equal(r.code, 'ZERO_TOTAL_REASON_REQUIRED');
 });
 
 test('K2: yeterli gerekçeyle GEÇER', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], GEREKCE);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], GEREKCE, AKTOR);
   assert.equal(r.blocked, false);
 });
 
 test('K3: kısa/kaçamak gerekçe kabul EDİLMEZ', () => {
   for (const kisa of ['', '   ', '0', 'yok', 'bedava', 'a'.repeat(ZERO_TOTAL_REASON_MIN - 1)]) {
-    assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], kisa).blocked, true, `"${kisa}" reddedilmeli`);
+    assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], kisa, AKTOR).blocked, true, `"${kisa}" reddedilmeli`);
   }
-  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], 'a'.repeat(ZERO_TOTAL_REASON_MIN)).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0 }], 'numune promosyon', AKTOR).blocked, false);
 });
 
 test('K4: negatif toplam da gerekçe ister (sıfırdan farkı yok)', () => {
   const satirlar = [{ quantity: 1, unitPrice: -50 }];
-  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar).blocked, true);
-  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, GEREKCE).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, undefined, AKTOR).blocked, true);
+  assert.equal(evaluateZeroTotalGate('SALES', -50, satirlar, GEREKCE, AKTOR).blocked, false);
 });
 
 test('K5: ALIŞ ve PROFORMA kapsam DIŞI (tedarikçi belgesi / teklif)', () => {
-  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }]).blocked, false);
-  assert.equal(evaluateZeroTotalGate('PROFORMA', 0, [{ quantity: 1, unitPrice: 0 }]).blocked, false);
+  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR).blocked, false);
+  assert.equal(evaluateZeroTotalGate('PROFORMA', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR).blocked, false);
 });
 
 test('K6: toplamı > 0 olan fatura gerekçesiz geçer', () => {
-  assert.equal(evaluateZeroTotalGate('SALES', 120, [{ quantity: 1, unitPrice: 100 }]).blocked, false);
+  assert.equal(evaluateZeroTotalGate('SALES', 120, [{ quantity: 1, unitPrice: 100 }], undefined, AKTOR).blocked, false);
 });
 
 test('K9: fiyatı olan ürüne 0 girilmişse UYARI üretilir (engellemez)', () => {
-  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 2, unitPrice: 0, productSalePrice: 100 }], GEREKCE);
+  const r = evaluateZeroTotalGate('SALES', 0, [{ productCode: 'URN-1', productName: 'Numune', quantity: 2, unitPrice: 0, productSalePrice: 100 }], GEREKCE, AKTOR);
   assert.equal(r.blocked, false, 'uyarı engel DEĞİLDİR');
   assert.equal(r.warnings.length, 1);
   assert.match(r.warnings[0], /URN-1/);
   assert.match(r.warnings[0], /100/);
   // Satış fiyatı zaten 0 ise "fiyatı var ama 0 girilmiş" uyarısı YOK.
-  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 0 }], GEREKCE).warnings.length, 0);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 0 }], GEREKCE, AKTOR).warnings.length, 0);
 });
 
 test('K10: assertZeroTotalAllowed düşünce ZeroTotalGateError (400 + kod)', () => {
   try {
-    assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0 }]);
+    assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0 }], undefined, AKTOR);
     assert.fail('fırlatmalıydı');
   } catch (err: any) {
     assert.ok(err instanceof ZeroTotalGateError);
@@ -220,8 +254,124 @@ test('K10: assertZeroTotalAllowed düşünce ZeroTotalGateError (400 + kod)', ()
     assert.equal(err.code, 'ZERO_TOTAL_REASON_REQUIRED');
   }
   // Geçen durumda uyarı listesi döner (denetim kaydı için).
-  const uyarilar = assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 100 }], GEREKCE);
+  const uyarilar = assertZeroTotalAllowed('SALES', 0, [{ quantity: 1, unitPrice: 0, productSalePrice: 100 }], GEREKCE, AKTOR);
   assert.equal(uyarilar.length, 1);
+});
+
+// ─────────────────── YETKİ KAPISI (2026-10-21, P3) ───────────────────
+// ÖLÇÜLEN KUSUR: 2026-10-20 sürümü yalnız "≥10 karakter" istiyordu.
+// `"asdfasdfasdf"` ve `"1111111111"` kapıyı GEÇİYORDU — yani yetki
+// sorulmuyordu. Aşağıdaki testler yetkinin gerçekten arandığını ölçer.
+
+test('K11: YETKİSİZ kullanıcı gerekçe yazsa bile sıfır satış YAZAMAZ (403)', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  // Kastî olarak geçerli ve anlamlı gerekçe veriliyor: yalnız yetki eksik.
+  const r = evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE, { role: 'SALES_REP' });
+  assert.equal(r.blocked, true, 'yetkisiz rol geçmemeli');
+  assert.equal(r.code, 'ZERO_TOTAL_FORBIDDEN');
+  // Aktör hiç verilmezse fail-closed: yazılmaz.
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE).blocked, true);
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, GEREKCE, {}).blocked, true);
+});
+
+test('K11b: yetkisiz rolde 403, yetkili rolde 400 döner (istemci ayırt edebilsin)', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  try {
+    assertZeroTotalAllowed('SALES', 0, satirlar, undefined, { role: 'SALES_REP' });
+    assert.fail('fırlatmalıydı');
+  } catch (err: any) {
+    assert.equal(err.statusCode, 403);
+    assert.equal(err.code, 'ZERO_TOTAL_FORBIDDEN');
+  }
+  try {
+    assertZeroTotalAllowed('SALES', 0, satirlar, undefined, AKTOR);
+    assert.fail('fırlatmalıydı');
+  } catch (err: any) {
+    assert.equal(err.statusCode, 400);
+    assert.equal(err.code, 'ZERO_TOTAL_REASON_REQUIRED');
+  }
+});
+
+test('K12: anlamsız gerekçe YETKİLİ kullanıcıyı da geçirmez ("asdf", "1111")', () => {
+  const satirlar = [{ quantity: 1, unitPrice: 0 }];
+  for (const anlamsiz of ['asdfasdfasdf', '1111111111', '------------', 'aaaaaaaaaaaa', 'aaaa bbbb']) {
+    assert.equal(
+      evaluateZeroTotalGate('SALES', 0, satirlar, anlamsiz, AKTOR).blocked, true,
+      `"${anlamsiz}" anlamlı gerekçe sayılmamalı`,
+    );
+  }
+  // Gerçek gerekçe geçer (iki kelime + ayırt edici karakterler).
+  assert.equal(evaluateZeroTotalGate('SALES', 0, satirlar, 'numune promosyon', AKTOR).blocked, false);
+});
+
+test('K12b: yetki kontrolü ALIŞ/PROFORMA ve toplam>0 işlemleri ETKİLEMEZ', () => {
+  // Yetkisiz kullanıcı bile normal (tutarlı) satış kesebilmeli.
+  assert.equal(evaluateZeroTotalGate('SALES', 500, [{ quantity: 1, unitPrice: 500 }], undefined, { role: 'SALES_REP' }).blocked, false);
+  // Alış zaten kapsam dışı.
+  assert.equal(evaluateZeroTotalGate('PURCHASE', 0, [{ quantity: 1, unitPrice: 0 }], undefined, { role: 'SALES_REP' }).blocked, false);
+});
+
+// ─────────────── YETKİ KAPISI — UÇTAN UCA (HTTP, 2026-10-21) ───────────────
+// Saf fonksiyon testi (K11) kapıyı ölçer; buradaki testler kapının UÇTA,
+// SUNUCUDAN gelen aktörle çalıştığını ölçer. Fark önemli: aktör istek
+// gövdesinden gelirse istemci kendini yönetici ilan edebilir.
+
+test('K13: YETKİSİZ kullanıcı sıfır satışta 403 alır (gerekçe yazsa bile)', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE }),
+  });
+  const govde = await res.json() as any;
+  assert.equal(res.status, 403, 'yetkisiz kullanıcı 403 almalı (gerekçe geçerli olsa da)');
+  assert.equal(govde.code, 'ZERO_TOTAL_FORBIDDEN');
+  const sonra = muhasebeOzeti();
+  assert.deepEqual(sonra, once, 'yetkisiz denemede HİÇBİR ŞEY yazılmamalı');
+});
+
+test('K13b: gövdeye role:SUPER_ADMIN koymak yetki VERMEZ (aktör sunucudan)', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({
+      type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE,
+      // Saldırı denemesi: istemci kendini yönetici ilan ediyor.
+      role: 'SUPER_ADMIN', userRole: 'platform_admin', user: { role: 'SUPER_ADMIN' },
+    }),
+  });
+  assert.equal(res.status, 403, 'gövdeden gelen rol YOK SAYILMALI');
+  assert.deepEqual(muhasebeOzeti(), once, 'HİÇBİR ŞEY yazılmamalı');
+});
+
+test('K13c: YETKİLİ ama gerekçesiz → 400; YETKİLİ ve gerekçeli → yazılır', async () => {
+  // Yetkili (yönetici) + gerekçe yok → 400
+  const r1 = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: H(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0) }),
+  });
+  assert.equal(r1.status, 400);
+  assert.equal((await r1.json() as any).code, 'ZERO_TOTAL_REASON_REQUIRED');
+
+  // Yetkili + anlamlı gerekçe → yazılır
+  const once = muhasebeOzeti();
+  const r2 = await fetch(`${base}/api/invoices`, {
+    method: 'POST', headers: H(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(3, 0), zeroTotalReason: GEREKCE }),
+  });
+  // Legacy uç `200` döner (v1 uç `201`); ikisi de "yazıldı" demektir.
+  assert.equal(r2.status, 200, 'yetkili ve gerekçeli işlem yazılmalı');
+  const sonra = muhasebeOzeti();
+  assert.equal(sonra.fatura, once.fatura + 1);
+});
+
+test('K13d: v1 uçta da yetkisiz kullanıcı 403 alır', async () => {
+  const once = muhasebeOzeti();
+  const res = await fetch(`${base}/api/v1/invoices`, {
+    method: 'POST', headers: HYetkisiz(),
+    body: JSON.stringify({ type: 'RETAIL_POS', customerId: 'c', items: satir(2, 0), zeroTotalReason: GEREKCE }),
+  });
+  assert.equal(res.status, 403, 'v1 uçta da yetki kapısı çalışmalı');
+  assert.deepEqual(muhasebeOzeti(), once, 'HİÇBİR ŞEY yazılmamalı');
 });
 
 // ─────────────────────────── LEGACY POST /api/invoices ───────────────────────────

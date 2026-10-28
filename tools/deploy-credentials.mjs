@@ -32,7 +32,31 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const ENV_PATH = path.join(os.homedir(), '.isbey-deploy.env');
+/**
+ * KİMLİK DOSYASININ YERİ — 2026-10-21 düzeltmesi
+ * ==============================================
+ * Varsayılan: `~/.isbey-deploy.env`.
+ *
+ * SORUN (ölçüldü): ajan ayrı bir Linux sanal makinesinde çalışıyor ve
+ * `os.homedir()` orada `/sessions/...` dönüyor — kullanıcının Windows
+ * profilini (`C:\Users\<ad>`) GÖREMİYOR. Kullanıcı `set` ile kimliği
+ * `C:\Users\<ad>\.isbey-deploy.env` dosyasına yazdığında dosya oluşuyor
+ * ama ajan onu okuyamıyor; push sessizce imkânsız kalıyordu.
+ *
+ * ÇÖZÜM: `ISBEY_DEPLOY_ENV` ortam değişkeni ile dosya yolu AÇIKÇA
+ * verilebilir. Ajanın görebildiği tek yer proje klasörüdür; bu yüzden
+ * `.verify-tmp/` (gitignore'da) altına yazılır.
+ *
+ *   PowerShell:  $env:ISBEY_DEPLOY_ENV = "D:\İŞBEY\.verify-tmp\deploy.env"
+ *   bash:        ISBEY_DEPLOY_ENV=... node tools/deploy-credentials.mjs set
+ *
+ * GÜVENLİK: dosya yolu değişse de içerik kuralları aynıdır — kimlik hiçbir
+ * çıktıya basılmaz, `status` yalnız parmak izi verir. Yol `set` çıktısında
+ * AÇIKÇA yazılır ki kullanıcı nereye yazdığını görsün.
+ */
+const ENV_PATH = process.env.ISBEY_DEPLOY_ENV
+  ? path.resolve(process.env.ISBEY_DEPLOY_ENV)
+  : path.join(os.homedir(), '.isbey-deploy.env');
 const REPO = 'https://github.com/isbeycloud/isbey.git';
 const BRANCH = 'release/p0-tenant-depo';
 
@@ -55,19 +79,42 @@ function readEnv() {
   return out;
 }
 
-/** Gizli satır okuma: yazılan karakterler ekrana BASILMAZ. */
+/**
+ * Gizli satır okuma: yazılan karakterler ekrana BASILMAZ.
+ *
+ * ── 2026-10-22'de ÖLÇÜLEN KUSUR (bu fonksiyonun ilk sürümü) ──────────────
+ * `rl._writeToOutput` TAMAMEN susturulmuştu. Windows PowerShell'de bu, SORU
+ * METNİNİ de yutuyor: kullanıcı üç boş satır görüyor, ne yazacağını bilmiyor
+ * ve boş Enter'lara basıyor → "token boş — hiçbir şey yazılmadı".
+ * Yani gizlilik sağlanmıştı ama araç KULLANILAMAZ hâle gelmişti.
+ *
+ * DÜZELTME: readline'ın yankısını susturmaya devam ediyoruz, ama KENDİ
+ * yazdığımız soru metnine dokunmuyoruz. Ayrıca `rl.close()` çağrısı
+ * `_writeToOutput` üzerinden çalıştığı için soru satırı silinebiliyordu;
+ * bu yüzden satır sonu AÇIKÇA ve close'tan SONRA yazılıyor.
+ *
+ * Kabul ölçütü: kullanıcı her adımda SORUYU görür, yazdığını GÖRMEZ.
+ */
 function askHidden(question) {
   return new Promise(resolve => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // readline her tuş vuruşunu yankılar. Yankıyı susturuyoruz: kullanıcı
-    // yazdığını GÖRMEZ, yalnız soru satırı ekranda kalır. (Bu, gizli girişin
-    // standart yoludur; alternatifi kimliği sohbete yapıştırmaktır.)
-    rl._writeToOutput = function () {};
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: Boolean(process.stdin.isTTY),
+    });
+    // Yalnız KARAKTER yankısını sustur; soru metni bizim yazdığımız.
+    rl._writeToOutput = function (str) {
+      // readline'ın kendi yankıladığı içerik prompt + yazılan karakterlerdir.
+      // prompt'u biz yazdığımız için burada hiçbir şey basmıyoruz.
+      void str;
+    };
     process.stdout.write(question);
     rl.question('', answer => {
-      rl.close();
+      // Önce satırı bitir, SONRA kapat — close() yankıyı temizlerken
+      // soru satırını da silmesin.
       process.stdout.write('\n');
-      resolve(answer.trim());
+      rl.close();
+      resolve(String(answer).trim());
     });
   });
 }
@@ -88,9 +135,10 @@ function setCmd() {
   console.log('sohbete/loga yazılmaz. Boş bırakılan alan korunur.\n');
   const cur = readEnv();
   return (async () => {
-    const user = await askHidden('GitHub kullanıcı adı [boş = korunur]: ');
-    const token = await askHidden('GitHub token (fine-grained, contents:write) [boş = korunur]: ');
-    const sshPass = await askHidden('SSH parolası [boş = korunur, gerekmiyorsa boş geçin]: ');
+    console.log('  (Yazdıklarınız görünmez. Her alandan sonra Enter.)\n');
+    const user = await askHidden('1/3  GitHub kullanıcı adı [boş = korunur]:\n     > ');
+    const token = await askHidden('2/3  GitHub token (fine-grained, contents:write) [boş = korunur]:\n     > ');
+    const sshPass = await askHidden('3/3  SSH parolası [boş = korunur, gerekmiyorsa boş geçin]:\n     > ');
     const next = {
       ISBEY_GIT_USERNAME: user || cur.ISBEY_GIT_USERNAME || '',
       ISBEY_GIT_TOKEN: token || cur.ISBEY_GIT_TOKEN || '',
@@ -108,6 +156,81 @@ function setCmd() {
     console.log('\nŞimdi doğrulayın:  node tools/deploy-credentials.mjs test');
     return 0;
   })();
+}
+
+/**
+ * PANODAN OKUMA — 2026-10-22
+ * ==========================
+ * NEDEN: `set` komutunun gizli girişi Windows PowerShell'de ÖLÇÜLEN biçimde
+ * çalışmadı. Kullanıcı üç soruyu arka arkaya basılmış ve HEPSİ BOŞ dönmüş
+ * hâlde gördü ("HATA: token boş"). Soruların görünür olması düzelmişti ama
+ * stdin gerçek terminalde boş okuma veriyordu — yani etkileşimli yol bu
+ * ortamda güvenilir değil.
+ *
+ * ÇÖZÜM: etkileşimi tamamen kaldır. Token zaten kullanıcının PANOSUNDA
+ * (GitHub'da üretip kopyaladı). Bu komut panoyu okur, doğrular, dosyaya
+ * yazar. Ekranda hiçbir şey sorulmaz, token basılmaz.
+ *
+ *   PowerShell:  Get-Clipboard | Set-Clipboard          # token zaten panoda
+ *                node tools/deploy-credentials.mjs set-pano
+ *
+ * GÜVENLİK: pano içeriği HİÇBİR çıktıya yazılmaz. Yalnız "panoda token var
+ * mı, biçimi doğru mu, sha256 parmak izi ne" bilgisi basılır. Hatalı panoda
+ * (boş, çok kısa, satır sonu dışı boşluk) yazma YAPILMAZ.
+ */
+function panoOku() {
+  // PowerShell: Get-Clipboard ; macOS: pbpaste ; Linux: xclip/wl-paste
+  const denemeler = process.platform === 'win32'
+    ? [['powershell', ['-NoProfile', '-Command', 'Get-Clipboard -Raw']]]
+    : process.platform === 'darwin'
+      ? [['pbpaste', []]]
+      : [['wl-paste', ['--no-newline']], ['xclip', ['-selection', 'clipboard', '-o']]];
+
+  for (const [cmd, args] of denemeler) {
+    const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: 15000 });
+    if (r.status === 0 && typeof r.stdout === 'string' && r.stdout.trim()) {
+      return { metin: r.stdout.trim(), kaynak: cmd };
+    }
+  }
+  return { metin: '', kaynak: null };
+}
+
+function setPanoCmd() {
+  const { metin, kaynak } = panoOku();
+  if (!metin) {
+    console.error('HATA: pano okunamadı ya da boş. Token\'ı kopyalayıp tekrar deneyin.');
+    console.error('      (Desteklenen: Windows PowerShell panosu, pbpaste, wl-paste, xclip)');
+    return 2;
+  }
+  // Biçim denetimi: yalnız GitHub token önekleri. Yanlış pano (ör. bir URL)
+  // sessizce kimlik olarak yazılmasın.
+  if (!/^(ghp_|github_pat_|gho_|ghs_|ghu_)/.test(metin)) {
+    console.error('HATA: panodaki metin GitHub token biçiminde değil.');
+    console.error(`      Beklenen önek: ghp_ / github_pat_ …  (gelen: ${metin.slice(0, 4)}…, ${metin.length} karakter)`);
+    console.error('      Panoya YANLIŞ şey kopyalanmış olabilir; yazma YAPILMADI.');
+    return 2;
+  }
+  if (/\s/.test(metin)) {
+    console.error('HATA: panodaki token boşluk/satır sonu içeriyor — kopyalama bozulmuş.');
+    console.error('      Yazma YAPILMADI.');
+    return 2;
+  }
+  const cur = readEnv();
+  const next = {
+    ISBEY_GIT_USERNAME: cur.ISBEY_GIT_USERNAME || '',
+    ISBEY_GIT_TOKEN: metin,
+    ISBEY_SSH_PASSWORD: cur.ISBEY_SSH_PASSWORD || '',
+  };
+  writeEnv(next);
+  console.log(`Pano kaynağı   : ${kaynak}`);
+  console.log(`Yazıldı        : ${ENV_PATH}`);
+  console.log(`  GitHub token : ${mask(metin)} (${metin.length} karakter, biçim DOĞRU)`);
+  if (!next.ISBEY_GIT_USERNAME) {
+    console.log('  NOT: GitHub kullanıcı adı boş. `gitEnv` bunu "x-access-token" ile');
+    console.log('       değiştirir; fine-grained token için bu genelde yeterlidir.');
+  }
+  console.log('\nŞimdi doğrulayın:  node tools/deploy-credentials.mjs test');
+  return 0;
 }
 
 function gitEnv() {
@@ -204,9 +327,18 @@ function clearCmd() {
 }
 
 const cmd = process.argv[2] || 'status';
-const handlers = { set: setCmd, test: testCmd, status: statusCmd, clear: clearCmd };
+const handlers = {
+  set: setCmd,
+  // 2026-10-22: etkileşimsiz yol. PowerShell'de gizli giriş ölçülen biçimde
+  // çalışmadığı için eklendi; token panodan okunur, ekrana basılmaz.
+  'set-pano': setPanoCmd,
+  test: testCmd,
+  status: statusCmd,
+  clear: clearCmd,
+};
 if (!handlers[cmd]) {
-  console.error('Kullanım: node tools/deploy-credentials.mjs [set|test|status|clear]');
+  console.error('Kullanım: node tools/deploy-credentials.mjs [set|set-pano|test|status|clear]');
+  console.error('  set-pano : token\'ı PANODAN okur (PowerShell\'de önerilen yol)');
   process.exit(2);
 }
 Promise.resolve(handlers[cmd]()).then(code => { process.exitCode = code ?? 0; });
