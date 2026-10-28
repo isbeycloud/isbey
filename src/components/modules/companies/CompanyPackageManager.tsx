@@ -121,7 +121,8 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
         <label className="form-label">Bitiş tarihi<input className="form-input" type="date" min={start} value={end} disabled={busy} required onChange={e => setEnd(e.target.value)} /></label>
       </div>
       <label><input type="checkbox" disabled={busy || mode !== 'PAID'} checked={mode === 'PAID' && autoRenew} onChange={e => setAutoRenew(e.target.checked)} /> Otomatik yenileme tercihi</label>
-      <label className="form-label">Değişiklik gerekçesi<textarea className="form-input" minLength={10} maxLength={1000} value={reason} disabled={busy} required aria-describedby={`package-reason-help-${companyId}`} onChange={e => setReason(e.target.value)} placeholder="Örn. Müşteri talebiyle yıllık kurumsal pakete geçiş" /></label>
+      <div><label className="form-label" htmlFor={`package-reason-${companyId}`}>Değişiklik gerekçesi</label>
+        <textarea id={`package-reason-${companyId}`} className="form-input" minLength={10} maxLength={1000} value={reason} disabled={busy} required aria-describedby={`package-reason-help-${companyId}`} onChange={e => setReason(e.target.value)} placeholder="Örn. Müşteri talebiyle yıllık kurumsal pakete geçiş" /></div>
       <small id={`package-reason-help-${companyId}`} className="text-muted">Kaydetmek için en az 10 karakterlik değişiklik gerekçesi zorunludur.</small>
       <div style={{ background: 'var(--bg-surface-secondary)', borderRadius: 8, padding: 12 }}>
         <strong>{change}</strong> · {modeLabels[mode]} · {cycle === 'monthly' ? 'Aylık' : 'Yıllık'}
