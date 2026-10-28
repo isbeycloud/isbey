@@ -152,7 +152,7 @@ test('MUHASEBE kullanıcısı: ekran açılır, belgeler görünür, ADMIN yetki
   // her koşulda "yok" der ve yanlış güven verir).
   // NOT: 'Mali Müşavir Portalı' listede DEĞİL — MUHASEBE'nin kendi çalışma
   // alanıdır ve görmesi doğrudur. Buraya yalnız YÖNETİM menüleri yazılır.
-  for (const yasakMenu of ['Roller & Yetkiler', 'Firma & Şirketler', 'Tenant Yönetimi', 'Yönetim Paneli']) {
+  for (const yasakMenu of ['Roller & Yetkiler', 'Müşteri & Firmalar', 'Tenant Yönetimi', 'Yönetim Paneli']) {
     await expect(page.getByText(yasakMenu, { exact: true }), `MUHASEBE '${yasakMenu}' menüsünü GÖRMEMELİ`).toHaveCount(0);
   }
 

@@ -116,15 +116,15 @@ const MODULE_META: Record<string, ModuleMeta> = {
   'rapor-tasarimci':  { id: 'rapor-tasarimci',    ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Rapor Tasarım Merkezi', icon: <BarChart3 size={18} />, badge: 'NEW',  badgeColor: '#059669' },
   'rapor-detay':      { id: 'rapor-detay',        ribbonTab: 'RAPORLAR',    orderNumber: '17', label: 'Detay Raporları',      icon: <BarChart3 size={18} />, badge: 'NEW',  badgeColor: '#059669' },
   ayarlar:            { id: 'ayarlar',            ribbonTab: 'AYARLAR',     orderNumber: '18', label: 'Ayarlar',              icon: <Settings size={18} /> },
-  companies:          { id: 'companies',          ribbonTab: 'AYARLAR',     orderNumber: '19', label: 'Firma & Şirketler',    icon: <Building size={18} /> },
+  companies:          { id: 'companies',          ribbonTab: 'AYARLAR',     orderNumber: '19', label: 'Müşteri & Firmalar',    icon: <Building size={18} /> },
   tenants:            { id: 'tenants',            ribbonTab: 'AYARLAR',     orderNumber: '19', label: 'Tenant Yönetimi',      icon: <Building size={18} /> },
   'roles-permissions':{ id: 'roles-permissions',  ribbonTab: 'AYARLAR',     orderNumber: '20', label: 'Roller & Yetkiler',    icon: <ShieldAlert size={18} /> },
   admin:              { id: 'admin',              ribbonTab: 'AYARLAR',     orderNumber: '21', label: 'Yönetim Paneli',       icon: <Crown size={18} />,       badge: 'ADMIN',   badgeColor: '#7c3aed' },
   'mali-musavir':     { id: 'mali-musavir',       ribbonTab: 'AYARLAR',     orderNumber: '22', label: 'Mali Müşavir Portalı', icon: <Briefcase size={18} />,   badge: 'SMMM',    badgeColor: '#4f46e5' },
   'muhasebe-kontrol': { id: 'muhasebe-kontrol',   ribbonTab: 'RAPORLAR',    orderNumber: '23', label: 'Muhasebe Kontrol',     icon: <TrendingUp size={18} /> },
-  'platform-admin':   { id: 'platform-admin',     ribbonTab: 'AYARLAR',     orderNumber: '1',  label: 'Admin & SaaS Paneli',  icon: <ShieldAlert size={18} />, badge: 'SUPER',   badgeColor: '#dc2626' },
+  'platform-admin':   { id: 'platform-admin',     ribbonTab: 'AYARLAR',     orderNumber: '1',  label: 'Müşteri & Firmalar',  icon: <ShieldAlert size={18} />, badge: 'SUPER',   badgeColor: '#dc2626' },
   'saas-admin':       { id: 'saas-admin',         ribbonTab: 'AYARLAR',     orderNumber: '1',  label: 'SaaS Yönetimi',        icon: <ShieldAlert size={18} />, badge: 'SAAS',    badgeColor: '#dc2626' },
-  hizlibilisim:       { id: 'hizlibilisim',       ribbonTab: 'AYARLAR',     orderNumber: '2',  label: 'Müşteri İşlemleri',        icon: <Users size={18} />,         badge: 'HB',     badgeColor: '#059669' },
+  hizlibilisim:       { id: 'hizlibilisim',       ribbonTab: 'AYARLAR',     orderNumber: '2',  label: 'Müşteri & Firmalar',        icon: <Users size={18} />,         badge: 'HB',     badgeColor: '#059669' },
   dealers:            { id: 'dealers',            ribbonTab: 'AYARLAR',     orderNumber: '3',  label: 'Bayi Yönetimi',        icon: <Users size={18} />,       badge: 'BAYİ',    badgeColor: '#0369a1' },
   subscription:       { id: 'subscription',       ribbonTab: 'AYARLAR',     orderNumber: '4',  label: 'Abonelik & SaaS',      icon: <CreditCard size={18} /> },
   'customer-billing': { id: 'customer-billing',   ribbonTab: 'AYARLAR',     orderNumber: '5',  label: 'Faturalama',           icon: <Receipt size={18} /> },
@@ -176,6 +176,10 @@ export const Sidebar: React.FC = () => {
   // FAZ 17: Role-based sidebar modüllerini al (SÖZLEŞME: aynen korunur)
   const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id) && scopeAllowsModule(scopeMenus, id)) }));
   sidebarGroups.push({ groupLabel: 'HİZMETLER', moduleIds: ['hizmetler'] });
+  // Yalnız zaten görünür/yetkili girişleri birleştir; rol ve menü izinlerini genişletme.
+  const managementViews: AppView[] = ['companies', 'tenants', 'platform-admin', 'saas-admin', 'hizlibilisim'];
+  const managementEntry = managementViews.find(id => sidebarGroups.some(group => group.moduleIds.includes(id)));
+  for (const group of sidebarGroups) group.moduleIds = group.moduleIds.filter(id => !managementViews.includes(id) || id === managementEntry);
 
   const handleNav = (id: AppView, ribbonTab: RibbonTab) => {
     setActiveView(id);
@@ -290,7 +294,7 @@ export const Sidebar: React.FC = () => {
               )}
 
               {moduleItems.map((item, idx) => {
-                const isActive = activeView === item.id;
+                const isActive = activeView === item.id || (item.id === managementEntry && managementViews.includes(activeView));
                 return (
                   <button
                     key={`${item.id}-${idx}`}

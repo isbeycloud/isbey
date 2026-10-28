@@ -324,7 +324,7 @@ export const HizliBilisimCustomerListView: React.FC = () => {
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--fs-xl, 20px)', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Zap size={22} style={{ color: 'var(--info)' }} />
-            Hızlı Bilişim — Müşteri İşlemleri
+            Müşteri Havuzu
           </h2>
           <p style={{ margin: '3px 0 0', fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-muted)' }}>
             Hızlı Bilişim'deki mükellefleri VKN/TCKN ile sorgulayın, İŞBEY portföyünüze ekleyin ve mevcut kayıtları güncelleyin.

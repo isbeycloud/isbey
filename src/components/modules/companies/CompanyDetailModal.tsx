@@ -275,7 +275,7 @@ export const CompanyDetailModal: React.FC<CompanyDetailModalProps> = ({
       <Modal
         isOpen={isOpen}
         onClose={onClose}
-        title={`🏢 Firma Yönetim Detayı — ${company.name} (${company.companyCode || company.slug})`}
+        title={`Firma Detayı — ${company.name} (${company.companyCode || company.slug})`}
         size="large"
       >
         {/* 11 Sekme Menüsü */}

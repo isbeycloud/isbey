@@ -227,7 +227,7 @@ export function getSidebarModulesForRole(role: string): SidebarGroup[] {
       },
       {
         groupLabel: 'FİRMA YÖNETİMİ',
-        moduleIds: ['admin', 'roles-permissions', 'ayarlar', 'activity-logs'] as AppView[],
+        moduleIds: ['companies', 'admin', 'roles-permissions', 'ayarlar', 'activity-logs'] as AppView[],
       },
       {
         groupLabel: 'EK MODÜLLER',

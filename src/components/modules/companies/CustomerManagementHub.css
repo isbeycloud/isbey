@@ -1,0 +1,22 @@
+.customer-management-hub { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: var(--bg-surface-secondary); }
+.customer-management-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px 16px; }
+.customer-management-header h1 { margin: 0 0 6px; color: var(--text-main); font-size: 22px; font-weight: 700; }
+.customer-management-header p { margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.customer-management-current { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.customer-management-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; padding: 0 24px 16px; border-bottom: 1px solid var(--border-color); }
+.customer-management-sections button { display: flex; align-items: center; gap: 12px; text-align: left; padding: 13px 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); color: var(--text-muted); cursor: pointer; }
+.customer-management-sections button[aria-current="page"] { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+.customer-management-sections strong { display: block; font-size: 14px; margin-bottom: 4px; }
+.customer-management-sections small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.customer-management-sections button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.customer-management-body { flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+.customer-management-body > .view-content-container { padding: 18px 24px; }
+@media (max-width: 800px) {
+  .customer-management-header { padding: 16px; }
+  .customer-management-header h1 { font-size: 19px; }
+  .customer-management-current { display: none; }
+  .customer-management-sections { padding: 0 16px 12px; display: flex; overflow-x: auto; }
+  .customer-management-sections button { min-width: 160px; padding: 10px 12px; }
+  .customer-management-sections small { display: none; }
+  .customer-management-body > .view-content-container { padding: 16px; }
+}

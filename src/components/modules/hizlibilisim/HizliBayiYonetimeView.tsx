@@ -57,7 +57,7 @@ interface DealerKPIs {
   pendingSetup: number;
 }
 
-export const HizliBayiYonetimeView: React.FC = () => {
+export const HizliBayiYonetimeView: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'DEALERS' | 'PORTFOLIO' | 'LOGS'>('PORTFOLIO');
@@ -332,7 +332,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
       {/* ─── ÜST BAŞLIK VE AKSİYONLAR ─── */}
       <div
         style={{
-          display: 'flex',
+          display: embedded && activeTab === 'PORTFOLIO' ? 'none' : 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
           flexWrap: 'wrap',
@@ -340,7 +340,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
           marginBottom: '24px',
         }}
       >
-        <div>
+        <div style={embedded ? { display: 'none' } : undefined}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
             <span
               style={{
@@ -403,7 +403,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
             }}
           >
             <Plus size={16} strokeWidth={2.5} />
-            <span>Yeni Firma / Mükellef Ekle</span>
+            <span>Yeni Sağlayıcı Bağlantısı</span>
           </button>
         </div>
       </div>
@@ -411,7 +411,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
       {/* ─── 4 GENEL BAKIŞ KPI KARTI ─── */}
       <div
         style={{
-          display: 'grid',
+          display: embedded && activeTab === 'PORTFOLIO' ? 'none' : 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: '18px',
           marginBottom: '24px',
@@ -533,7 +533,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
           }}
         >
           <Building size={16} />
-          <span>Alt Bayiler / Firmalar ({dealers.length})</span>
+          <span>Sağlayıcı Bağlantıları ({dealers.length})</span>
         </button>
 
         <button
@@ -553,7 +553,7 @@ export const HizliBayiYonetimeView: React.FC = () => {
           }}
         >
           <UserCheck size={16} />
-          <span>Portföy → İŞBEY</span>
+          <span>Müşteri Listesi</span>
         </button>
 
         <button
