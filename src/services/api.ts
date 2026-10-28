@@ -1,4 +1,5 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
+import type { FiscalDeviceProfile, FiscalDeviceInput, FiscalAdapterManifest, FiscalDeviceReadiness } from '../types/fiscalDevices';
 import type {
   User,
   Customer,
@@ -2154,6 +2155,10 @@ export const api = {
     request<{ success: boolean; count: number; pins: any[] }>('/v1/visits/map'),
 
   // Mobil POS
+  getFiscalDevices: () => request<{ success: boolean; devices: FiscalDeviceProfile[]; adapters: FiscalAdapterManifest[]; collectionAvailable: false }>('/v1/fiscal-devices'),
+  saveFiscalDevice: (data: FiscalDeviceInput, id?: string) => request<{ success: boolean; device: FiscalDeviceProfile }>(`/v1/fiscal-devices${id ? '/' + encodeURIComponent(id) : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(data) }),
+  disableFiscalDevice: (id: string, expectedRevision: string) => request<{ success: boolean }>(`/v1/fiscal-devices/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ expectedRevision }) }),
+  inspectFiscalDevice: (id: string) => request<{ success: boolean; readiness: FiscalDeviceReadiness }>(`/v1/fiscal-devices/${encodeURIComponent(id)}/readiness`),
   chargeMobilePos: (data: {
     amount: number;
     currency?: 'TRY' | 'USD' | 'EUR';

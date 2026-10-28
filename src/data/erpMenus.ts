@@ -10,7 +10,7 @@ export const ERP_MENUS = [
   { id: 'gider', label: 'Giderler', views: ['gider'], paths: ['expenses'] },
   { id: 'ceksenet', label: 'Çek ve senet', views: ['ceksenet'], paths: ['checks'] },
   { id: 'personel', label: 'Personel', views: ['personel'], paths: ['employees'] },
-  { id: 'pos', label: 'Hızlı satış (POS)', views: ['pos'], paths: ['pos'] },
+  { id: 'pos', label: 'Hızlı satış (POS)', views: ['pos'], paths: ['pos', 'fiscal-devices'] },
   { id: 'muhasebe', label: 'Muhasebe ve müşavir portföyü', views: ['muhasebe', 'mali-musavir', 'muhasebe-kontrol'], paths: ['accounting', 'accountant'] },
   { id: 'edonusum', label: 'e-Fatura ve e-Dönüşüm', views: ['edonusum', 'edonusummerkezi', 'gelen-belgeler'], paths: ['efatura', 'e-documents', 'e-invoice', 'taxpayers', 'edefter', 'hizli-bayi'] },
   { id: 'raporlar', label: 'Raporlar ve beyanname', views: ['raporlar', 'rapor-detay', 'vergi', 'rapor-tasarimci'], paths: ['reports', 'report-detail', 'report-designs', 'tax'] },

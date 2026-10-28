@@ -19,6 +19,8 @@ import {
 import confetti from 'canvas-confetti';
 import type { Product, Customer, InvoiceItem, Warehouse } from '../../../types';
 import { api } from '../../../services/api';
+import { useAuth } from '../../../context/AuthContext';
+import { FiscalDeviceSettings } from '../pos/FiscalDeviceSettings';
 
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
@@ -30,6 +32,8 @@ import { ProductImageEditModal } from '../../common/ProductImageEditModal';
 
 
 export const POSSalesView: React.FC = () => {
+  const { canAccessModule } = useAuth();
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const { showToast } = useToast();
   const { openPrintModal, triggerRefresh } = useApp();
 
@@ -394,6 +398,8 @@ export const POSSalesView: React.FC = () => {
 
   return (
     <div className="view-content-container" style={{ padding: '12px' }}>
+      {canAccessModule('companies') && <button className="btn btn-secondary btn-sm" style={{ marginBottom: 8 }} onClick={() => setDevicesOpen(true)}>Yazar Kasa / POS Bağlantıları</button>}
+      {devicesOpen && <div className="modal-overlay"><div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-devices-title" style={{ width: 'min(1150px, calc(100vw - 24px))', maxHeight: '90vh', overflow: 'auto' }}><div className="modal-header"><h2 id="pos-devices-title">Mağaza Cihaz Bağlantıları</h2><button type="button" onClick={() => setDevicesOpen(false)}>Kapat</button></div><div className="modal-body" style={{ padding: 20 }}><FiscalDeviceSettings /></div></div></div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '14px', height: 'calc(100vh - 180px)' }}>
         
         {/* SOL BÖLÜM: BARKOD GİRİŞİ & SEPET LİSTESİ */}

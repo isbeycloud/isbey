@@ -97,3 +97,4 @@ tools/ANTIGRAVITY-GOREV.md
 # 2026-10-21: ISBEY_DEPLOY_ENV ile proje içine yazılan kimlik dosyası.
 # `.verify-tmp/` zaten ignore'lu; bu satır dosya başka bir yere konursa da korur.
 *deploy.env
+packages/fiscal-device-kit/dist/

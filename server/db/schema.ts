@@ -2063,6 +2063,9 @@ export interface DatabaseState {
   tenantSuccessMetrics?: TenantSuccessMetric[];
   tenantDataExportJobs?: TenantDataExportJob[];
 
+  // Cihaz kurulum tanımları; tahsilat veya mali kayıt içermez.
+  fiscalDevices?: import('../../packages/fiscal-device-kit/src/index').FiscalDeviceProfile[];
+
   settings: {
     receiptHeader: string;
     receiptFooter: string;
