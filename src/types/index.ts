@@ -28,6 +28,7 @@ export interface User {
   role: UserRole;
   active: boolean;
   companyId?: string;
+  homeCompanyId?: string;
   companyName?: string;
   allowedCompanyIds?: string[];
   department?: string;

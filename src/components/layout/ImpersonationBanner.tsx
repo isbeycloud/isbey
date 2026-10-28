@@ -4,10 +4,10 @@ import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 export const ImpersonationBanner: React.FC = () => {
-  const { user, activeTenant, switchCompany, refreshProfile } = useAuth();
+  const { user, activeTenant, refreshProfile, canAccessModule } = useAuth();
 
   // Check if current session is an admin impersonation
-  const isImpersonating = user?.role === 'SUPER_ADMIN' && activeTenant && activeTenant.id !== user.companyId;
+  const isImpersonating = canAccessModule('platform-admin') && user && activeTenant && activeTenant.id !== (user.homeCompanyId || user.companyId);
 
   const handleStopImpersonation = async () => {
     try {

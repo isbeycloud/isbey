@@ -114,7 +114,10 @@ export const Header: React.FC = () => {
     switch (view) {
       case 'dashboard': return { title: 'Yönetim Paneli & KPI', category: 'Dashboard' };
       case 'companies':
-      case 'tenants': return { title: 'Firma & Şirketler', category: 'Ayarlar' };
+      case 'tenants':
+      case 'hizlibilisim':
+      case 'saas-admin':
+      case 'platform-admin': return { title: 'Müşteri & Firmalar', category: 'Yönetim' };
       case 'hizmetler': return { title: 'Hizmetler ve Paketler', category: 'Abonelik' };
       case 'cari': return { title: 'Cari Hesaplar & Müşteriler', category: 'Cari İşlemleri' };
       case 'stok': return { title: 'Stok & Depo Yönetimi', category: 'Stok İşlemleri' };
@@ -129,7 +132,6 @@ export const Header: React.FC = () => {
       case 'vergi': return { title: 'Vergi & Beyanname Takvimi', category: 'Maliye & Vergi' };
       case 'ayarlar': return { title: 'Sistem Parametreleri & Roller', category: 'Ayarlar' };
       case 'mali-musavir': return { title: 'Mali Müşavir Portalı', category: 'SMMM Masası' };
-      case 'platform-admin':
       case 'admin': return { title: 'Süper Admin & SaaS Paneli', category: 'Yönetim' };
       case 'customer-billing':
       case 'subscription': return { title: 'Abonelik & Kontör Cüzdanı', category: 'SaaS Masası' };

@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { PlatformAdminService } from '../../services/faz9/platformAdminService';
 import { storage } from '../../db/storage';
+import { requireAuth, requireRole } from '../../middleware/authGuards';
+import { redactSecretsDeep } from '../../security/credentialMask';
 
 const router = Router();
+router.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'));
 
 /**
  * GET /api/v1/platform-admin/metrics
@@ -32,7 +35,7 @@ router.get('/tenants', (req, res) => {
     };
   });
 
-  return res.json({ success: true, count: list.length, tenants: list });
+  return res.json({ success: true, count: list.length, tenants: redactSecretsDeep(list) });
 });
 
 /**
@@ -41,16 +44,16 @@ router.get('/tenants', (req, res) => {
  */
 router.post('/impersonate', async (req, res) => {
   try {
-    const { targetTenantId, adminUserId = 'usr-superadmin', adminUserName = 'Platform Yöneticisi', reason } = req.body;
-    if (!targetTenantId || !reason) {
+    const { targetTenantId, reason } = req.body;
+    if (typeof targetTenantId !== 'string' || typeof reason !== 'string' || !reason.trim()) {
       return res.status(400).json({ success: false, message: 'Hedef tenant ID ve geçiş gerekçesi zorunludur.' });
     }
 
     const session = await PlatformAdminService.startImpersonation({
-      adminUserId,
-      adminUserName,
+      adminUserId: req.user.id,
+      adminUserName: req.user.username,
       targetTenantId,
-      reason,
+      reason: reason.trim(),
     });
 
     return res.json({ success: true, message: 'İmleç ve yetki hedef firmaya aktarıldı.', ...session });

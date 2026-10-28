@@ -3,6 +3,8 @@ import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { generateToken } from './auth';
 import { ImpersonationSession } from '../db/schema';
+import { redactSecretsDeep } from '../security/credentialMask';
+import { canEnterCompany } from '../security/memberships';
 
 export const impersonationRouter = Router();
 
@@ -12,13 +14,16 @@ impersonationRouter.post('/impersonate', requireAuth, requireRole('SUPER_ADMIN')
   const user = req.user;
   const db = storage.getState();
 
-  if (!targetTenantId) {
-    return res.status(400).json({ success: false, message: 'targetTenantId zorunludur.' });
+  if (typeof targetTenantId !== 'string' || typeof reason !== 'string' || !reason.trim()) {
+    return res.status(400).json({ success: false, message: 'Hedef firma ve destek erişimi gerekçesi zorunludur.' });
   }
 
   const tenant = (db.tenants || []).find(t => t.id === targetTenantId);
   if (!tenant) {
     return res.status(404).json({ success: false, message: 'Hedef şirket bulunamadı.' });
+  }
+  if (!canEnterCompany(db, user, tenant.id)) {
+    return res.status(403).json({ success: false, message: 'Pasif, askıdaki veya arşivlenmiş firmaya destek erişimi açılamaz.' });
   }
 
   const now = new Date().toISOString();
@@ -47,7 +52,7 @@ impersonationRouter.post('/impersonate', requireAuth, requireRole('SUPER_ADMIN')
       companyName: tenant.name,
       action: 'ADMIN_IMPERSONATION',
       module: 'PLATFORM_ADMIN',
-      details: `Süper Admin (${user.username}) '${tenant.name}' firmasının hesabına denetimli geçiş yaptı. Gerekçe: ${reason || 'Teknik Destek'}`,
+      details: `Süper Admin (${user.username}) '${tenant.name}' firmasının hesabına denetimli geçiş yaptı. Gerekçe: ${reason.trim()}`,
       ipAddress: req.ip || '127.0.0.1',
     });
 
@@ -55,7 +60,7 @@ impersonationRouter.post('/impersonate', requireAuth, requireRole('SUPER_ADMIN')
       success: true,
       message: `'${tenant.name}' firması olarak geçiş sağlandı.`,
       token,
-      impersonatedTenant: tenant,
+      impersonatedTenant: redactSecretsDeep(tenant),
       sessionId: session.id,
     });
   } catch (err: any) {
@@ -68,9 +73,14 @@ impersonationRouter.post('/impersonate/stop', requireAuth, async (req: Request, 
   const user = req.user;
   const db = storage.getState();
 
-  const originalTenantId = user.companyId || db.tenants?.[0]?.id || 'tnt-isbey';
+  const account = db.users.find(u => u.id === user.id);
+  if (!account) return res.status(403).json({ success: false, message: 'Yönetici hesabı bulunamadı.' });
+  const originalTenantId = account.companyId || db.tenants.find(t => canEnterCompany(db, account, t.id))?.id;
+  if (!originalTenantId || !canEnterCompany(db, account, originalTenantId)) {
+    return res.status(403).json({ success: false, message: 'Geri dönülebilecek etkin firma bulunamadı.' });
+  }
   const tenant = (db.tenants || []).find(t => t.id === originalTenantId);
-  const token = generateToken(user, originalTenantId);
+  const token = generateToken(account, originalTenantId);
 
   storage.addAuditLog({
     userId: user.id,
@@ -86,7 +96,7 @@ impersonationRouter.post('/impersonate/stop', requireAuth, async (req: Request, 
     success: true,
     message: 'Yönetici oturumuna geri dönüldü.',
     token,
-    activeTenant: tenant,
+    activeTenant: redactSecretsDeep(tenant),
   });
 });
 

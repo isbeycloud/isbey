@@ -36,7 +36,8 @@ export function companyIdentity(db: DatabaseState, user: User, tenantId: string)
   const role = platform ? user.role : priority.find(r => effectiveRoles.includes(r)) || 'RAPOR';
   const permissionCodes = platform ? ['*'] : [...new Set(roles.flatMap(r => r.permissions))];
   const { passwordHash: _secret, permissions: _legacy, ...safe } = user;
-  return { ...safe, role, companyId: tenantId, companyName: db.tenants.find(t => t.id === tenantId)?.name, tenantId, allowedCompanyIds: [tenantId],
+  return { ...safe, role, homeCompanyId: user.companyId || db.tenants.find(t => canEnterCompany(db, user, t.id))?.id,
+    companyId: tenantId, companyName: db.tenants.find(t => t.id === tenantId)?.name, tenantId, allowedCompanyIds: [tenantId],
     roleSlugs, effectiveRoles, permissionCodes, serviceMenuIds: platform ? null : serviceMenus(db, db.tenants.find(t => t.id === tenantId)),
     serviceModuleIds: platform ? null : serviceModules(db, db.tenants.find(t => t.id === tenantId)),
     allowedMenuIds: platform ? null : membership?.allowedMenuIds ?? null };

@@ -104,8 +104,9 @@ test('customer operations, company switcher and service application form', async
   const previous = await page.evaluate(() => localStorage.getItem('isbey_token'));
   await other.click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('isbey_token'))).not.toBe(previous);
-  await page.getByText('Müşteri İşlemleri', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Hızlı Bilişim — Müşteri İşlemleri' })).toBeVisible();
+  await page.locator('aside').getByRole('button', { name: 'Müşteri & Firmalar', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Müşteri yönetimi bölümleri' }).getByRole('button', { name: /Müşteri Havuzu/ }).click();
+  await expect(page.getByRole('heading', { name: 'Müşteri Havuzu', exact: true })).toBeVisible();
   await page.route('**/api/admin/hizli-bilisim/customers/dealer-portfolio?*', route => route.fulfill({ json: { success: true, total: 1273, filtered: 1273, customers: [{ externalId: 'test-provider', taxNumber: '1234567890', companyName: 'Bayi Portföy Firması', city: 'Adana', dealerName: 'Test bayi', isActive: true, existing: false }] } }));
   await page.route('**/api/admin/hizli-bilisim/portal/connect', route => route.fulfill({ json: { success: true, verificationRequired: true } }));
   await page.route('**/api/admin/hizli-bilisim/portal/verify', route => route.fulfill({ json: { success: true, verificationRequired: false } }));

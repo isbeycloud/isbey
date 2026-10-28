@@ -10,6 +10,7 @@ import { NewCompanyModal } from './NewCompanyModal';
 import { CompanyDetailModal } from './CompanyDetailModal';
 import { CompanyDeleteConfirmModal } from './CompanyDeleteConfirmModal';
 import { CompanyPackageBadge, CompanyPackageModal } from './CompanyPackageManager';
+import { CompanySupportAccessModal } from './CompanySupportAccessModal';
 import {
   Building,
   Plus,
@@ -40,7 +41,7 @@ import {
 export const CompanyManagementView: React.FC = () => {
   const { showToast } = useToast();
   const { activeTenantId, switchTenant, triggerRefresh, refreshKey } = useApp();
-  const { user, switchCompany } = useAuth();
+  const { canAccessModule, switchCompany } = useAuth();
 
   const [companies, setCompanies] = useState<Tenant[]>([]);
   const [kpis, setKpis] = useState<any>(null);
@@ -59,8 +60,9 @@ export const CompanyManagementView: React.FC = () => {
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [deletingCompany, setDeletingCompany] = useState<Tenant | null>(null);
   const [packageCompanyId, setPackageCompanyId] = useState<string | null>(null);
+  const [supportCompany, setSupportCompany] = useState<Tenant | null>(null);
   const [billingFilter, setBillingFilter] = useState('ALL');
-  const canManagePackages = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const canManagePackages = canAccessModule('platform-admin');
 
   useEffect(() => {
     loadData();
@@ -189,13 +191,14 @@ export const CompanyManagementView: React.FC = () => {
           borderRadius: '4px',
           border: '1px solid rgba(26,86,219,0.15)',
         }}>
-          {c.companyCode || 'ISB-000000'}
+          {c.companyCode || '—'}
         </span>
       ),
     },
     {
       key: 'name',
       title: 'Firma & Unvan',
+      width: '280px',
       render: c => {
         const isCurrent = c.id === activeTenantId;
         return (
@@ -215,16 +218,16 @@ export const CompanyManagementView: React.FC = () => {
                 c.name.slice(0, 2).toUpperCase()
               )}
             </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontWeight: 800, fontSize: '12.5px', color: 'var(--text-main)' }}>{c.name}</span>
+            <div style={{ maxWidth: 280, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
+                <span title={c.title} style={{ fontWeight: 800, fontSize: '12.5px', color: 'var(--text-main)' }}>{c.name}</span>
                 {isCurrent && (
                   <span className="badge badge-success" style={{ fontSize: '9px', padding: '1px 5px' }}>
-                    AKTİF ÇALIŞMA ORTAMI
+                    Bu firma
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{c.title}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{c.companyCode || '—'} · VKN/TCKN: {c.taxNumber || '—'}</div>
             </div>
           </div>
         );
@@ -271,7 +274,7 @@ export const CompanyManagementView: React.FC = () => {
       width: '85px',
       render: c => (
         <span style={{ fontSize: '11.5px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-          {c.stats?.userCount || c.currentUsers || 1} / {c.maxUsers}
+          {c.stats?.userCount ?? c.currentUsers ?? 0} / {c.maxUsers}
         </span>
       ),
     },
@@ -279,20 +282,20 @@ export const CompanyManagementView: React.FC = () => {
       key: 'actions',
       title: 'İşlemler',
       sortable: false,
-      width: '310px',
+      width: '350px',
       render: c => {
         const isCurrent = c.id === activeTenantId;
         return (
-          <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }} onClick={e => e.stopPropagation()}>
             {canManagePackages && <button className="btn btn-secondary btn-sm" title="Paket yükseltme, değiştirme ve ücret yönetimi" onClick={() => setPackageCompanyId(c.id)}><Crown size={12} /> Paket / Ücret</button>}
             <button
               className="btn btn-primary btn-sm"
-              title="Firma Yönetim Detayı (11 Sekme)"
+              title="Firma bilgileri ve kullanıcı yönetimi"
               onClick={() => setDetailCompanyId(c.id)}
               style={{ fontSize: '11px', padding: '4px 8px' }}
             >
               <Sliders size={11} />
-              <span>Yönet</span>
+              <span>Firma Detayı</span>
             </button>
 
             {!isCurrent ? (
@@ -309,15 +312,17 @@ export const CompanyManagementView: React.FC = () => {
               </span>
             )}
 
-            <button
+            {canManagePackages && <button className="btn btn-secondary btn-sm" title="Gerekçeli destek erişimi" aria-label="Gerekçeli destek erişimi" disabled={['SUSPENDED', 'INACTIVE'].includes(c.status)} onClick={() => setSupportCompany(c)}><Shield size={12} /></button>}
+
+            {canManagePackages && <button
               className="btn btn-secondary btn-sm"
               title={c.status === 'ACTIVE' ? 'Pasife Al' : 'Aktifleştir'}
               onClick={() => handleToggleStatus(c)}
             >
               <Power size={11} color={c.status === 'ACTIVE' ? '#ef4444' : '#16a34a'} />
-            </button>
+            </button>}
 
-            {c.id !== 'tnt-isbey' && (
+            {canManagePackages && c.id !== 'tnt-isbey' && (
               <button
                 className="btn btn-secondary btn-sm"
                 title="Firmayı Sil / Arşivle"
@@ -331,13 +336,15 @@ export const CompanyManagementView: React.FC = () => {
       },
     },
   ];
+  const orderedColumns = ['name', 'actions', 'plan', 'status', 'currentUsers', 'companyCode', 'taxNumber', 'ownerName']
+    .map(key => columns.find(column => column.key === key)).filter(column => column !== undefined);
 
   return (
     <div className="view-content-container">
       {/* ─── Üst KPI Paneli (SuperAdmin Dash) ─── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(6, 1fr)',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
         gap: '10px',
         marginBottom: '14px',
       }}>
@@ -372,7 +379,7 @@ export const CompanyManagementView: React.FC = () => {
       }}>
         {/* Sol: Yeni Firma & Toplu İşlemler */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
+          {canManagePackages && <button
             className="btn btn-primary"
             onClick={() => setIsNewModalOpen(true)}
             style={{
@@ -387,7 +394,7 @@ export const CompanyManagementView: React.FC = () => {
           >
             <Plus size={15} />
             <span>+ Yeni Firma Kaydı</span>
-          </button>
+          </button>}
 
           {selectedIds.length > 0 && (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--bg-surface-secondary)', padding: '4px 8px', borderRadius: '6px' }}>
@@ -403,7 +410,7 @@ export const CompanyManagementView: React.FC = () => {
         </div>
 
         {/* Sağ: Arama & Filtreler */}
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
@@ -442,7 +449,7 @@ export const CompanyManagementView: React.FC = () => {
             <option value="ENTERPRISE">Enterprise</option>
           </select>
 
-          <select aria-label="Kullanım türü filtresi" className="form-input" value={billingFilter} onChange={e => setBillingFilter(e.target.value)} style={{ width: 150 }}>
+          <select aria-label="Kullanım türü filtresi" className="form-input" value={billingFilter} onChange={e => setBillingFilter(e.target.value)} style={{ width: 180 }}>
             <option value="ALL">Tüm kullanım türleri</option><option value="FREE">Ücretsiz</option><option value="PAID">Ücretli</option><option value="TRIAL">Deneme</option><option value="UNSPECIFIED">Belirtilmemiş</option>
           </select>
           <button type="submit" className="btn btn-secondary btn-sm" title="Yenile">
@@ -454,7 +461,7 @@ export const CompanyManagementView: React.FC = () => {
       {/* ─── DataGrid Tablosu ─── */}
       <div className="card-panel" style={{ padding: '0' }}>
         <DataGrid
-          columns={columns}
+          columns={orderedColumns}
           data={companies.filter(c => billingFilter === 'ALL' || (c.commercialSubscription?.billingMode || (c.status === 'TRIAL' ? 'TRIAL' : c.plan === 'FREE' ? 'FREE' : 'UNSPECIFIED')) === billingFilter)}
           rowKey="id"
           loading={loading}
@@ -479,6 +486,7 @@ export const CompanyManagementView: React.FC = () => {
         onRefresh={() => { loadData(); triggerRefresh(); }}
       />
       <CompanyPackageModal companyId={packageCompanyId} onClose={() => setPackageCompanyId(null)} onSaved={() => { loadData(); triggerRefresh(); }} />
+      {supportCompany && <CompanySupportAccessModal company={supportCompany} onClose={() => setSupportCompany(null)} />}
 
       {/* 3. Güvenli Silme / Arşivleme Doğrulaması */}
       <CompanyDeleteConfirmModal

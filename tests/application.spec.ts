@@ -114,8 +114,8 @@ test('ERP subscription dates can be renewed from company license screen', async 
   const session = await (await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } })).json();
   await page.addInitScript(token => localStorage.setItem('isbey_token', token), session.token);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Firma & Şirketler', exact: true }).click();
-  await page.getByTitle('Firma Yönetim Detayı (11 Sekme)').first().click();
+  await page.getByRole('button', { name: 'Müşteri & Firmalar', exact: true }).click();
+  await page.getByTitle('Firma bilgileri ve kullanıcı yönetimi').first().click();
   await page.getByRole('button', { name: 'Paket / Lisans', exact: true }).click();
   const editor = page.getByRole('region', { name: 'Müşteri paket yönetimi' });
   const packages = editor.getByRole('group', { name: 'Hizmet paketleri' }).getByRole('checkbox');

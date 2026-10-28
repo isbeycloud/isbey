@@ -43,12 +43,11 @@ import { ExpenseListView } from './components/modules/gider/ExpenseListView';
 import { ImportWizardModal } from './components/common/ImportWizardModal';
 import { EInvoicePreviewModal } from './components/common/EInvoicePreviewModal';
 import { TenantManagementView } from './components/modules/tenants/TenantManagementView';
-import { CompanyManagementView } from './components/modules/companies/CompanyManagementView';
+import { CustomerManagementHub } from './components/modules/companies/CustomerManagementHub';
 import { AdminPanelView } from './components/modules/yonetim/AdminPanelView';
 import { EDonusumView } from './components/modules/edonusum/EDonusumView';
 import { EDonusumMerkeziView } from './components/modules/edonusummerkezi/EDonusumMerkeziView';
 import { IncomingDocumentsView } from './components/modules/edonusum/IncomingDocumentsView';
-import { HizliBayiYonetimeView } from './components/modules/hizlibilisim/HizliBayiYonetimeView';
 import { RolesPermissionsView } from './components/modules/RolesPermissionsView';
 import { AcceptInvitePage } from './pages/AcceptInvitePage';
 // FAZ 5: SaaS & Bayi Modülleri
@@ -88,7 +87,6 @@ import { QuickActionFab } from './components/common/QuickActionFab';
 import { PublicDocumentSharePage } from './pages/PublicDocumentSharePage';
 
 // FAZ 9: SaaS Platform + Bayi + Marketplace + API Platformu + White-Label (Consolidated Master Views)
-import { PlatformAdminView } from './components/modules/platform/PlatformAdminView';
 import { DealerPortalView } from './components/modules/dealer/DealerPortalView';
 import { DeveloperPortalView } from './components/modules/developer/DeveloperPortalView';
 import { MarketplaceStoreView } from './components/modules/marketplace/MarketplaceStoreView';
@@ -158,7 +156,7 @@ const MainLayout: React.FC = () => {
       case 'dealers':
       case 'dealer-portal': return guard('dealers', <DealerPortalView />);
       case 'saas-admin':
-      case 'platform-admin': return guard('platform-admin', <PlatformAdminView />);
+      case 'platform-admin': return guard('platform-admin', <CustomerManagementHub initialSection="platform" />);
       case 'saha-tahsilat': return guard('saha-tahsilat', <FieldCollectionListView />);
       case 'mobil-pos': return guard('mobil-pos', <MobilePOSView />);
       case 'banka-mutabakat': return guard('banka-mutabakat', <BankReconciliationView />);
@@ -185,9 +183,9 @@ const MainLayout: React.FC = () => {
       case 'marketplace-store': return guard('marketplace-store', <MarketplaceStoreView />);
       case 'whitelabel-settings': return guard('whitelabel-settings', <WhiteLabelSettingsView />);
       case 'companies':
-      case 'tenants': return guard('companies', <CompanyManagementView />);
+      case 'tenants': return guard('companies', <CustomerManagementHub />);
       case 'roles-permissions': return guard('roles-permissions', <RolesPermissionsView />);
-      case 'hizlibilisim': return guard('hizlibilisim', <HizliBayiYonetimeView />);
+      case 'hizlibilisim': return guard('hizlibilisim', <CustomerManagementHub initialSection="portfolio" />);
       case 'admin': return guard('admin', <AdminPanelView />);
       case 'edonusum': return guard('edonusum', <EDonusumView />);
       case 'edonusummerkezi': return guard('edonusummerkezi', <EDonusumMerkeziView />);

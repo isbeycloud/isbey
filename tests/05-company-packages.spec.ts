@@ -18,7 +18,7 @@ test('platform and company management save free and paid customer packages', asy
   const saves: string[] = [];
   page.on('request', r => { if (r.method() === 'PUT' && r.url().endsWith('/package')) saves.push(r.url()); });
   await page.goto('/');
-  await page.getByRole('button', { name: /Firmalar \/ Tenants/ }).click();
+  await page.getByRole('button', { name: 'Firma Listesini Aç', exact: true }).click();
   const row = page.getByRole('row').filter({ hasText: name });
   await row.getByRole('button', { name: 'Paket / Ücret', exact: true }).click();
   const modal = page.locator('.modal-dialog').filter({ hasText: 'Müşteri Paket Yönetimi' });
@@ -66,7 +66,8 @@ test('platform and company management save free and paid customer packages', asy
   await expect(modal.getByLabel('Değişiklik gerekçesi')).toHaveValue('');
   await modal.locator('.modal-header button').click();
   await expect(row.getByText('Ücretli', { exact: true })).toBeVisible();
-  await page.locator('aside').getByText('Firma & Şirketler', { exact: true }).click();
+  await page.getByRole('navigation', { name: 'Müşteri yönetimi bölümleri' }).getByRole('button', { name: /Platform Ayarları/ }).click();
+  await page.getByRole('button', { name: 'Firma Listesini Aç', exact: true }).click();
   const companyRow = page.getByRole('row').filter({ hasText: name });
   await expect(companyRow.getByText('Ücretli', { exact: true })).toBeVisible();
   await companyRow.getByRole('button', { name: 'Paket / Ücret', exact: true }).click();
