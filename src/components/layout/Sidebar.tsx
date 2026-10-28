@@ -230,18 +230,20 @@ export const Sidebar: React.FC = () => {
           justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
         }}
       >
-        <BrandLogo compact={isSidebarCollapsed} width={175} />
+        {!isSidebarCollapsed && <BrandLogo width={175} />}
 
         <button
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          aria-label={isSidebarCollapsed ? 'Menüyü Genişlet' : 'Menüyü Daralt'}
+          aria-expanded={!isSidebarCollapsed}
           style={{
             background: 'transparent',
             border: 'none',
             borderRadius: '8px',
             color: 'var(--text-muted)',
-            width: '26px',
-            height: '26px',
-            display: isSidebarCollapsed ? 'none' : 'flex',
+            width: isSidebarCollapsed ? '38px' : '26px',
+            height: isSidebarCollapsed ? '38px' : '26px',
+            display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
@@ -300,6 +302,7 @@ export const Sidebar: React.FC = () => {
                     key={`${item.id}-${idx}`}
                     onClick={() => handleNav(item.id, item.ribbonTab)}
                     title={isSidebarCollapsed ? item.label : undefined}
+                    aria-current={isActive ? 'page' : undefined}
                     style={{
                       display: 'flex',
                       alignItems: 'center',

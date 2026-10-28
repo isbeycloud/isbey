@@ -82,7 +82,6 @@ import { CollaborationMessengerView } from './components/modules/messaging/Colla
 import { SupportKnowledgeCenterView } from './components/modules/support/SupportKnowledgeCenterView';
 import { DeviceSecurityView } from './components/modules/devices/DeviceSecurityView';
 import { ActivityAuditStreamView } from './components/modules/audit/ActivityAuditStreamView';
-import { CommandPaletteModal } from './components/common/CommandPaletteModal';
 import { QuickActionFab } from './components/common/QuickActionFab';
 import { PublicDocumentSharePage } from './pages/PublicDocumentSharePage';
 
@@ -264,8 +263,6 @@ const MainLayout: React.FC = () => {
         invoiceId={selectedEInvoiceInvoiceId}
       />
 
-      {/* Desktop Ctrl+K Hızlı Komut Paleti */}
-      <CommandPaletteModal />
 
       {/* FAZ 25.3-E: Sağ alt "+Yeni" Hızlı İşlem FAB */}
       <QuickActionFab />

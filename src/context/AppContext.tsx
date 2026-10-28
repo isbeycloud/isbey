@@ -181,7 +181,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   });
 
   // Multi-Tenant State
-  const { allowedTenants: tenants, activeTenant, switchCompany: switchAuthenticatedCompany, refreshProfile, canAccessModule } = useAuth();
+  const { user, allowedTenants: tenants, activeTenant, switchCompany: switchAuthenticatedCompany, refreshProfile, canAccessModule } = useAuth();
   const activeTenantId = activeTenant?.id || '';
   
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
@@ -274,6 +274,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
     try {
       const success = await switchAuthenticatedCompany(tenantId);
       if (success) {
+        setIsGlobalSearchOpen(false);
         setIsFastCollectionOpen(false);
         setIsFastPaymentOpen(false);
         setIsNewCustomerModalOpen(false);
@@ -302,11 +303,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
   // Keyboard Shortcuts Listener (CTRL+K, F4, F6, F8, F9, ESC)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!user || e.defaultPrevented) return;
+      // Formun kendi kısayollarını genel ekran geçişleriyle ezme.
+      const target = e.target instanceof Element ? e.target : null;
+      const dialogOpen = !!document.querySelector('[role="dialog"], .modal-overlay');
+      const editing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
       // Global Search: F10 or Ctrl+K or Cmd+K
-      if ((e.key === 'F10' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) && canAccessModule('dashboard')) {
+      if ((e.key === 'F10' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) && (!dialogOpen || isGlobalSearchOpen)) {
         e.preventDefault();
         setIsGlobalSearchOpen(prev => !prev);
+        return;
       }
+
+      if (e.key !== 'Escape' && (editing || dialogOpen)) return;
 
       // F4: Cari Modülüne veya Hızlı Tahsilata git
       if (e.key === 'F4' && canAccessModule('cari')) {
@@ -349,7 +358,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode; initialView?: Ap
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canAccessModule]);
+  }, [canAccessModule, isGlobalSearchOpen, user?.id]);
 
   return (
     <AppContext.Provider
