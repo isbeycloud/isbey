@@ -33,6 +33,8 @@ Gezinme sözleşmesi Türkçe eşleme, geçerli hedef/sekme, takma ad ve salt-ok
 
 Tam sürüm kapısı ve canlı kontrol sonuçları yayın raporuna kaydedilir. İşlem yapan tarayıcı testleri yalnız izole test veritabanında çalışır; canlı kontrol okuma ve gezinmeyle sınırlıdır.
 
+Yeni senaryolarla aynı IP'den tekrar girişler gerçek giriş sınırını tükettiğinde, üretim sınırı yükseltilmedi. İlgili yönetici senaryoları ortak worker oturumuna alındı; son saldırı/limitleme testi gerçek sınırlayıcıyı sınamayı sürdürür. Üst menü ayrıca1440,1366,1280,1024,768,390 ve360px genişliklerde ölçüldü; son derlemede taşma görülmedi.
+
 ## Sonraki kullanım çalışmaları
 
 | Öncelik | İş akışı | İncelenecek somut konu |

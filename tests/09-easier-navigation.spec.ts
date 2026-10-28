@@ -1,9 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/adminSession';
 
 let session: { token: string; activeTenant: { id: string } };
-test.beforeAll(async ({ request }) => {
-  const response = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
-  expect(response.status()).toBe(200); session = await response.json();
+test.beforeAll(async ({ adminSession }) => {
+  session = adminSession;
 });
 
 test('one search dialog navigates local menus offline and keeps mobile controls in view', async ({ page }) => {
