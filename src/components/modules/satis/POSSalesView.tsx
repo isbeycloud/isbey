@@ -399,7 +399,7 @@ export const POSSalesView: React.FC = () => {
   return (
     <div className="view-content-container" style={{ padding: '12px' }}>
       {canAccessModule('companies') && <button className="btn btn-secondary btn-sm" style={{ marginBottom: 8 }} onClick={() => setDevicesOpen(true)}>Yazar Kasa / POS Bağlantıları</button>}
-      {devicesOpen && <div className="modal-overlay"><div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-devices-title" style={{ width: 'min(1150px, calc(100vw - 24px))', maxHeight: '90vh', overflow: 'auto' }}><div className="modal-header"><h2 id="pos-devices-title">Mağaza Cihaz Bağlantıları</h2><button type="button" onClick={() => setDevicesOpen(false)}>Kapat</button></div><div className="modal-body" style={{ padding: 20 }}><FiscalDeviceSettings /></div></div></div>}
+      {devicesOpen && <div className="modal-overlay"><div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-devices-title" style={{ width: 'min(1150px, calc(100vw - 24px))', maxWidth: 1150, maxHeight: '90vh', overflow: 'auto' }}><div className="modal-header"><h2 id="pos-devices-title">Mağaza Cihaz Bağlantıları</h2><button type="button" onClick={() => setDevicesOpen(false)}>Kapat</button></div><div className="modal-body" style={{ padding: 20 }}><FiscalDeviceSettings /></div></div></div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '14px', height: 'calc(100vh - 180px)' }}>
         
         {/* SOL BÖLÜM: BARKOD GİRİŞİ & SEPET LİSTESİ */}

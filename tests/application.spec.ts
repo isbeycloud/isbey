@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/adminSession';
 import { adminStoredHash } from '../server/tests/fixtures/e2eCredentials';
 
 test('API authentication, role boundaries and tenant isolation', async ({ request }) => {
@@ -72,9 +72,7 @@ test('real login rejects invalid credentials, persists session and logs out', as
   expect(pageErrors).toEqual([]);
 });
 
-test('membership editor saves independent company roles and status', async ({ page, request }) => {
-  const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
-  const session = await login.json();
+test('membership editor saves independent company roles and status', async ({ page, request, adminSession: session }) => {
   const headers = { Authorization: `Bearer ${session.token}` };
   const companies = (await (await request.get('/api/companies', { headers })).json()).companies;
   const other = companies.find((c: any) => c.id !== session.activeTenant.id && c.status === 'ACTIVE');
@@ -110,8 +108,7 @@ test('membership editor saves independent company roles and status', async ({ pa
   await page.screenshot({ path: '.verify-tmp/membership-editor.png', fullPage: true });
 });
 
-test('ERP subscription dates can be renewed from company license screen', async ({ page, request }) => {
-  const session = await (await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } })).json();
+test('ERP subscription dates can be renewed from company license screen', async ({ page, request, adminSession: session }) => {
   await page.addInitScript(token => localStorage.setItem('isbey_token', token), session.token);
   await page.goto('/');
   await page.getByRole('button', { name: 'Müşteri & Firmalar', exact: true }).click();

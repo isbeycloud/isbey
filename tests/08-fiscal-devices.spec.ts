@@ -1,9 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/adminSession';
 
-test('store device setup persists as draft and does not simulate a successful collection', async ({ page, request }) => {
-  const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
-  expect(login.status()).toBe(200);
-  const { token } = await login.json();
+test('store device setup persists as draft and does not simulate a successful collection', async ({ page, request, adminSession }) => {
+  const { token } = adminSession;
   const headers = { Authorization: `Bearer ${token}` };
   const financialRoutes = ['/api/invoices', '/api/customers', '/api/v1/pos/transactions'];
   const before = await Promise.all(financialRoutes.map(async path => (await request.get(path, { headers })).json()));

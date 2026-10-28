@@ -33,6 +33,7 @@ import { CompanyLogoModal } from '../common/CompanyLogoModal';
 import { UserManagementModal } from '../common/UserManagementModal';
 import { UserInvitationModal } from '../common/UserInvitationModal';
 import type { Company } from '../../types';
+import './Header.css';
 
 export const Header: React.FC = () => {
   const {
@@ -126,6 +127,17 @@ export const Header: React.FC = () => {
       case 'pos': return { title: 'Hızlı POS Satış Masası', category: 'Satış İşlemleri' };
       case 'kasa': return { title: 'Nakit Kasa Defteri', category: 'Kasa & Banka' };
       case 'banka': return { title: 'Banka Hesapları & POS', category: 'Kasa & Banka' };
+      case 'gider': return { title: 'Gider Takibi', category: 'Giderler' };
+      case 'teklif': return { title: 'Teklif ve Siparişler', category: 'Satış İşlemleri' };
+      case 'irsaliye': return { title: 'İrsaliye ve Sevkiyat', category: 'Sevkiyat' };
+      case 'gelen-belgeler': return { title: 'Gelen e-Belgeler', category: 'e-Dönüşüm' };
+      case 'documents': return { title: 'Dijital Arşiv', category: 'Belgeler' };
+      case 'ai-merkezi': return { title: 'AI Asistan', category: 'Asistan' };
+      case 'approvals': return { title: 'Onay Bekleyen İşlemler', category: 'Onaylar' };
+      case 'tasks': return { title: 'Görev Yönetimi', category: 'Ortak Çalışma' };
+      case 'nakit-tahmin': return { title: 'Nakit Akış Tahmini', category: 'Asistan' };
+      case 'client-portal': return { title: 'Firma Sahibi Portalı', category: 'Portal' };
+      case 'support-center': return { title: 'Yardım ve Destek', category: 'Destek' };
       case 'muhasebe': return { title: 'Genel Muhasebe & Mizan', category: 'Muhasebe' };
       case 'edonusum': return { title: 'e-Belge & GİB Merkezi', category: 'e-Dönüşüm' };
       case 'raporlar': return { title: 'Finansal Raporlar & Bilanço', category: 'Raporlar' };
@@ -169,7 +181,7 @@ export const Header: React.FC = () => {
   return (
     <>
       <header
-        className="top-header"
+        className="top-header workspace-header"
         style={{
           height: 'var(--header-height, 56px)',
           background: 'var(--color-surface, #ffffff)',
@@ -184,7 +196,7 @@ export const Header: React.FC = () => {
         }}
       >
         {/* ─── Sol: Breadcrumb & Aktif Modül Başlığı ─── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="workspace-header-location" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* FAZ 25.3-F: mobil hamburger — sidebar overlay'ini açar */}
           <button
             className="sidebar-hamburger"
@@ -205,7 +217,7 @@ export const Header: React.FC = () => {
           >
             <Menu size={18} />
           </button>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="workspace-header-titles" style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: 'var(--fs-xs, 11px)', fontWeight: 600, color: 'var(--color-text-muted, #5f6779)', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <BrandLogo compact style={{ width: 20 }} />
               <span style={{ color: 'var(--color-text-light, #8b93a5)' }}>/</span>
@@ -218,9 +230,10 @@ export const Header: React.FC = () => {
         </div>
 
         {/* ─── Orta: Global Arama (CTRL+K / F10) — M3 search surface ─── */}
-        <div style={{ flex: 1, maxWidth: '440px', margin: '0 24px' }}>
+        <div className="workspace-header-search" style={{ flex: 1, maxWidth: '440px', margin: '0 24px' }}>
           <button
             onClick={() => setIsGlobalSearchOpen(true)}
+            aria-label="Menü ve kayıt ara"
             style={{
               width: '100%',
               display: 'flex',
@@ -237,16 +250,16 @@ export const Header: React.FC = () => {
             }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-strong, #c9d3e0)'; e.currentTarget.style.background = 'var(--bg-surface, #fff)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color, #e1e7ef)'; e.currentTarget.style.background = 'var(--bg-surface-secondary, #f5f7fa)'; }}
-            title="Menüde ara... (Ctrl + K)"
+            title="Menü ve kayıt ara (Ctrl + K)"
           >
             <Search size={15} />
-            <span>Menüde ara... (Ctrl + K)</span>
+            <span>Menü veya kayıt ara…</span>
             <span className="kbd-badge">Ctrl K</span>
           </button>
         </div>
 
         {/* ─── + Hızlı İşlem (M3 tonal filled button) ─── */}
-        <div style={{ position: 'relative', marginRight: '14px' }} ref={quickActionRef}>
+        <div className="workspace-header-quick" style={{ position: 'relative', marginRight: '14px' }} ref={quickActionRef}>
           <button
             onClick={() => setShowQuickActionMenu(!showQuickActionMenu)}
             style={{
@@ -469,9 +482,10 @@ export const Header: React.FC = () => {
         </div>
 
         {/* ─── Sağ: Bildirim, Firma Seçici & Kullanıcı Profili ─── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="workspace-header-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Çevrimiçi Rozeti */}
           <div
+            className="workspace-header-online"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -491,6 +505,7 @@ export const Header: React.FC = () => {
           {/* Bildirim Merkezi */}
           <div style={{ position: 'relative' }}>
             <button
+              aria-label="Bildirimler"
               onClick={() => setShowNotifMenu(!showNotifMenu)}
               style={{
                 background: 'transparent',
@@ -607,6 +622,7 @@ export const Header: React.FC = () => {
           <div ref={tenantMenuRef} style={{ position: 'relative' }} onKeyDown={e => { if (e.key === 'Escape') setShowTenantMenu(false); }}>
             <button
               aria-label="Firma seç / değiştir" aria-expanded={showTenantMenu}
+              title={activeTenant?.name || 'Firma seç / değiştir'}
               onClick={() => setShowTenantMenu(!showTenantMenu)}
               style={{
                 display: 'flex',
@@ -629,7 +645,7 @@ export const Header: React.FC = () => {
               {/* 2026-09-13 (uydurma temizliği): Önceden kiracı yoksa
                   'Demo Şirket' yazıyordu — var olmayan bir firma adı.
                   Artık nötr 'Şirket seçilmedi' gösterilir. */}
-              <span style={{ maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span className="workspace-header-company-name" style={{ maxWidth: '140px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {activeTenant?.name || 'Şirket seçilmedi'}
               </span>
               <ChevronDown size={14} color="var(--text-light, #8b93a5)" />
@@ -655,6 +671,7 @@ export const Header: React.FC = () => {
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
               aria-label="Kullanıcı menüsü"
+              className="workspace-header-user-button"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -688,7 +705,7 @@ export const Header: React.FC = () => {
                   ? user.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
                   : (user?.username ? user.username.slice(0, 2).toUpperCase() : '?')}
               </div>
-              <div style={{ textAlign: 'left', lineHeight: 1.25 }}>
+              <div className="workspace-header-user-details" style={{ textAlign: 'left', lineHeight: 1.25 }}>
                 <div style={{ fontSize: 'var(--fs-sm, 12px)', fontWeight: 600, color: 'var(--text-main, #1a1f2e)' }}>
                   {user?.fullName || user?.username || 'Kullanıcı'}
                 </div>

@@ -1,9 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/adminSession';
 
-test('Garanti preparation shows no secrets and package preview cannot collect or activate', async ({ page, request }) => {
-  const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin123' } });
-  expect(login.status()).toBe(200);
-  const { token, activeTenant } = await login.json();
+test('Garanti preparation shows no secrets and package preview cannot collect or activate', async ({ page, request, adminSession }) => {
+  const { token, activeTenant } = adminSession;
   const headers = { Authorization: `Bearer ${token}` };
   const before = await (await request.get(`/api/companies/${activeTenant.id}/package`, { headers })).json();
   const writes: string[] = [];
