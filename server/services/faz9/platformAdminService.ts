@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { storage } from '../../db/storage';
+import { managedMonthlyRevenue } from '../companyPackageManagement';
 import { SystemHealthIndicator, PlatformAnnouncement, TenantSuccessMetric, DatabaseState } from '../../db/schema';
 
 export class PlatformAdminService {
@@ -21,6 +22,9 @@ export class PlatformAdminService {
     // Gelir hesaplama
     const mrr = subscriptions.reduce((acc, sub) => {
       if (sub.status !== 'active') return acc;
+      const tenant = tenants.find(t => t.id === sub.tenantId);
+      const managed = tenant ? managedMonthlyRevenue(tenant) : null;
+      if (managed !== null) return acc + managed;
       const plan = (db.saasPlans || []).find(p => p.slug === sub.planSlug);
       return acc + (plan?.monthlyPrice || 990);
     }, 0);

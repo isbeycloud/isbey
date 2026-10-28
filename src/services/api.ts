@@ -279,6 +279,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  getCompanyPackage: (id: string) => request<{ success: boolean; tenant: Tenant; plans: SubscriptionPlan[]; subscription: Subscription | null; history: AuditLog[] }>(`/companies/${encodeURIComponent(id)}/package`),
+  updateCompanyPackage: (id: string, data: {
+    planIds: string[]; billingMode: 'FREE' | 'PAID' | 'TRIAL'; billingCycle: 'monthly' | 'yearly'; amount: number;
+    startDate: string; endDate: string; autoRenew: boolean; reason: string; expectedUpdatedAt: string;
+  }) => request<{ success: boolean; tenant: Tenant; message: string }>(`/companies/${encodeURIComponent(id)}/package`, { method: 'PUT', body: JSON.stringify(data) }),
   selectServicePlans: (planIds: string[]) => request<{ success: boolean; message: string }>('/e-services/select-plans', { method: 'POST', body: JSON.stringify({ planIds }) }),
   requestServicePlan: (planId: string, period: 'MONTHLY' | 'YEARLY') => request<{ success: boolean }>('/e-services/plan-requests', { method: 'POST', body: JSON.stringify({ planId, period }) }),
   getServicePlanRequests: () => request<{ success: boolean; requests: { id: string; tenantId: string; companyName: string; planId: string; planName: string; period: string; status: string }[] }>('/e-services/plan-requests'),

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
+import { managedMonthlyRevenue } from '../../services/companyPackageManagement';
 import { requireAuth, requireRole } from '../../middleware/authGuards';
 import { SubscriptionPlan, CreditPackage, Dealer } from '../../db/schema';
 
@@ -27,6 +28,9 @@ adminSaasRouter.get('/kpis', (req: Request, res: Response) => {
   // MRR (Monthly Recurring Revenue) & ARR (Annual Recurring Revenue) Hesaplama
   let mrr = 0;
   subs.filter(s => s.status === 'active').forEach(s => {
+    const tenant = tenants.find(t => t.id === s.tenantId);
+    const managed = tenant ? managedMonthlyRevenue(tenant) : null;
+    if (managed !== null) { mrr += managed; return; }
     const plan = plans.find(p => p.id === s.planId || p.slug === s.planSlug);
     if (plan) {
       if (s.billingCycle === 'yearly') {

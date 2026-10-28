@@ -1,5 +1,6 @@
 import type { DatabaseState, Tenant, SubscriptionPlan } from '../db/schema';
 import { menusForModules } from '../../src/data/serviceAccess';
+import { trialActiveModules } from './trialGateService';
 
 export function selectedPlans(db: DatabaseState, ids: unknown): SubscriptionPlan[] {
   if (!Array.isArray(ids) || !ids.length || ids.length > 10 || ids.some(id => typeof id !== 'string')) {
@@ -26,8 +27,9 @@ export function applyServicePlans(tenant: Tenant, plans: SubscriptionPlan[]) {
 
 export function serviceModules(db: DatabaseState, tenant?: Tenant): string[] | null {
   if (!tenant || tenant.selectedServicePlanIds === undefined) return null;
-  return [...new Set(tenant.selectedServicePlanIds.flatMap(id =>
+  const modules = [...new Set(tenant.selectedServicePlanIds.flatMap(id =>
     db.subscriptionPlans?.find(p => p.id === id && p.status === 'ACTIVE')?.activeModules || []))];
+  return tenant.commercialSubscription?.billingMode === 'TRIAL' ? trialActiveModules(modules) : modules;
 }
 export function serviceMenus(db: DatabaseState, tenant?: Tenant): string[] | null {
   const modules = serviceModules(db, tenant);
