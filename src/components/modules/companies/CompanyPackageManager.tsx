@@ -43,8 +43,8 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
       setMode(commercial?.billingMode ?? (c.status === 'TRIAL' ? 'TRIAL' : c.plan === 'FREE' ? 'FREE' : 'PAID'));
       setCycle(commercial?.billingCycle ?? result.subscription?.billingCycle ?? 'monthly');
       setAmount(commercial ? String(commercial.amount) : ''); setCustomPrice(!!commercial);
-      setStart(c.erpSubscription?.startDate || c.license?.startDate?.slice(0, 10) || c.createdAt?.slice(0, 10));
-      setEnd(c.erpSubscription?.endDate || c.license?.endDate?.slice(0, 10) || c.expiresAt?.slice(0, 10));
+      setStart((c.erpSubscription?.startDate || c.license?.startDate || c.createdAt || '').slice(0, 10));
+      setEnd((c.erpSubscription?.endDate || c.license?.endDate || c.expiresAt || '').slice(0, 10));
       setAutoRenew(result.subscription?.autoRenew ?? false); setReason('');
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
