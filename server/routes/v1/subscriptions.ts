@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
-import { requireAuth } from '../../middleware/authGuards';
+import { PERMISSIONS, requireAuth, requirePermission } from '../../middleware/authGuards';
+import { sandboxPaymentOnly } from '../../services/payments/checkoutSafety';
 import { SubscriptionStateMachine } from '../../services/subscriptionStateMachine';
 import { UsageService } from '../../services/usageService';
 import { PaymentGatewayAdapter } from '../../services/payments/paymentGatewayAdapter';
@@ -90,7 +91,7 @@ subscriptionsRouter.post('/preview-change', async (req: Request, res: Response) 
 });
 
 // POST /api/v1/subscriptions/change - Paket Yükseltme / Değiştirme ve Ödeme Entegrasyonu
-subscriptionsRouter.post('/change', async (req: Request, res: Response) => {
+subscriptionsRouter.post('/change', requirePermission(PERMISSIONS.COMPANY_UPDATE), sandboxPaymentOnly, async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const { targetPlanSlug, billingCycle = 'monthly', paymentDetails } = req.body;
   const db = storage.getState();

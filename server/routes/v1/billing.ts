@@ -6,8 +6,11 @@ import { PlanService } from '../../services/faz9/planService';
 import { storage } from '../../db/storage';
 // FAZ 25.2-C: tenantId yalnızca token'dan çözümlenir (query/body/header kaynağı yasak)
 import { resolveRequestTenantId } from '../../security/policies';
+import { PERMISSIONS, requireAuth, requirePermission } from '../../middleware/authGuards';
+import { sandboxPaymentOnly } from '../../services/payments/checkoutSafety';
 
 const router = Router();
+router.use(requireAuth);
 
 /**
  * GET /api/v1/billing/portal
@@ -42,7 +45,7 @@ router.get('/portal', (req, res) => {
  * POST /api/v1/billing/upgrade
  * Plan değiştirme / yükseltme
  */
-router.post('/upgrade', async (req, res) => {
+router.post('/upgrade', requirePermission(PERMISSIONS.COMPANY_UPDATE), sandboxPaymentOnly, async (req, res) => {
   try {
     const tenantId = resolveRequestTenantId(req);
     const { planSlug, billingCycle = 'monthly', couponCode, paymentProvider = 'MOCK' } = req.body;
@@ -67,7 +70,7 @@ router.post('/upgrade', async (req, res) => {
  * POST /api/v1/billing/buy-credits
  * Kontör satın alma
  */
-router.post('/buy-credits', async (req, res) => {
+router.post('/buy-credits', requirePermission(PERMISSIONS.COMPANY_UPDATE), sandboxPaymentOnly, async (req, res) => {
   try {
     const tenantId = resolveRequestTenantId(req);
     const { quantity = 500, amount = 450, paymentProvider = 'MOCK' } = req.body;

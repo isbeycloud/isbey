@@ -1,3 +1,4 @@
+import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
 import type {
   User,
   Customer,
@@ -1859,6 +1860,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  getGarantiReadiness: () => request<GarantiReadiness & { success: boolean }>('/v1/package-checkout/admin/readiness'),
+  previewPackageCheckout: (data: { planId: string; billingCycle: 'monthly' | 'yearly' }) =>
+    request<{ success: boolean; preview: PackageCheckoutPreview }>('/v1/package-checkout/preview', { method: 'POST', body: JSON.stringify(data) }),
 
   changeSubscription: (data: {
     targetPlanSlug: string;

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../../db/storage';
-import { requireAuth } from '../../middleware/authGuards';
+import { PERMISSIONS, requireAuth, requirePermission } from '../../middleware/authGuards';
+import { sandboxPaymentOnly } from '../../services/payments/checkoutSafety';
 import { CreditWalletService } from '../../services/creditWalletService';
 import { MockPaymentProvider } from '../../services/payments/mockPaymentProvider';
 import { CommissionEngine } from '../../services/commissionEngine';
@@ -41,7 +42,7 @@ creditsRouter.get('/packages', (req: Request, res: Response) => {
 });
 
 // POST /api/v1/credits/purchase - Online Kredi Kartı ile Kontör Satın Alma
-creditsRouter.post('/purchase', async (req: Request, res: Response) => {
+creditsRouter.post('/purchase', requirePermission(PERMISSIONS.COMPANY_UPDATE), sandboxPaymentOnly, async (req: Request, res: Response) => {
   const tenantId = req.tenantId!;
   const { packageId, cardNumber, cardHolder, expireMonth, expireYear, cvv } = req.body;
   const db = storage.getState();

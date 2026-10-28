@@ -12,12 +12,13 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../../../services/api';
+import { GarantiPosPreparation } from './GarantiPosPreparation';
 import { useToast } from '../../../context/ToastContext';
 import type { SubscriptionPlan, CreditPackage, Dealer, DealerCommission, Payment } from '../../../types';
 
 export const PlatformAdminView: React.FC<{ embedded?: boolean; onOpenCompanies?: () => void }> = ({ embedded = false, onOpenCompanies }) => {
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'creditPackages' | 'dealers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'creditPackages' | 'dealers' | 'pos'>('overview');
 
   const [metrics, setMetrics] = useState<any>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -144,6 +145,7 @@ export const PlatformAdminView: React.FC<{ embedded?: boolean; onOpenCompanies?:
               { id: 'overview', label: 'Platform Özeti', icon: Activity },
               ...(onOpenCompanies ? [{ id: 'companies', label: 'Firma Listesini Aç', icon: Building, badge: '' }] : []),
               { id: 'plans', label: 'Paket Tarifeleri', icon: Crown, badge: String(plans.length) },
+              { id: 'pos', label: 'Sanal POS', icon: ShieldAlert },
               { id: 'creditPackages', label: 'Kontör Paketleri', icon: Coins, badge: String(creditPackages.length) },
               { id: 'dealers', label: 'Bayi Ağı & Komisyon', icon: Network, badge: String(dealers.length) },
             ].map(t => (
@@ -203,6 +205,7 @@ export const PlatformAdminView: React.FC<{ embedded?: boolean; onOpenCompanies?:
         ) : (
           <>
             {/* 1. ÖZET PANEL */}
+            {activeTab === 'pos' && <GarantiPosPreparation />}
             {activeTab === 'overview' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>

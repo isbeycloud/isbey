@@ -1,4 +1,5 @@
 import { storage } from '../../db/storage';
+import { requirePaymentSandbox } from './checkoutSafety';
 import {
   PaymentOrder,
   PaymentOrderType,
@@ -32,6 +33,7 @@ export class PaymentGatewayAdapter {
     order: PaymentOrder;
     message: string;
   }> {
+    requirePaymentSandbox();
     const {
       tenantId,
       orderType,
