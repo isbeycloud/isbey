@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { requirePaymentSandbox } from '../payments/checkoutSafety';
 import { IPosProvider, PosPaymentRequest, PosPaymentResponse } from './posProvider';
 
 export class MockPosProvider implements IPosProvider {
@@ -6,6 +7,7 @@ export class MockPosProvider implements IPosProvider {
   public providerId = 'MOCK' as const;
 
   public async createPayment(req: PosPaymentRequest): Promise<PosPaymentResponse> {
+    requirePaymentSandbox();
     const rawCard = req.cardNumber ? req.cardNumber.replace(/\s+/g, '') : '4543600000001234';
     const cardLast4 = rawCard.slice(-4);
     const providerTransactionId = `pos-tx-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
@@ -62,6 +64,7 @@ export class MockPosProvider implements IPosProvider {
   }
 
   public async checkPayment(providerTransactionId: string): Promise<PosPaymentResponse> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: this.providerId,
@@ -74,6 +77,7 @@ export class MockPosProvider implements IPosProvider {
   }
 
   public async refundPayment(providerTransactionId: string, amount: number): Promise<PosPaymentResponse> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: this.providerId,
@@ -85,6 +89,7 @@ export class MockPosProvider implements IPosProvider {
   }
 
   public async cancelPayment(providerTransactionId: string): Promise<PosPaymentResponse> {
+    requirePaymentSandbox();
     return {
       success: true,
       provider: this.providerId,

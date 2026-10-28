@@ -1,101 +1,17 @@
 import { Router } from 'express';
 import { storage } from '../../db/storage';
-import { MockPosProvider } from '../../services/pos/mockPosProvider';
-import { PosTransaction, DatabaseState } from '../../db/schema';
-// FAZ 25.2-C: tenantId yalnızca token'dan çözümlenir (query/body/header kaynağı yasak)
-import { resolveRequestTenantId } from '../../security/policies';
+import { PERMISSIONS, requireAuth, requirePermission, resolveTenant } from '../../middleware/authGuards';
 
 const router = Router();
-const posProvider = new MockPosProvider();
-
-/**
- * POST /api/v1/pos/charge
- * Mobil POS veya Sanal POS üzerinden kart çekimi yapar
- */
-router.post('/charge', async (req, res) => {
-  try {
-    const tenantId = resolveRequestTenantId(req);
-    const companyId = req.body.companyId || 'cmp-default';
-    const { amount, currency = 'TRY', cardNumber, cardHolderName, cardExpiry, cardCvv, installment = 1, referenceType = 'DIRECT_SALE', referenceId } = req.body;
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: 'Geçersiz tahsilat tutarı.' });
-    }
-
-    const payResult = await posProvider.createPayment({
-      tenantId,
-      companyId,
-      amount,
-      currency,
-      transactionType: 'SALE',
-      referenceType,
-      referenceId,
-      cardNumber,
-      cardHolderName,
-      cardExpiry,
-      cardCvv,
-      installment,
-    });
-
-    const now = new Date().toISOString();
-    const posTxId = `pos-tx-${Date.now()}`;
-
-    const newTx: PosTransaction = {
-      id: posTxId,
-      tenantId,
-      companyId,
-      provider: 'MOCK',
-      providerTransactionId: payResult.providerTransactionId,
-      amount,
-      currency,
-      status: payResult.status,
-      transactionType: 'SALE',
-      referenceType,
-      referenceId,
-      cardLast4: payResult.cardLast4,
-      cardBrand: payResult.cardBrand,
-      authCode: payResult.authCode,
-      errorMessage: payResult.errorMessage,
-      installment,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await storage.runTransaction((draft: DatabaseState) => {
-      if (!draft.posTransactions) draft.posTransactions = [];
-      draft.posTransactions.unshift(newTx);
-    });
-
-    if (!payResult.success) {
-      return res.status(400).json({
-        success: false,
-        message: payResult.errorMessage || 'POS işlemi reddedildi.',
-        transaction: newTx,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'POS tahsilatı başarıyla onaylandı.',
-      transaction: newTx,
-      authCode: payResult.authCode,
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message || 'POS işlem hatası.' });
-  }
+router.use(requireAuth, resolveTenant);
+// Gerçek cihaz adaptörü ve doğrulanmış ödeme sonucu olmadan tahsilat kaydı oluşturulmaz.
+router.post('/charge', requirePermission(PERMISSIONS.COLLECTIONS_CREATE), (_req, res) => {
+  res.status(503).json({ success: false, code: 'FISCAL_DEVICE_NOT_READY',
+    message: 'Yazar kasa/POS bağlantısı henüz doğrulanmadı. Tahsilat yapılmadı.' });
 });
-
-/**
- * GET /api/v1/pos/transactions
- * POS işlem geçmişi
- */
-router.get('/transactions', (req, res) => {
-  const tenantId = resolveRequestTenantId(req);
-  const db = storage.getState();
-  const txs = (db.posTransactions || []).filter(
-    t => t.tenantId === tenantId || (!t.tenantId && tenantId === 'tnt-isbey')
-  );
-  return res.json({ success: true, count: txs.length, transactions: txs });
+router.get('/transactions', requirePermission(PERMISSIONS.CASH_VIEW), (req, res) => {
+  const tenantId = req.tenantId!;
+  const transactions = (storage.getState().posTransactions || []).filter(t => t.tenantId === tenantId || (!t.tenantId && tenantId === 'tnt-isbey'));
+  res.json({ success: true, count: transactions.length, transactions });
 });
-
 export default router;

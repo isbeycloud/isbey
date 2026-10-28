@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "devices:kit:build": "tsc -p packages/fiscal-device-kit/tsconfig.json",
+    "devices:kit:pack": "npm run devices:kit:build && npm pack ./packages/fiscal-device-kit --pack-destination .verify-tmp",
     "efatura:preflight": "node --import tsx tools/hizli-canli-hazirlik.mjs",
     "start": "node --import tsx tools/start-production.mjs",
     "preflight": "node --import tsx tools/production-preflight.mjs",
@@ -17,7 +19,7 @@
     "server": "tsx watch server/index.ts",
     "client": "vite",
     "typecheck": "tsc -b",
-    "build": "tsc -b && vite build",
+    "build": "npm run devices:kit:build && tsc -b && vite build",
     "lint": "oxlint src server",
     "security-audit": "npm audit --audit-level=high",
     "ci": "npm run release:check",

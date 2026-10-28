@@ -1,0 +1,10 @@
+.fiscal-settings{min-width:0;max-width:1240px;margin:0 auto;color:var(--text-main)}
+.fiscal-settings header h2{margin:0 0 8px}.fiscal-settings p{line-height:1.6;overflow-wrap:anywhere}
+.fiscal-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;align-items:start}
+.fiscal-card{padding:20px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-surface);min-width:0}
+.fiscal-card h3{margin:0 0 12px}.fiscal-card fieldset{padding:0;border:0;margin:0;display:grid;gap:12px;min-width:0}
+.fiscal-card label{display:grid;gap:6px;font-size:13px;font-weight:600}.fiscal-card input,.fiscal-card select{width:100%;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-surface);color:var(--text-main)}
+.fiscal-card small{color:var(--text-muted);line-height:1.5}.fiscal-card li{line-height:1.8}.fiscal-device-list{display:grid;gap:16px;min-width:0}
+.fiscal-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.fiscal-actions h3{margin:0 auto 0 0}
+.fiscal-notice{padding:14px 18px;border-left:4px solid var(--warning,#d69e2e);background:var(--bg-surface-secondary);line-height:1.7;margin:16px 0 20px}.fiscal-notice strong{display:block}.fiscal-error{color:var(--danger,#b91c1c)}
+.fiscal-settings button:disabled{opacity:.55;cursor:not-allowed}
