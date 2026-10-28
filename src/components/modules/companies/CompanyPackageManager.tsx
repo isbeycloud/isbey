@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Crown, RefreshCw } from 'lucide-react';
 import { api } from '../../../services/api';
 import type { AuditLog, SubscriptionPlan, Tenant } from '../../../types';
@@ -32,6 +32,7 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const canManage = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -50,6 +51,7 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
     finally { setLoading(false); }
   }, [companyId]);
   useEffect(() => { if (canManage) void load(); else setLoading(false); }, [load, canManage]);
+  useEffect(() => { if (error && !loading) errorRef.current?.focus(); }, [error, loading]);
   const selected = plans.filter(p => planIds.includes(p.id));
   const catalogPrice = selected.reduce((sum, p) => sum + (cycle === 'yearly' ? p.yearlyPrice : p.monthlyPrice), 0);
   const currency = selected[0]?.currency || 'TRY';
@@ -63,7 +65,19 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
   if (loading) return <p role="status">Paket bilgileri yükleniyor…</p>;
   if (!company) return <div><p role="alert">{error}</p><button className="btn btn-secondary" onClick={load}>Tekrar dene</button></div>;
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setBusy(true); setError('');
+    e.preventDefault();
+    const invalid = !planIds.length ? 'En az bir hizmet paketi seçin.'
+      : missingPlans.length ? 'Satışa kapalı paketlerin seçimini kaldırıp güncel bir paket seçin.'
+      : new Set(selected.map(p => p.currency)).size > 1 ? 'Birlikte seçilen paketlerin para birimleri aynı olmalıdır.'
+      : !start ? 'Başlangıç tarihini girin.'
+      : !end ? 'Bitiş tarihini girin.'
+      : end < start ? 'Bitiş tarihi başlangıç tarihinden önce olamaz.'
+      : !Number.isFinite(effectiveAmount) || (mode === 'PAID' && effectiveAmount <= 0) ? 'Ücretli kullanım için sıfırdan büyük bir dönem bedeli girin.'
+      : effectiveAmount > 100_000_000 || Math.abs(effectiveAmount * 100 - Math.round(effectiveAmount * 100)) > .00001 ? 'Dönem bedeli en fazla 100.000.000 ve iki ondalık basamaklı olmalıdır.'
+      : reason.trim().length < 10 ? 'Kaydetmek için değişiklik gerekçesine en az 10 karakter yazın.'
+      : reason.length > 1000 ? 'Değişiklik gerekçesi en fazla 1000 karakter olmalıdır.' : '';
+    if (invalid) { setError(invalid); errorRef.current?.focus(); return; }
+    setBusy(true); setError('');
     try {
       const result = await api.updateCompanyPackage(companyId, { planIds, billingMode: mode, billingCycle: cycle,
         amount: effectiveAmount, startDate: start, endDate: end, autoRenew: mode === 'PAID' && autoRenew, reason,
@@ -78,7 +92,7 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
         <p>{company.name} · Mevcut paket: {oldPlans.map(p => p.name).join(' + ') || company.plan} · <CompanyPackageBadge company={company} /></p></div>
       <button type="button" className="btn btn-secondary btn-sm" aria-label="Paket bilgilerini yenile" disabled={busy} onClick={load}><RefreshCw size={14} /></button>
     </div>
-    <form onSubmit={submit} style={{ display: 'grid', gap: 16 }}>
+    <form onSubmit={submit} noValidate style={{ display: 'grid', gap: 16 }}>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
         <legend className="form-label">Kullanım türü</legend>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>{Object.entries(modeLabels).map(([id, label]) =>
@@ -107,13 +121,15 @@ export function CompanyPackagePanel({ companyId, onSaved }: { companyId: string;
         <label className="form-label">Bitiş tarihi<input className="form-input" type="date" min={start} value={end} disabled={busy} required onChange={e => setEnd(e.target.value)} /></label>
       </div>
       <label><input type="checkbox" disabled={busy || mode !== 'PAID'} checked={mode === 'PAID' && autoRenew} onChange={e => setAutoRenew(e.target.checked)} /> Otomatik yenileme tercihi</label>
-      <label className="form-label">Değişiklik gerekçesi<textarea className="form-input" minLength={10} maxLength={1000} value={reason} disabled={busy} required onChange={e => setReason(e.target.value)} placeholder="Örn. Müşteri talebiyle yıllık kurumsal pakete geçiş" /></label>
+      <div><label className="form-label" htmlFor={`package-reason-${companyId}`}>Değişiklik gerekçesi</label>
+        <textarea id={`package-reason-${companyId}`} className="form-input" minLength={10} maxLength={1000} value={reason} disabled={busy} required aria-describedby={`package-reason-help-${companyId}`} onChange={e => setReason(e.target.value)} placeholder="Örn. Müşteri talebiyle yıllık kurumsal pakete geçiş" /></div>
+      <small id={`package-reason-help-${companyId}`} className="text-muted">Kaydetmek için en az 10 karakterlik değişiklik gerekçesi zorunludur.</small>
       <div style={{ background: 'var(--bg-surface-secondary)', borderRadius: 8, padding: 12 }}>
         <strong>{change}</strong> · {modeLabels[mode]} · {cycle === 'monthly' ? 'Aylık' : 'Yıllık'}
         <p style={{ marginBottom: 0 }}>Seçilen paketlerin hizmetleri ve kotaları hemen uygulanır. Dönem bedeli kaydedilir; bu işlem ödeme çekmez veya tahsilat kaydı oluşturmaz.</p>
       </div>
-      {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
-      <button className="btn btn-primary" type="submit" disabled={busy || !planIds.length || !!missingPlans.length || reason.trim().length < 10 || !start || !end || end < start || !Number.isFinite(effectiveAmount) || (mode === 'PAID' && effectiveAmount <= 0)}>{busy ? 'Kaydediliyor…' : 'Paket Değişikliğini Kaydet'}</button>
+      {error && <p ref={errorRef} role="alert" tabIndex={-1} style={{ color: 'var(--danger)' }}>{error}</p>}
+      <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Kaydediliyor…' : 'Paket Değişikliğini Kaydet'}</button>
     </form>
     <details style={{ marginTop: 16 }}><summary>Son paket değişiklikleri ({history.length})</summary>
       {!history.length && <p>Henüz yönetim ekranından paket değişikliği yapılmamış.</p>}
