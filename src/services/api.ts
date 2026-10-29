@@ -1,4 +1,5 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
+import type { ManagementReportsResponse, ManagementReportFilters } from '../types/managementReports';
 import type { UserAccountsResponse, UserAccountMeResponse, UserAccountProfile, UserAccountProfileInput, UserAccountPasswordInput, UserAccountPasswordEmailInput, UserAccountMail } from '../types/userAccounts';
 import type { DebtTrackingResponse, DebtTrackingInput, DebtTrackingRow, DebtFollowup } from '../types/debtTracking';
 import type { CompanyCard, CompanyCardEntry, CompanyCardInput, CompanyCardEntryInput } from '../types/companyCards';
@@ -502,6 +503,8 @@ export const api = {
   payEmployee: (id: string, data: any) => request<{ success: boolean; transaction: any; message: string }>(`/employees/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Reports
+  getManagementReports: (params: Partial<ManagementReportFilters> & Pick<ManagementReportFilters, 'currency'>) =>
+    request<ManagementReportsResponse>(`/reports/management${buildQuery(params)}`),
   getProfitLossReport: (params?: any) => {
     const query = buildQuery(params as Record<string, unknown>);
     return request<{ success: boolean; data: any }>(`/reports/profit-loss${query}`);
