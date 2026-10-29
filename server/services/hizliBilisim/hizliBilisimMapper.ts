@@ -1,6 +1,7 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { ExternalCustomer, Tenant, User, TenantPlan, CompanyService, Warehouse, CashRegister, BankAccount } from '../../db/schema';
 import { storage } from '../../db/storage';
+import bcrypt from 'bcryptjs';
 
 export class HizliBilisimMapper {
   /**
@@ -229,7 +230,10 @@ export class HizliBilisimMapper {
       companyId: companyId,
       allowedCompanyIds: [companyId],
       active: true,
-      passwordHash: '', // Aktivasyon linki üzerinden güvenle belirlenecek
+      // Activation remains the only way to choose a usable password. Discard
+      // this independent random secret immediately; a blank hash breaks the
+      // production preflight for every account while activation is pending.
+      passwordHash: bcrypt.hashSync(randomBytes(32).toString('hex'), 10),
       department: 'Yönetim',
       branch: 'Merkez',
       createdAt: new Date().toISOString(),

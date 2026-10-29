@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { User, Tenant } from '../types';
 import { api } from '../services/api';
 import { canAccessMembershipModule, getUserWorkspace, getInitialViewForRole, hasPermission as _hasPermission } from '../utils/modulePermissions';
@@ -60,10 +60,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
   const [registrationLanding, setRegistrationLanding] = useState(false);
   const [trial, setTrial] = useState<{ state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean } | null>(null);
+  const sessionGeneration = useRef(0);
 
   const refreshProfile = async () => {
+    const generation = sessionGeneration.current;
+    const token = localStorage.getItem('isbey_token');
     try {
       const res = await api.getMe();
+      if (!token || generation !== sessionGeneration.current || localStorage.getItem('isbey_token') !== token) return;
       if (res.success && res.user) {
         setUser(res.user);
         if (res.activeTenant) setActiveTenant(res.activeTenant);
@@ -79,6 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const checkAuth = async () => {
+      const generation = sessionGeneration.current;
       try {
         const token = localStorage.getItem('isbey_token');
         if (token) {
@@ -86,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           // Dev default fallback if no explicit logout
           const res = await api.getMe();
+          if (generation !== sessionGeneration.current || localStorage.getItem('isbey_token') !== token) return;
           if (res.success && res.user) {
             setUser(res.user);
             if (res.activeTenant) setActiveTenant(res.activeTenant);
@@ -102,8 +108,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (credentials: { username?: string; email?: string; password: string }): Promise<{ success: boolean; message?: string; trialDecisionRequired?: boolean }> => {
+    const generation = ++sessionGeneration.current;
     try {
       const res = await api.login(credentials);
+      if (generation !== sessionGeneration.current) return { success: false, message: 'Oturum işlemi geçerliliğini yitirdi. Yeniden giriş yapın.' };
       if (res.success && res.user) {
         if (res.token) {
           localStorage.setItem('isbey_token', res.token);
@@ -129,8 +137,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string;
     phone?: string;
   }): Promise<{ success: boolean; message?: string; username?: string; mailStatus?: string; trialDays?: number }> => {
+    const generation = ++sessionGeneration.current;
     try {
       const res = await api.registerByVkn(data);
+      if (generation !== sessionGeneration.current) return { success: false, message: 'Oturum işlemi geçerliliğini yitirdi. Yeniden giriş yapın.' };
       if (res.success && res.user) {
         if (res.token) {
           localStorage.setItem('isbey_token', res.token);
@@ -157,8 +167,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     city?: string;
     password: string;
   }): Promise<{ success: boolean; message?: string; isFirstLogin?: boolean }> => {
+    const generation = ++sessionGeneration.current;
     try {
       const res = await api.register(data);
+      if (generation !== sessionGeneration.current) return { success: false, message: 'Oturum işlemi geçerliliğini yitirdi. Yeniden giriş yapın.' };
       if (res.success && res.user) {
         if (res.token) {
           localStorage.setItem('isbey_token', res.token);
@@ -178,6 +190,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    sessionGeneration.current++;
     setRegistrationLanding(false);
     localStorage.removeItem('isbey_token');
     setUser(null);
@@ -186,8 +199,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchCompany = async (tenantId: string): Promise<boolean> => {
+    const generation = ++sessionGeneration.current;
+    const token = localStorage.getItem('isbey_token');
     try {
       const res = await api.switchCompany(tenantId);
+      if (generation !== sessionGeneration.current || localStorage.getItem('isbey_token') !== token) return false;
       if (res.success && res.token) {
         localStorage.setItem('isbey_token', res.token);
         setUser(res.user);
