@@ -4,11 +4,24 @@ import type { Column } from '../../common/DataGrid';
 import type { Expense, ExpenseCategory } from '../../../types';
 import { api } from '../../../services/api';
 import { useApp } from '../../../context/AppContext';
+import { useAuth } from '../../../context/AuthContext';
+import { ExpenseReportPanel } from '../raporlar/ExpenseReportPanel';
 import { useToast } from '../../../context/ToastContext';
 import { ExpenseModal } from './ExpenseModal';
 import { Plus, DollarSign, Tag, Trash2, ArrowDownRight, Wallet, Landmark } from 'lucide-react';
 
 export const ExpenseListView: React.FC = () => {
+  const [reportOpen, setReportOpen] = useState(false);
+  const { canAccessModule, can } = useAuth();
+  return <div className="view-content-container">
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {canAccessModule('raporlar') && can('view', 'RAPORLAR') && <button type="button" className="btn btn-secondary" onClick={() => setReportOpen(value => !value)}>{reportOpen ? 'Gider Listesine Dön' : 'İşlem Dökümü ve Masraf Raporu'}</button>}
+    </div>
+    {reportOpen ? <ExpenseReportPanel /> : <ExpenseListContent />}
+  </div>;
+};
+
+const ExpenseListContent: React.FC = () => {
   const { isNewExpenseModalOpen, setIsNewExpenseModalOpen, refreshKey, triggerRefresh } = useApp();
   const { showToast } = useToast();
 

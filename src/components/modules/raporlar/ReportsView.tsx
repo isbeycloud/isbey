@@ -7,18 +7,20 @@ import { useApp } from '../../../context/AppContext';
 import { useAuth } from '../../../context/AuthContext';
 import { BarChart3, TrendingUp, DollarSign, Package, Clock, Sliders, Download } from 'lucide-react';
 import { ManagementReportsPanel } from './ManagementReportsPanel';
+import { ExpenseReportPanel } from './ExpenseReportPanel';
 
 export const ReportsView: React.FC = () => {
-  const [section, setSection] = useState<'management' | 'existing'>('management');
+  const [section, setSection] = useState<'management' | 'expenses' | 'existing'>('management');
   const { setActiveView } = useApp();
-  const { canAccessModule } = useAuth();
+  const { canAccessModule, can } = useAuth();
   return <div className="view-content-container">
     <nav aria-label="Rapor bölümleri" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
       <button type="button" className={`btn ${section === 'management' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={section === 'management'} onClick={() => setSection('management')}>Yönetici Raporları</button>
+      {canAccessModule('gider') && can('view', 'GIDER') && <button type="button" className={`btn ${section === 'expenses' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={section === 'expenses'} onClick={() => setSection('expenses')}>Gider İşlem Dökümü</button>}
       <button type="button" className={`btn ${section === 'existing' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={section === 'existing'} onClick={() => setSection('existing')}>Mevcut Raporlar</button>
       {canAccessModule('rapor-detay') && <button type="button" className="btn btn-secondary" onClick={() => setActiveView('rapor-detay')}>Cari / Stok / Kasa Detayları</button>}
     </nav>
-    {section === 'management' ? <ManagementReportsPanel /> : <LegacyReportsView />}
+    {section === 'management' ? <ManagementReportsPanel /> : section === 'expenses' ? <ExpenseReportPanel /> : <LegacyReportsView />}
   </div>;
 };
 

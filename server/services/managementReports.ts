@@ -343,7 +343,7 @@ export function buildManagementReports(snapshot: unknown, tenantId: string, filt
         }
         if (c !== filters.currency)
             continue;
-        if (!money(expense.amount) || !money(expense.vatAmount) || !money(expense.totalAmount) || expense.amount < 0 || expense.vatAmount < 0 || expense.totalAmount < 0 || Math.abs(cents(expense.amount) + cents(expense.vatAmount) - cents(expense.totalAmount)) > 1) {
+        if (!number(expense.amount) || !number(expense.vatAmount) || !number(expense.totalAmount) || expense.amount < 0 || expense.vatAmount < 0 || expense.totalAmount < 0 || Math.abs(cents(expense.amount) + cents(expense.vatAmount) - cents(expense.totalAmount)) > 1) {
             expenseExcluded++;
             warn('INVALID_EXPENSE_AMOUNT', 'Net/KDV/toplam tutarı doğrulanamayan giderler dışarıda bırakıldı.');
             continue;
@@ -356,6 +356,7 @@ export function buildManagementReports(snapshot: unknown, tenantId: string, filt
             };
             expenseMap.set(key, group);
         }
+        if ([expense.amount, expense.vatAmount, expense.totalAmount].some(value => value !== cents(value) / 100)) warn('EXPENSE_PRECISION_ROUNDED', 'Kaynak giderlerin kuruş altı hassasiyeti yalnız raporda kuruşa yuvarlandı; kaynak kayıtlar değiştirilmedi.');
         const n = cents(expense.amount), v = cents(expense.vatAmount), g = cents(expense.totalAmount);
         group.net += n;
         group.vat += v;
