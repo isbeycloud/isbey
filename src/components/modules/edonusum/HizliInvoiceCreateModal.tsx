@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { resolveHizliUnitCode } from '../../../utils/unitDisplay';
 import {
   X,
   Plus,
@@ -465,6 +466,10 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
 
     if (model.invoiceLines.some((l) => !l.Item_Name || Number(l.Price_Amount) <= 0)) {
       toast('Lütfen tüm satırlarda Mal/Hizmet Adı ve Birim Fiyat alanlarını doldurunuz.', 'error');
+      return;
+    }
+    if (model.invoiceLines.some(line => !HIZLI_BIRIM_LISTESI.some(unit => unit.BirimKodu === line.Quantity_Unit_User))) {
+      toast('Lütfen tüm satırlarda listeden geçerli bir birim seçin.', 'error');
       return;
     }
 
@@ -1670,13 +1675,15 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
                                 (p) => p.name === val || p.code === val
                               );
                               if (matched) {
+                                const unitCode = resolveHizliUnitCode(matched.unit);
                                 handleLineChange(idx, 'Item_Name', matched.name);
                                 handleLineChange(idx, 'Price_Amount', matched.salePrice || 0);
                                 handleLineChange(
                                   idx,
                                   'Quantity_Unit_User',
-                                  matched.unit === 'Adet' ? 'C62' : 'NIU'
+                                  unitCode || ''
                                 );
+                                if (!unitCode) toast('Ürün birimi listede bulunamadı. Lütfen satırın birimini seçin.', 'warning');
                               } else {
                                 handleLineChange(idx, 'Item_Name', val);
                               }
@@ -1715,6 +1722,7 @@ export const HizliInvoiceCreateModal: React.FC<HizliInvoiceCreateModalProps> = (
                             }
                             className="w-full text-xs bg-white border border-slate-300 rounded px-1.5 py-1.5"
                           >
+                            {!HIZLI_BIRIM_LISTESI.some(unit => unit.BirimKodu === line.Quantity_Unit_User) && <option value={line.Quantity_Unit_User} disabled>Birimi seçin</option>}
                             {HIZLI_BIRIM_LISTESI.map((b) => (
                               <option key={b.BirimKodu} value={b.BirimKodu}>
                                 {b.Aciklama} ({b.BirimKodu})

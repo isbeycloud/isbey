@@ -1123,20 +1123,56 @@ export class HizliConnectService {
   /**
    * GetCodeList: DURUM, FATURATURU, PARABIRIMI, BIRIM, TEVKIFAT, ISTISNA vb.
    */
-  public static async getCodeList(type: string, token: string, isTest: boolean = true) {
-    const baseUrl = this.getBaseUrl(isTest);
+  public static async getCodeList(type: string, token: string, isTest: boolean = true): Promise<{
+    success: boolean;
+    list: { code: string; name: string; alternativeNames: string[]; percent?: number }[];
+    message?: string;
+  }> {
     try {
-      const res = await axios.get(`${baseUrl}/HizliApi/RestApi/GetCodeList?type=${type}`, {
+      if (typeof type !== 'string' || /[\u0000-\u001f\u007f]/.test(type) || typeof token !== 'string'
+          || !token.trim() || token.length > 8192 || /[\u0000-\u001f\u007f]/.test(token) || typeof isTest !== 'boolean') {
+        throw new Error('Invalid request');
+      }
+      const normalizedType = type.trim().toUpperCase();
+      if (!/^[A-Z][A-Z0-9_]{0,49}$/.test(normalizedType)) throw new Error('Invalid code type');
+      const baseUrl = this.getBaseUrl(isTest);
+      const res = await axios.get(`${baseUrl}/HizliApi/RestApi/GetCodeList?type=${encodeURIComponent(normalizedType)}`, {
         headers: { 'Authorization': `Bearer ${token}` },
         timeout: 15000,
       });
-      if (res.data?.IsSucceeded !== true || !Array.isArray(res.data.Prefix) || res.data.Prefix.some((p: unknown) => typeof p !== 'string' || !p.trim())) throw new Error('Sağlayıcı seri listesini doğrulamadı.');
-      return { success: true, list: res.data.Prefix as string[] };
-    } catch (err: any) {
-      // FAZ 12: GİB kod listeleri statik mock yerine gerçek hata döndürür —
-      // kod listesi stale kalırsa fatura red riski vardır; kullanıcı hata görmelidir.
-      console.warn('[HIZLI_CONNECT] GetCodeList hatası:', err?.response?.data?.Message || err?.message);
-      return { success: false, list: [], message: `Kod listesi alınamadı: ${err?.response?.data?.Message || err.message}` };
+      const data: unknown = res.data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid code response');
+      const envelope = data as Record<string, unknown>;
+      if (envelope.IsSucceeded !== true || 'Prefix' in envelope || !Array.isArray(envelope.Codes)
+          || envelope.Codes.length === 0 || envelope.Codes.length > 20_000) throw new Error('Invalid code list');
+      const grouped = new Map<string, { code: string; name: string; alternativeNames: string[]; percent?: number }>();
+      for (const raw of envelope.Codes) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid code row');
+        const row = raw as Record<string, unknown>;
+        // Only the confirmed provider fields are accepted. Ambiguous aliases such
+        // as Code/code or Explanation/Name must never be chosen silently.
+        if (Object.keys(row).some(key => !['Code', 'Explanation', 'Percent'].includes(key))
+            || typeof row.Code !== 'string' || typeof row.Explanation !== 'string') throw new Error('Invalid code fields');
+        const code = normalizedType === 'BIRIM' ? row.Code.trim().toUpperCase() : row.Code.trim();
+        const name = row.Explanation.trim();
+        if (!code || code.length > 80 || !name || name.length > 500 || /[\u0000-\u001f\u007f]/.test(code + name)
+            || normalizedType === 'BIRIM' && !/^[A-Z0-9]{1,8}$/.test(code)) throw new Error('Invalid code value');
+        const percent = row.Percent == null ? undefined : row.Percent;
+        if (percent !== undefined && (typeof percent !== 'number' || !Number.isFinite(percent))) throw new Error('Invalid percent');
+        const existing = grouped.get(code);
+        if (!existing) {
+          grouped.set(code, { code, name, alternativeNames: [], ...(percent !== undefined ? { percent: percent as number } : {}) });
+          continue;
+        }
+        if (existing.percent !== undefined && percent !== undefined && existing.percent !== percent) throw new Error('Conflicting code percent');
+        if (existing.percent === undefined && percent !== undefined) existing.percent = percent as number;
+        if (existing.name !== name && !existing.alternativeNames.includes(name)) existing.alternativeNames.push(name);
+      }
+      return { success: true, list: [...grouped.values()] };
+    } catch {
+      // Provider/Axios diagnostics may contain credentials. Return no raw body,
+      // URL, token or error text, and never substitute guessed code definitions.
+      return { success: false, list: [], message: 'Kod listesi alınamadı veya sağlayıcı yanıtı doğrulanamadı.' };
     }
   }
 

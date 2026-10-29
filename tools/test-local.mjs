@@ -15,6 +15,7 @@ const suites = [
   'companyPackageManagementTest.ts',
   'documentVisualTest.ts',
   'hizliDocumentFileContractTest.ts',
+  'hizliCodeListTest.ts',
   'invoiceRecipientContractTest.ts',
   'customerSearchTest.ts',
   'optionalFieldsContractTest.ts',

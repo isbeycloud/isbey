@@ -1,7 +1,8 @@
+import { HIZLI_UNIT_CATALOG } from './hizliUnitCatalog';
 // Hızlı Bilişim & GİB Resmi Kod Tabloları ve Sabit Listeleri
 
 export interface BirimItem {
-  BirimId: number;
+  BirimId?: number;
   BirimKodu: string;
   Aciklama: string;
 }
@@ -57,41 +58,9 @@ export interface UlkeItem {
   UlkeKodu: string;
 }
 
-export const HIZLI_BIRIM_LISTESI: BirimItem[] = [
-  { BirimId: 35, BirimKodu: 'C62', Aciklama: 'ADET' },
-  { BirimId: 142, BirimKodu: 'NIU', Aciklama: 'ADET' },
-  { BirimId: 37, BirimKodu: 'PR', Aciklama: 'ADET-ÇİFT' },
-  { BirimId: 49, BirimKodu: 'KGM', Aciklama: 'KİLOGRAM' },
-  { BirimId: 42, BirimKodu: 'GRM', Aciklama: 'GRAM' },
-  { BirimId: 79, BirimKodu: '26', Aciklama: 'TON' },
-  { BirimId: 140, BirimKodu: 'TNE', Aciklama: 'TON' },
-  { BirimId: 63, BirimKodu: 'LTR', Aciklama: 'LİTRE' },
-  { BirimId: 145, BirimKodu: 'MLT', Aciklama: 'MİLİLİTRE' },
-  { BirimId: 66, BirimKodu: 'MTR', Aciklama: 'METRE' },
-  { BirimId: 149, BirimKodu: 'CMT', Aciklama: 'SANTİMETRE' },
-  { BirimId: 134, BirimKodu: 'MMT', Aciklama: 'MM' },
-  { BirimId: 64, BirimKodu: 'MTK', Aciklama: 'METRE KARE' },
-  { BirimId: 65, BirimKodu: 'MTQ', Aciklama: 'METRE KÜP' },
-  { BirimId: 109, BirimKodu: 'PK', Aciklama: 'KOLİ(PK) / PAKET(PA)' },
-  { BirimId: 93, BirimKodu: 'PA', Aciklama: 'PAKET' },
-  { BirimId: 89, BirimKodu: 'BX', Aciklama: 'KUTU' },
-  { BirimId: 95, BirimKodu: 'CT', Aciklama: 'KARTON' },
-  { BirimId: 91, BirimKodu: 'SL', Aciklama: 'PALET' },
-  { BirimId: 92, BirimKodu: 'SET', Aciklama: 'SET (TAKIM)' },
-  { BirimId: 150, BirimKodu: 'DZN', Aciklama: 'DÜZİNE' },
-  { BirimId: 99, BirimKodu: 'HUR', Aciklama: 'SAAT' },
-  { BirimId: 103, BirimKodu: 'DAY', Aciklama: 'GÜN' },
-  { BirimId: 98, BirimKodu: 'MON', Aciklama: 'AY' },
-  { BirimId: 101, BirimKodu: 'ANN', Aciklama: 'YIL' },
-  { BirimId: 60, BirimKodu: 'KWH', Aciklama: 'KİLOWATT SAAT' },
-  { BirimId: 129, BirimKodu: 'MWH', Aciklama: 'MEGAWATT SAAT' },
-  { BirimId: 80, BirimKodu: 'SA', Aciklama: 'ÇUVAL' },
-  { BirimId: 90, BirimKodu: 'BO', Aciklama: 'ŞİŞE' },
-  { BirimId: 143, BirimKodu: 'TN', Aciklama: 'TENEKE' },
-  { BirimId: 96, BirimKodu: 'J57', Aciklama: 'VARİL' },
-  { BirimId: 77, BirimKodu: 'DRL', Aciklama: 'RULO' },
-  { BirimId: 130, BirimKodu: 'TL', Aciklama: 'TL' },
-];
+export const HIZLI_BIRIM_LISTESI: BirimItem[] = HIZLI_UNIT_CATALOG.map(unit => ({
+  BirimKodu: unit.code, Aciklama: unit.name,
+}));
 
 export const HIZLI_ISTISNA_LISTESI: IstisnaItem[] = [
   { IstisnaId: 116, Kodu: '301', Adi: '11/1-a Mal İhracatı' },
