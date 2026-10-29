@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { storage } from '../db/storage';
 import { UserRole } from '../db/schema';
+import { userAccounts } from '../services/userAccounts';
 
 // FAZ 25.3-E (B-3): PERMISSIONS sabitleri security registry'den re-export edilir —
 // route'lar tek import noktasından (authGuards) kanonik kodlara erişir.
@@ -28,6 +29,7 @@ declare global {
       activeCompanyId?: string;
       userRole?: string;
       userPermissions?: string[];
+      authCredentialVersion?: string;
     }
   }
 }
@@ -38,6 +40,9 @@ declare global {
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   const db = storage.getState();
+  let accounts: ReturnType<typeof userAccounts.effectiveUsers>;
+  try { accounts = userAccounts.effectiveUsers(); }
+  catch { return res.status(503).json({ success: false, message: 'Hesap bilgileri doğrulanamadı. Lütfen tekrar deneyin.' }); }
 
   let resolvedUser: any = null;
   let resolvedTenantId = '';
@@ -67,7 +72,11 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
           code: 'SESSION_EXPIRED',
         });
       }
-      resolvedUser = db.users.find(u => u.id === session.userId);
+      resolvedUser = accounts.find(u => u.id === session.userId);
+      if (resolvedUser && resolvedUser.credentialVersion !== ((session as typeof session & { credentialVersion?: string }).credentialVersion || '')) {
+        return res.status(401).json({ success: false, code: 'CREDENTIALS_CHANGED', message: 'Hesap güvenlik bilgileri değişti. Lütfen tekrar giriş yapın.' });
+      }
+      req.authCredentialVersion = resolvedUser?.credentialVersion || '';
       if (resolvedUser && session.companyId) {
         // Oturum hangi şirket için açıldıysa tenant o olur (token'dan değiştirilemez)
         resolvedTenantId = session.companyId;
@@ -75,7 +84,11 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
     } else {
       try {
         const decoded: any = jwt.verify(rawToken, JWT_SECRET);
-        resolvedUser = db.users.find(u => u.id === decoded.userId);
+        resolvedUser = accounts.find(u => u.id === decoded.userId);
+        if (resolvedUser && resolvedUser.credentialVersion !== (decoded.credentialVersion || '')) {
+          return res.status(401).json({ success: false, code: 'CREDENTIALS_CHANGED', message: 'Hesap güvenlik bilgileri değişti. Lütfen tekrar giriş yapın.' });
+        }
+        req.authCredentialVersion = decoded.credentialVersion || '';
         if (decoded.tenantId) {
           resolvedTenantId = decoded.tenantId;
         }
@@ -130,8 +143,12 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   // olsaydı kullanıcı kararını VEREMEZ ve kilit hiç açılmazdı (ölü kilit).
   // Bu uçlar iş verisi yazmaz — yalnız karar/başvuru kaydı (tenant kapsamlı).
   const decisionOperation = /^\/api\/v1\/e-donusum\/(choice|applications)(\/|$)/.test(path);
+  // Identity maintenance does not post accounting data; it retains route-level
+  // membership, permission and current-password checks during read-only periods.
+  const identityOperation = (req.method === 'PUT' && /^\/api\/user-accounts\/[^/]+\/profile$/.test(path))
+    || (req.method === 'POST' && /^\/api\/user-accounts\/[^/]+\/(password|password-email)$/.test(path));
   if (!identity.roleSlugs.includes('platform_admin') && subscription !== 'ACTIVE'
-      && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sessionOperation && !decisionOperation) {
+      && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sessionOperation && !decisionOperation && !identityOperation) {
     return res.status(403).json({ success: false, code: `ERP_SUBSCRIPTION_${subscription}`, message: 'ERP aboneliği etkin değil. Görüntüleme açık; yeni kayıt ve değişiklik için abonelik yenilenmeli.' });
   }
   tenantContext.run(resolvedTenantId, next);

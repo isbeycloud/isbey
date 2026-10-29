@@ -6,6 +6,7 @@ import type { User, UserRole } from '../db/schema';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { membershipsRouter } from './memberships';
 import { membershipFor, isPlatformUser, companyIdentity, migrateMemberships } from '../security/memberships';
+import { userAccounts } from '../services/userAccounts';
 
 const router = Router();
 router.use(requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'));
@@ -24,8 +25,8 @@ router.get('/', (req, res) => {
 
 router.post('/', async (req, res) => {
   const { username, fullName, email, phone, password, role = 'SATIS' } = req.body;
-  if (typeof username !== 'string' || !username.trim() || typeof fullName !== 'string' || !fullName.trim() || typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ success: false, message: 'Kullanıcı adı, ad soyad ve en az 8 karakterli şifre zorunludur.' });
+  if (typeof username !== 'string' || !username.trim() || typeof fullName !== 'string' || !fullName.trim() || (email !== undefined && typeof email !== 'string') || typeof password !== 'string' || Array.from(password).length < 12 || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).json({ success: false, message: 'Kullanıcı adı, ad soyad ve en az 12 karakterli, en fazla 72 baytlık şifre zorunludur.' });
   }
   const allowed: UserRole[] = ['COMPANY_ADMIN', 'MUHASEBE', 'SATIS', 'KASA', 'DEPO', 'PERSONEL', 'SAHA', 'RAPOR'];
   if (!allowed.includes(role)) return res.status(403).json({ success: false, message: 'Firma kullanıcısına bu rol atanamaz.' });
@@ -35,10 +36,12 @@ router.post('/', async (req, res) => {
     const user = await storage.runTransaction(draft => {
       const tenant = draft.tenants.find(t => t.id === tenantId && !t.isArchived);
       if (!tenant) throw new Error('Firma bulunamadı.');
-      if (draft.users.some(u => u.username.toLowerCase() === username.trim().toLowerCase())) throw new Error('Kullanıcı adı zaten mevcut; mevcut hesabı firma üyeliği ile bağlayın.');
+      const normalize = (value: string) => value.trim().normalize('NFKC').toLowerCase();
+      const aliases = [normalize(username), ...(email?.trim() ? [normalize(email)] : [])];
+      if (userAccounts.effectiveUsers().some(u => aliases.includes(normalize(u.username)) || u.email && aliases.includes(normalize(u.email)))) throw new Error('Kullanıcı adı veya e-posta zaten mevcut; mevcut hesabı firma üyeliği ile bağlayın.');
       const count = (draft.tenantUsers || []).filter(m => m.tenantId === tenantId && m.status === 'active' && !m.deletedAt).length;
       if (tenant.maxUsers && count >= tenant.maxUsers) throw new Error('Firma kullanıcı limiti doldu.');
-      const account: User = { id: randomUUID(), username: username.trim(), fullName: fullName.trim(), email: email || '', phone,
+      const account: User = { id: randomUUID(), username: username.trim(), fullName: fullName.trim(), email: email?.trim().toLowerCase() || '', phone,
         role, passwordHash: bcrypt.hashSync(password, 10), active: true, companyId: tenantId, allowedCompanyIds: [tenantId], createdAt: new Date().toISOString() };
       draft.users.push(account);
       migrateMemberships(draft);
@@ -50,24 +53,7 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   if (!isPlatformUser(req.user)) return res.status(403).json({ success: false, message: 'Firma yetkilerini Firma Üyelikleri bölümünden düzenleyin. Ortak hesap bilgilerini platform yöneticisi değiştirir.' });
-  try {
-    const result = await storage.runTransaction(draft => {
-      const user = draft.users.find(u => u.id === req.params.id);
-      if (!user) throw new Error('Kullanıcı bulunamadı.');
-      const { fullName, email, phone, password, department, branch } = req.body;
-      if (fullName) user.fullName = String(fullName).trim();
-      if (email !== undefined) user.email = String(email).trim();
-      if (phone !== undefined) user.phone = String(phone);
-      if (department !== undefined) user.department = String(department);
-      if (branch !== undefined) user.branch = String(branch);
-      if (password) {
-        if (typeof password !== 'string' || password.length < 8) throw new Error('Şifre en az 8 karakter olmalıdır.');
-        user.passwordHash = bcrypt.hashSync(password, 10);
-      }
-      return companyIdentity(draft, user, req.tenantId!);
-    });
-    res.json({ success: true, user: result, message: 'Hesap bilgileri güncellendi. Firma rolleri üyelik bölümünden yönetilir.' });
-  } catch (error) { res.status(400).json({ success: false, message: (error as Error).message }); }
+  return res.status(409).json({ success: false, message: 'Hesap bilgilerini Kullanıcı Hesabı ekranından güncelleyin. Firma rolleri üyelik bölümünden yönetilir.' });
 });
 
 router.delete('/:id', async (req, res) => {

@@ -9,6 +9,7 @@ import { MobileDevice, DatabaseState } from '../../db/schema';
 import { requireAuth } from '../../middleware/authGuards';
 // FAZ 25.4: mobil login brute-force rate limit
 import { mobileLoginRateLimit } from '../../middleware/productionSecurity';
+import { userAccounts } from '../../services/userAccounts';
 
 const router = Router();
 
@@ -54,9 +55,10 @@ router.post('/auth/login', mobileLoginRateLimit, async (req, res) => {
 
   const db = storage.getState();
   const identifier = String(email).trim().toLowerCase();
-  const user = (db.users || []).find(
+  const matches = userAccounts.effectiveUsers().filter(
     u => (u.email && u.email.toLowerCase() === identifier) || (u.username && u.username.toLowerCase() === identifier)
   );
+  const user = matches.length === 1 ? matches[0] : undefined;
 
   if (!user || !verifyPassword(String(password), user.passwordHash)) {
     return res.status(401).json({ success: false, message: 'Geçersiz e-posta veya şifre.' });
@@ -116,6 +118,11 @@ router.post('/auth/login', mobileLoginRateLimit, async (req, res) => {
     return res.status(403).json({ success: false, message: 'Bu cihaz yöneticiniz tarafından engellenmiştir.' });
   }
 
+  // A reset during asynchronous device registration must not upgrade old password proof.
+  if (userAccounts.credentialVersion(user.id) !== user.credentialVersion) {
+    return res.status(401).json({ success: false, message: 'Hesap bilgileri değişti. Lütfen yeniden giriş yapın.' });
+  }
+
   // FAZ 25.1: Gerçek JWT — requireAuth zinciriyle doğrulanabilir
   const token = jwt.sign(
     {
@@ -128,6 +135,7 @@ router.post('/auth/login', mobileLoginRateLimit, async (req, res) => {
       allowedCompanyIds: user.allowedCompanyIds || [tenantId],
       deviceId: devId,
       type: 'mobile',
+      credentialVersion: user.credentialVersion,
     },
     getJwtSecret(),
     { expiresIn: '30d' }

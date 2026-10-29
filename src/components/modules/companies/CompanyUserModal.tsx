@@ -1,3 +1,4 @@
+import { UserAccountDialog } from '../../common/UserAccountsPanel';
 import { useAuth } from '../../../context/AuthContext';
 import { FirmMembershipEditor } from '../../common/FirmMembershipEditor';
 import React, { useState, useEffect } from 'react';
@@ -34,7 +35,7 @@ export const CompanyUserModal: React.FC<CompanyUserModalProps> = ({
     role: 'SATIS' as UserRole,
     department: '',
     branch: '',
-    password: '123',
+    password: '',
     sendResetLink: false,
     active: true,
   });
@@ -64,7 +65,7 @@ export const CompanyUserModal: React.FC<CompanyUserModalProps> = ({
         role: 'SATIS',
         department: 'Satış & Pazarlama',
         branch: company?.branches?.[0]?.name || 'Merkez Şube',
-        password: '123',
+        password: '',
         sendResetLink: false,
         active: true,
       });
@@ -117,6 +118,8 @@ export const CompanyUserModal: React.FC<CompanyUserModalProps> = ({
     { value: 'PERSONEL', label: 'İnsan Kaynakları & Personel', desc: 'Personel özlük, maaş ve prim takibi' },
     { value: 'RAPOR', label: 'Raporlama & Denetçi', desc: 'Sadece görüntüleme ve rapor alma yetkisi' },
   ];
+
+  if (Boolean(editingUser)) return <UserAccountDialog isOpen={isOpen} userId={editingUser?.id} onClose={() => { onSuccess(); onClose(); }} />;
 
   return (
     <Modal
@@ -240,20 +243,17 @@ export const CompanyUserModal: React.FC<CompanyUserModalProps> = ({
               Başlangıç Şifresi:
             </label>
             <input
-              type="text"
+              type="password"
+              minLength={12}
+              maxLength={72}
+              required
+              autoComplete="new-password"
               className="form-input"
               value={form.password}
               onChange={e => setForm({ ...form, password: e.target.value })}
-              placeholder="123"
+              placeholder="En az 12 karakter"
             />
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--text-muted)', cursor: 'pointer', marginTop: '2px' }}>
-              <input
-                type="checkbox"
-                checked={form.sendResetLink}
-                onChange={e => setForm({ ...form, sendResetLink: e.target.checked })}
-              />
-              <span>Kullanıcıya tek kullanımlık şifre belirleme bağlantısı oluştur</span>
-            </label>
+            <p style={{ fontSize: 12 }}>Kullanıcı oluşturulduktan sonra hesabından şifre belirleme e-postası gönderebilirsiniz.</p>
           </div>
         )}
 

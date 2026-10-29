@@ -10,6 +10,7 @@ Object.assign(process.env, {
   HIZLI_BILISIM_ALLOW_PROD: 'false', HIZLI_BILISIM_IS_TEST_MODE: 'true',
   HIZLI_BILISIM_API_KEY: '', HIZLI_BILISIM_WS_USERNAME: '', HIZLI_BILISIM_WS_PASSWORD: '',
   CORS_ALLOW_ORIGINS: 'http://127.0.0.1:4317', LOCAL_DEV_ALLOW: 'false', TRUST_PROXY: '',
+  PUBLIC_APP_URL: 'https://bey360.example.test', SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '',
   // NOT: Giriş hız sınırı KASITLI olarak burada YÜKSELTİLMEZ. Üretim varsayılanı
   // (15 dk / 20 deneme) aynen geçerli kalır; böylece `application.spec.ts` içindeki
   // "login rate limit cannot be bypassed with forged X-Forwarded-For" testi gerçek
@@ -18,6 +19,7 @@ Object.assign(process.env, {
 });
 const { initialDatabaseState } = await import('../server/db/seed.ts');
 const { adminStoredHash } = await import('../server/tests/fixtures/e2eCredentials.ts');
+const { migrateMemberships } = await import('../server/security/memberships.ts');
 const fixture = structuredClone(initialDatabaseState);
 // Borç takip tarayıcı testleri için yalnız izole veritabanında açık net bakiyeler.
 for (const [suffix, debit, credit] of [['receivable', 125, 0], ['payable', 0, 75]]) {
@@ -40,5 +42,6 @@ fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-r
   hizliModel: { invoiceheader: { ProfileID: 'TEMELFATURA', InvoiceTypeCode: 'SATIS', IssueTime: '13:33' },
     customer: { PartyName: 'Kayıtlı Belge Alıcısı', IdentificationID: '0000000000' } } });
 fixture.users.find(user => user.username === 'admin').passwordHash = adminStoredHash;
+migrateMemberships(fixture);
 fs.writeFileSync(process.env.DATABASE_PATH, JSON.stringify(fixture));
 await import('../server/index.ts');

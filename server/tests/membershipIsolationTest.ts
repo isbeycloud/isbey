@@ -95,9 +95,10 @@ try {
   const list = await call('/users/shared/memberships', manager); assert.deepEqual(list.companies.map((c: any) => c.id), ['a']);
   await call('/users/shared', manager, 'PUT', { role: 'SUPER_ADMIN' }, 403);
   await call('/admin/users/shared', manager, 'PUT', { role: 'SUPER_ADMIN' }, 403);
-  await call('/users/shared', admin, 'PUT', { fullName: 'Updated name', department: 'Finance', branch: 'Central', role: 'SUPER_ADMIN' });
+  // Legacy profile writes must use the reauthenticated account API instead.
+  await call('/users/shared', admin, 'PUT', { fullName: 'Updated name', department: 'Finance', branch: 'Central', role: 'SUPER_ADMIN' }, 409);
   assert.equal(storage.getState().users.find(u => u.id === 'shared')!.role, 'COMPANY_ADMIN');
-  assert.equal(storage.getState().users.find(u => u.id === 'shared')!.department, 'Finance');
+  assert.equal(storage.getState().users.find(u => u.id === 'shared')!.department, undefined);
   const login = await call('/auth/login', '', 'POST', { username: 'shared', password: 'TestPassword123!' });
   assert.equal(login.user.role, 'COMPANY_ADMIN');
   storage.update(db => { membershipFor(db, 'shared', 'a')!.status = 'passive'; });

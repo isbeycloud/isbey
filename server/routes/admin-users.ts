@@ -3,8 +3,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
-import type { User, UserRole, UserSession, PasswordResetToken } from '../db/schema';
-import crypto from 'crypto';
+import type { User, UserRole } from '../db/schema';
+import { userAccounts } from '../services/userAccounts';
 
 export const adminUsersRouter = Router();
 
@@ -34,7 +34,7 @@ adminUsersRouter.get('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (req
   try {
     const { companyId, role, search } = req.query;
     const db = storage.getState();
-    let users = db.users || [];
+    let users = userAccounts.effectiveUsers();
 
     if (companyId) {
       users = users.filter(u => { const m = membershipFor(db, u.id, String(companyId)); return m && !m.deletedAt; });
@@ -56,7 +56,7 @@ adminUsersRouter.get('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (req
 
     // Attach company names
     const safeUsers = users.map(u => {
-      const { passwordHash, ...safe } = u;
+      const { passwordHash: _password, credentialVersion: _credential, accountRevision: _revision, ...safe } = u;
       const comp = db.tenants?.find(t => t.id === u.companyId);
       return {
         ...(typeof companyId === 'string' ? companyIdentity(db, u, companyId) : safe),
@@ -80,13 +80,13 @@ adminUsersRouter.get('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (req
 adminUsersRouter.get('/:id', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (req: Request, res: Response) => {
   try {
     const db = storage.getState();
-    const user = (db.users || []).find(u => u.id === req.params.id);
+    const user = userAccounts.effectiveUsers().find(u => u.id === req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'Kullanıcı bulunamadı.' });
     }
 
     const sessions = (db.sessions || []).filter(s => s.userId === user.id);
-    const { passwordHash, ...safeUser } = user;
+    const { passwordHash: _password, credentialVersion: _credential, accountRevision: _revision, ...safeUser } = user;
     const comp = db.tenants?.find(t => t.id === user.companyId);
 
     res.json({
@@ -116,12 +116,18 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
       allowedCompanyIds,
       department,
       branch,
-      password = '123',
+      password,
       sendResetLink = false,
     } = req.body;
 
-    if (!username?.trim() || !fullName?.trim()) {
+    if (typeof username !== 'string' || !username.trim() || typeof fullName !== 'string' || !fullName.trim() || (email !== undefined && typeof email !== 'string')) {
       return res.status(400).json({ success: false, message: 'Kullanıcı adı ve Ad Soyad zorunludur.' });
+    }
+    if (typeof password !== 'string' || Array.from(password).length < 12 || Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({ success: false, message: 'Şifre en az 12 karakter, en fazla 72 bayt olmalıdır.' });
+    }
+    if (sendResetLink !== false) {
+      return res.status(400).json({ success: false, message: 'Kullanıcıyı oluşturduktan sonra Kullanıcı Hesabı ekranından şifre belirleme e-postası gönderin.' });
     }
 
     // FAZ 25.2-A (C1): Yetki yükseltme yasağı
@@ -130,9 +136,12 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
     }
 
     const result = await storage.runTransaction(async draft => {
-      // 1. Check duplicate username
-      if (draft.users.some(u => u.username.toLowerCase() === username.trim().toLowerCase())) {
-        throw new Error(`"${username}" kullanıcı adı zaten kullanılmaktadır.`);
+      // Login accepts either alias; reserve both against current effective identities.
+      const normalize = (value: string) => value.trim().normalize('NFKC').toLowerCase();
+      const accountEmail = email?.trim().toLowerCase() || `${username.trim()}@isbey.com.tr`;
+      const aliases = [normalize(username), normalize(accountEmail)];
+      if (userAccounts.effectiveUsers().some(u => aliases.includes(normalize(u.username)) || u.email && aliases.includes(normalize(u.email)))) {
+        throw new Error('Kullanıcı adı veya e-posta zaten kullanılmaktadır.');
       }
 
       // FAZ 25.2-A (C1): Hedef şirket — platform yöneticisi seçebilir, COMPANY_ADMIN
@@ -160,7 +169,7 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
         id: newUserId,
         username: username.trim(),
         fullName: fullName.trim(),
-        email: email?.trim() || `${username.trim()}@isbey.com.tr`,
+        email: accountEmail,
         phone: phone?.trim(),
         role: role as UserRole,
         // FAZ 25.2-A (C1): Şifre düz metin saklanamaz — bcrypt ile hashlenir
@@ -183,22 +192,6 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
         company.stats.userCount = (company.stats.userCount || 0) + 1;
       }
 
-      // Generate reset token if requested
-      let resetTokenObj: PasswordResetToken | null = null;
-      if (sendResetLink) {
-        const token = crypto.randomBytes(24).toString('hex');
-        resetTokenObj = {
-          token,
-          userId: newUserId,
-          userEmail: newUser.email,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          used: false,
-          createdAt: new Date().toISOString(),
-        };
-        if (!draft.passwordResetTokens) draft.passwordResetTokens = [];
-        draft.passwordResetTokens.push(resetTokenObj);
-      }
-
       storage.addAuditLog({
         userId: req.user?.id || 'admin',
         username: req.user?.username || 'admin',
@@ -211,14 +204,13 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
       });
 
       const { passwordHash: _, ...safeUser } = newUser;
-      return { user: safeUser, resetToken: resetTokenObj?.token };
+      return { user: safeUser };
     });
 
     res.json({
       success: true,
       message: 'Kullanıcı başarıyla oluşturuldu.',
       user: result.user,
-      resetLink: result.resetToken ? `/reset-password?token=${result.resetToken}` : undefined,
     });
   } catch (err: any) {
     res.status(400).json({ success: false, message: err.message });
@@ -229,9 +221,12 @@ adminUsersRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN', 'COM
 // FAZ 25.2-A (C1): role/companyId/allowedCompanyIds/permissions artık serbest atanamaz —
 // canAssignRole + tenant izolasyonu + platform-admin alan kısıtları zorunludur.
 adminUsersRouter.put('/:id', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
+  if (['username', 'fullName', 'email', 'phone', 'password', 'newPassword', 'passwordHash', 'passwordChangedAt', 'credentialVersion', 'accountRevision'].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key))) {
+    return res.status(409).json({ success: false, message: 'Hesap ve şifre bilgilerini Kullanıcı Hesabı ekranından güncelleyin.' });
+  }
   try {
     const { id } = req.params;
-    const { fullName, email, phone, role, companyId, allowedCompanyIds, department, branch, permissions, active } = req.body;
+    const { role, companyId, allowedCompanyIds, department, branch, permissions, active } = req.body;
 
     // FAZ 25.2-A (C1): Yetki yükseltme yasağı
     if (role && !canAssignRole(req.user as User, role as UserRole)) {
@@ -255,9 +250,6 @@ adminUsersRouter.put('/:id', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), a
       }
 
       const oldRole = user.role;
-      if (fullName) user.fullName = fullName.trim();
-      if (email) user.email = email.trim();
-      if (phone !== undefined) user.phone = phone?.trim();
       if (role) user.role = role as UserRole;
       // FAZ 25.2-A (C1): Şirket ataması yalnızca platform yöneticisine açıktır
       if (companyId && isPlatformCaller) user.companyId = companyId;
@@ -367,75 +359,9 @@ adminUsersRouter.post('/:id/toggle-status', requireAuth, requireRole('SUPER_ADMI
   }
 });
 
-// POST /api/admin/users/:id/reset-password - Generate Secure One-Time Token (Never expose plaintext password)
-// FAZ 25.2-A (C1): Tenant izolasyonu + newPassword artık bcrypt ile hashlenir (düz metin YASAK)
-adminUsersRouter.post('/:id/reset-password', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { newPassword } = req.body; // Optional direct reset
-
-    const result = await storage.runTransaction(async draft => {
-      const user = draft.users.find(u => u.id === id);
-      if (!user) throw new Error('Kullanıcı bulunamadı.');
-
-      const isPlatformCaller = isPlatformAdmin(req.user);
-      if (!isPlatformCaller) {
-        if (!isSameTenant(req.user as User, user.companyId)) {
-          throw new Error('Bu kullanıcı için şifre sıfırlama yetkiniz yok.');
-        }
-        if (isPlatformAdminTarget(user)) {
-          throw new Error('Platform yöneticisi kullanıcıların şifresi bu uçtan sıfırlanamaz.');
-        }
-      }
-
-      let token = '';
-      if (newPassword && newPassword.trim()) {
-        // FAZ 25.2-A (C1): Düz metin şifre saklanamaz — bcrypt zorunlu
-        user.passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
-        user.passwordChangedAt = new Date().toISOString();
-        // Revoke existing sessions to force re-login
-        if (draft.sessions) {
-          draft.sessions.forEach(s => {
-            if (s.userId === user.id) s.isRevoked = true;
-          });
-        }
-      } else {
-        // Generate secure 24-byte hex token
-        token = crypto.randomBytes(24).toString('hex');
-        const tokenRecord: PasswordResetToken = {
-          token,
-          userId: user.id,
-          userEmail: user.email,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          used: false,
-          createdAt: new Date().toISOString(),
-        };
-        if (!draft.passwordResetTokens) draft.passwordResetTokens = [];
-        draft.passwordResetTokens.push(tokenRecord);
-      }
-
-      storage.addAuditLog({
-        userId: req.user?.id || 'admin',
-        username: req.user?.username || 'admin',
-        companyId: user.companyId,
-        action: 'PASSWORD_RESET_REQUESTED',
-        module: 'GÜVENLİK',
-        ipAddress: req.ip || '127.0.0.1',
-        details: `Şifre sıfırlama işlemi gerçekleştirildi: ${user.username}`,
-      });
-
-      return { username: user.username, token, directReset: Boolean(newPassword) };
-    });
-
-    res.json({
-      success: true,
-      message: result.directReset ? 'Kullanıcı şifresi başarıyla güncellendi.' : 'Şifre sıfırlama bağlantısı üretildi.',
-      token: result.token,
-      resetLink: result.token ? `https://isbey.com.tr/auth/reset-password?token=${result.token}` : undefined,
-    });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: err.message });
-  }
+// Legacy token generation/direct reset is closed; the account service owns credential changes.
+adminUsersRouter.post('/:id/reset-password', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), (_req: Request, res: Response) => {
+  res.status(410).json({ success: false, message: 'Şifre belirleme ve sıfırlama için Kullanıcı Hesabı ekranını kullanın.' });
 });
 
 // POST /api/admin/users/:id/revoke-sessions - Revoke active sessions

@@ -27,7 +27,7 @@ impersonationRouter.post('/impersonate', requireAuth, requireRole('SUPER_ADMIN')
   }
 
   const now = new Date().toISOString();
-  const token = generateToken(user, targetTenantId);
+  const token = generateToken({ ...user, credentialVersion: req.authCredentialVersion || '' }, targetTenantId);
 
   const session: ImpersonationSession = {
     id: `imp-${Date.now()}`,
@@ -80,7 +80,7 @@ impersonationRouter.post('/impersonate/stop', requireAuth, async (req: Request, 
     return res.status(403).json({ success: false, message: 'Geri dönülebilecek etkin firma bulunamadı.' });
   }
   const tenant = (db.tenants || []).find(t => t.id === originalTenantId);
-  const token = generateToken(account, originalTenantId);
+  const token = generateToken({ ...account, credentialVersion: req.authCredentialVersion || '' } as typeof account, originalTenantId);
 
   storage.addAuditLog({
     userId: user.id,

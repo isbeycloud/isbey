@@ -20,7 +20,7 @@ export function menusForModules(modules: string[]): string[] {
   return [...new Set(modules.flatMap(m => MODULE_MENUS[m.toUpperCase()] || []))];
 }
 
-const COMMON_VIEWS = ['hizmetler', 'ayarlar', 'admin', 'roles-permissions', 'companies',
+const COMMON_VIEWS = ['kullanici-hesaplari', 'hizmetler', 'ayarlar', 'admin', 'roles-permissions', 'companies',
   'support', 'support-center', 'device-security', 'activity-logs'];
 const EXTRA_VIEWS: Record<string, string> = {
   'document-ai': 'ai', 'nakit-tahmin': 'ai', 'saha-tahsilat': 'kasa',
@@ -42,7 +42,7 @@ export function serviceAllowsPath(menus: string[] | null | undefined, path: stri
   const normalized = path.split('?')[0].replace(/^\/api\/(v1\/)?/, '');
   if (/^e-documents\/erp-invoices\/[^/]+\/visual$/.test(normalized)) return menus.includes('faturalar');
   if (/^e-documents\/erp-waybills\/[^/]+\/visual$/.test(normalized)) return menus.includes('irsaliye');
-  if (/^(auth|e-services|users|roles|permissions|invitations|members|companies|tenants|settings|notifications|support|support-faz8|devices|activity-logs|audit|subscriptions|credits|payments|usage|checkout|package-checkout|billing|onboarding)(\/|$)/.test(normalized)) {
+  if (/^(auth|e-services|users|user-accounts|roles|permissions|invitations|members|companies|tenants|settings|notifications|support|support-faz8|devices|activity-logs|audit|subscriptions|credits|payments|usage|checkout|package-checkout|billing|onboarding)(\/|$)/.test(normalized)) {
     if (normalized === 'e-services/invoice-history') return menus.includes('edonusum');
     return true;
   }

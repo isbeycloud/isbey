@@ -29,7 +29,7 @@ test('API authentication, role boundaries and tenant isolation', async ({ reques
     expect(user.passwordHash).toBeUndefined();
   }
   const escalation = await request.post('/api/auth/users', {
-    headers, data: { username: 'forbidden-escalation', fullName: 'Forbidden', role: 'SUPER_ADMIN', password: 'NotUsed123!', companyId: 'tnt-ankara' },
+    headers, data: { username: 'forbidden-escalation', fullName: 'Forbidden', role: 'SUPER_ADMIN', password: 'NotUsed123!Strong', companyId: 'tnt-ankara' },
   });
   expect(escalation.status()).toBe(403);
   const unknown = await request.get('/api/no-such-endpoint', { headers });
@@ -84,7 +84,8 @@ test('membership editor saves independent company roles and status', async ({ pa
   await page.goto('/');
   await page.getByRole('button', { name: 'Kullanıcı menüsü' }).click();
   await page.getByText('Kullanıcı Yönetimi', { exact: true }).click();
-  await page.getByRole('row').filter({ hasText: 'membership-e2e' }).getByTitle('Yetki ve Bilgileri Düzenle').click();
+  await page.getByRole('row').filter({ hasText: 'membership-e2e' }).getByRole('button', { name: 'Hesabı Aç', exact: true }).click();
+  await page.getByRole('button', { name: 'Firma Yetkilerini Aç', exact: true }).click();
   const editor = page.getByRole('region', { name: 'Firma üyelikleri' });
   await expect(editor).toBeVisible();
   await editor.getByLabel('Firma', { exact: true }).selectOption(other.id);

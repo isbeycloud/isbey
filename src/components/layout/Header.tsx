@@ -30,7 +30,7 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { CompanyLogoModal } from '../common/CompanyLogoModal';
-import { UserManagementModal } from '../common/UserManagementModal';
+import { UserAccountDialog } from '../common/UserAccountsPanel';
 import { UserInvitationModal } from '../common/UserInvitationModal';
 import type { Company } from '../../types';
 import type { DebtTrackingResponse } from '../../types/debtTracking';
@@ -113,7 +113,7 @@ export const Header: React.FC = () => {
 
   // Modals
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
-  const [isUserMgmtModalOpen, setIsUserMgmtModalOpen] = useState(false);
+  const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
   useEffect(() => {
@@ -170,6 +170,7 @@ export const Header: React.FC = () => {
       case 'raporlar': return { title: 'Finansal Raporlar & Bilanço', category: 'Raporlar' };
       case 'vergi': return { title: 'Vergi & Beyanname Takvimi', category: 'Maliye & Vergi' };
       case 'ayarlar': return { title: 'Sistem Parametreleri & Roller', category: 'Ayarlar' };
+      case 'kullanici-hesaplari': return { title: 'Kullanıcı Hesapları', category: 'Ayarlar' };
       case 'mali-musavir': return { title: 'Mali Müşavir Portalı', category: 'SMMM Masası' };
       case 'admin': return { title: 'Süper Admin & SaaS Paneli', category: 'Yönetim' };
       case 'customer-billing':
@@ -778,15 +779,16 @@ export const Header: React.FC = () => {
                   <Settings size={14} color="var(--text-muted, #5f6779)" />
                   <span>Sistem Ayarları</span>
                 </button>
-                <button
-                  onClick={() => { setShowUserMenu(false); setIsUserMgmtModalOpen(true); }}
+                <button className="btn btn-ghost" onClick={() => { setShowUserMenu(false); setIsMyAccountOpen(true); }} style={{ justifyContent: 'flex-start', margin: '4px 0' }}>Hesabım ve Şifrem</button>
+                {canAccessModule('kullanici-hesaplari') && <button
+                  onClick={() => { setShowUserMenu(false); setActiveView('kullanici-hesaplari'); setActiveRibbonTab('AYARLAR'); }}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 12px', background: 'transparent', border: 'none', borderRadius: 'var(--radius-md, 8px)', fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-main, #1a1f2e)', cursor: 'pointer', textAlign: 'left' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface-hover, #f0f4f9)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 >
                   <UserCheck size={14} color="var(--text-muted, #5f6779)" />
                   <span>Kullanıcı Yönetimi</span>
-                </button>
+                </button>}
                 {/* FAZ 25.3-F: Yardım & Destek erişimi (Bilgi Merkezi'ne yönlendirir) */}
                 <button
                   onClick={() => { setShowUserMenu(false); setActiveView('support-center'); }}
@@ -815,7 +817,7 @@ export const Header: React.FC = () => {
 
       {/* Modals */}
       {isLogoModalOpen && <CompanyLogoModal isOpen={isLogoModalOpen} onClose={() => setIsLogoModalOpen(false)} />}
-      {isUserMgmtModalOpen && <UserManagementModal isOpen={isUserMgmtModalOpen} onClose={() => setIsUserMgmtModalOpen(false)} />}
+      {isMyAccountOpen && <UserAccountDialog isOpen={isMyAccountOpen} onClose={() => setIsMyAccountOpen(false)} />}
       {isInviteModalOpen && <UserInvitationModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} />}
     </>
   );
