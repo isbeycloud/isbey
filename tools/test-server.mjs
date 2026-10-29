@@ -19,6 +19,17 @@ Object.assign(process.env, {
 const { initialDatabaseState } = await import('../server/db/seed.ts');
 const { adminStoredHash } = await import('../server/tests/fixtures/e2eCredentials.ts');
 const fixture = structuredClone(initialDatabaseState);
+// Borç takip tarayıcı testleri için yalnız izole veritabanında açık net bakiyeler.
+for (const [suffix, debit, credit] of [['receivable', 125, 0], ['payable', 0, 75]]) {
+  const id = `debt-e2e-${suffix}`;
+  fixture.customers.push({ ...structuredClone(fixture.customers[0]), id, tenantId: 'tnt-isbey',
+    code: `TEST-${suffix}`, title: `Takip Test ${suffix}`, currency: 'TRY',
+    balance: debit - credit, totalDebit: debit, totalCredit: credit, deletedAt: undefined, active: true });
+  fixture.currentTransactions.push({ id: `tx-${id}`, tenantId: 'tnt-isbey', customerId: id,
+    customerCode: `TEST-${suffix}`, customerTitle: `Takip Test ${suffix}`, documentNo: `TEST-${suffix}`,
+    documentType: 'OPENING_BALANCE', date: '2026-01-01', debit, credit, balance: debit - credit,
+    description: 'İzole takip test bakiyesi', userId: 'usr-admin', createdAt: '2026-01-01T00:00:00Z' });
+}
 // XSLT alış faturası görüntüleyicisi için yalnız izole E2E verisi.
 fixture.invoices.push({ ...structuredClone(fixture.invoices[0]), id: 'inv-xslt-purchase',
   invoiceNo: 'ALS-XSLT-000001', type: 'PURCHASE', tenantId: 'tnt-isbey',

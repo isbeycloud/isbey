@@ -4,6 +4,7 @@ export type NavigationCommand = { id: string; title: string; description: string
   action?: 'customer' | 'product' | 'salesInvoice' | 'purchaseInvoice' | 'collection' | 'payment'; permissionModule?: string };
 
 export const navigationCommands: NavigationCommand[] = [
+  { id: 'debt-tracking', title: 'Alacak / Borç Takibi', description: 'Cari net bakiyeler, takip tarihleri, ödeme sözleri ve uyarılar', view: 'borc-takibi', tab: 'CARI', keywords: 'alacak borc vade takip hatirlatma uyari geciken odeme sozu tahsilat' },
   { id: 'new-sales', title: 'Yeni Satış Faturası', description: 'Müşteriye satış faturası hazırlayın', view: 'satis', tab: 'SATIS', keywords: 'fatura kes satıs yeni belge', action: 'salesInvoice', permissionModule: 'SALES' },
   { id: 'new-customer', title: 'Yeni Cari', description: 'Müşteri veya tedarikçi kartı açın', view: 'cari', tab: 'CARI', keywords: 'musteri ekle tedarikci kart cari hesap', action: 'customer', permissionModule: 'CUSTOMERS' },
   { id: 'new-product', title: 'Yeni Ürün', description: 'Stok kartı ve barkod tanımlayın', view: 'stok', tab: 'STOK', keywords: 'stok malzeme ekle barkod', action: 'product', permissionModule: 'STOCK' },

@@ -1,0 +1,50 @@
+import {test, expect} from './fixtures/adminSession';
+
+test('receivable and payable follow-up persists dates, shows app warnings and retains a failed draft', async ({page,request,adminSession}) => {
+ const headers={Authorization:`Bearer ${adminSession.token}`};
+ const initial=await request.get('/api/debt-tracking',{headers});expect(initial.status()).toBe(200);
+ const data=await initial.json();const target=data.rows.find((r: {amount:number|null;direction:string})=>r.amount!==null&&r.amount>0&&r.direction==='RECEIVABLE');expect(target).toBeTruthy();
+ const previous=new Date(data.today+'T12:00:00Z');previous.setUTCDate(previous.getUTCDate()-1);const yesterday=previous.toISOString().slice(0,10);
+ await page.addInitScript(token=>localStorage.setItem('isbey_token',token),adminSession.token);
+ await page.goto('/');await page.locator('aside').getByRole('button',{name:'Alacak / Borç Takibi',exact:true}).click();
+ const row=page.getByRole('row').filter({hasText:target.customerName});
+ await row.getByRole('button',{name:'Takip Güncelle',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Alacak / Borç Takibini Güncelle',exact:true});
+ await dialog.getByLabel('Takip tarihi',{exact:true}).fill(yesterday);
+ await dialog.getByLabel('Ödeme sözü tarihi',{exact:true}).fill(yesterday);
+ await dialog.getByLabel('Sonraki hatırlatma',{exact:true}).fill(data.today);
+ await dialog.getByRole('combobox',{name:'Takip durumu',exact:true}).selectOption('PROMISED');
+ await dialog.getByLabel('Görüşme notu',{exact:true}).fill('Ödeme sözü görüşüldü; kontrol edilecek.');
+ await page.route('**/api/debt-tracking/*',route=>route.request().method()==='PUT'?route.fulfill({status:503,json:{success:false,message:'Geçici takip kayıt hatası'}}):route.continue(),{times:1});
+ await dialog.getByRole('button',{name:'Takibi Kaydet',exact:true}).click();
+ await expect(dialog.getByRole('alert')).toContainText('Geçici takip kayıt hatası');
+ await expect(dialog.getByLabel('Görüşme notu',{exact:true})).toHaveValue('Ödeme sözü görüşüldü; kontrol edilecek.');
+ await dialog.getByRole('button',{name:'Takibi Kaydet',exact:true}).click();await expect(dialog).toHaveCount(0);
+ await expect(row).toContainText('Takip tarihi geçti');await expect(row).toContainText('Ödeme sözü geçti');
+ await page.getByRole('button',{name:'Bildirimler',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Alacak ve Borç Takibini Aç',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Alacak ve Borç Takibini Aç',exact:true}).click();
+ await expect(page.getByTestId('debt-tracking')).toBeVisible();
+ await page.reload();await page.locator('aside').getByRole('button',{name:'Alacak / Borç Takibi',exact:true}).click();
+ await expect(page.getByRole('row').filter({hasText:target.customerName})).toContainText('Ödeme sözü görüşüldü');
+ await page.getByRole('combobox',{name:'Borç / alacak filtresi',exact:true}).selectOption('PAYABLE');
+ await expect(page.getByRole('row').filter({hasText:target.customerName})).toHaveCount(0);
+ await page.getByRole('combobox',{name:'Borç / alacak filtresi',exact:true}).selectOption('ALL');
+ await page.getByRole('row').filter({hasText:target.customerName}).getByRole('button',{name:'Takip Güncelle',exact:true}).click();
+ await page.setViewportSize({width:390,height:844});
+ const save=dialog.getByRole('button',{name:'Takibi Kaydet',exact:true});expect(await save.evaluate(el=>{const b=el.getBoundingClientRect();return [b.left+5,b.left+b.width/2,b.right-5].every(x=>el.contains(document.elementFromPoint(x,b.top+b.height/2)));})).toBe(true);
+ await page.screenshot({path:'.verify-tmp/debt-followup-mobile-form.png',fullPage:true});
+ await dialog.getByRole('button',{name:'Vazgeç',exact:true}).click();
+ expect(await page.getByTestId('debt-tracking').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+ await page.screenshot({path:'.verify-tmp/debt-followup-mobile.png',fullPage:true});
+ const after=await (await request.get('/api/debt-tracking',{headers})).json();expect(after.rows.find((r:{customerId:string})=>r.customerId===target.customerId).balance).toBe(target.balance);
+});
+
+test('follow-up read error is visible and retry does not pretend the list is empty',async({page,adminSession})=>{
+ await page.addInitScript(token=>localStorage.setItem('isbey_token',token),adminSession.token);
+ await page.route('**/api/debt-tracking',route=>route.fulfill({status:503,json:{success:false,message:'Takip listesi alınamadı'}}),{times:1});
+ await page.goto('/');await page.locator('aside').getByRole('button',{name:'Alacak / Borç Takibi',exact:true}).click();
+ await expect(page.getByTestId('debt-tracking').getByRole('alert')).toContainText('Takip listesi alınamadı');
+ await page.getByTestId('debt-tracking').getByRole('button',{name:'Tekrar Dene',exact:true}).click();
+ await expect(page.getByTestId('debt-tracking').getByRole('alert')).toHaveCount(0);
+});

@@ -30,6 +30,7 @@ import { PurchaseInvoiceView } from './components/modules/alis/PurchaseInvoiceVi
 import { ProductListView } from './components/modules/stok/ProductListView';
 import { CashRegisterView } from './components/modules/kasa/CashRegisterView';
 import { BankAccountView } from './components/modules/banka/BankAccountView';
+import { DebtTrackingView } from './components/modules/finans/DebtTrackingView';
 import { CheckNotesView } from './components/modules/ceksenet/CheckNotesView';
 import { EmployeeView } from './components/modules/personel/EmployeeView';
 import { ReportsView } from './components/modules/raporlar/ReportsView';
@@ -132,6 +133,7 @@ const MainLayout: React.FC = () => {
       case 'hizmetler': return <ServiceCatalogView />;
       case 'dashboard': return <DashboardView />;
       case 'cari': return guard('cari', <CustomerListView />);
+      case 'borc-takibi': return guard('borc-takibi', <DebtTrackingView />);
       case 'pos': return guard('pos', <POSSalesView />);
       case 'teklif': return guard('teklif', <QuotesOrdersView />);
       case 'faturalar': return guard('faturalar', <FaturalarHubView />);

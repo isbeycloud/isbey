@@ -33,6 +33,7 @@ import { CompanyLogoModal } from '../common/CompanyLogoModal';
 import { UserManagementModal } from '../common/UserManagementModal';
 import { UserInvitationModal } from '../common/UserInvitationModal';
 import type { Company } from '../../types';
+import type { DebtTrackingResponse } from '../../types/debtTracking';
 import './Header.css';
 
 export const Header: React.FC = () => {
@@ -63,6 +64,31 @@ export const Header: React.FC = () => {
 
   const [company, setCompany] = useState<Company | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const canSeeDebtTracking = canAccessModule('borc-takibi');
+  const [debtAlerts, setDebtAlerts] = useState<{ tenantId: string; counts: DebtTrackingResponse['counts'] | null; error: string }>({ tenantId: '', counts: null, error: '' });
+  const currentDebtAlerts = debtAlerts.tenantId === activeTenant?.id ? debtAlerts : null;
+  const notificationCount = notifications.length + (canSeeDebtTracking ? currentDebtAlerts?.counts?.actionable || 0 : 0);
+  useEffect(() => {
+    if (!canSeeDebtTracking || !activeTenant?.id) return;
+    let cancelled = false, sequence = 0;
+    const tenantId = activeTenant.id;
+    const load = async () => {
+      const requestNumber = ++sequence;
+      try {
+        const result = await api.getDebtTrackingSummary();
+        if (!result.success) throw Error('Takip uyarıları alınamadı.');
+        if (!cancelled && requestNumber === sequence) setDebtAlerts({ tenantId, counts: result.counts, error: '' });
+      } catch {
+        if (!cancelled && requestNumber === sequence) setDebtAlerts({ tenantId, counts: null, error: 'Takip uyarıları alınamadı; takip ekranından yeniden kontrol edin.' });
+      }
+    };
+    void load();
+    const refresh = () => { if (document.visibilityState === 'visible') void load(); };
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [activeTenant?.id, user?.id, canSeeDebtTracking, refreshKey]);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showTenantMenu, setShowTenantMenu] = useState(false);
@@ -113,6 +139,7 @@ export const Header: React.FC = () => {
 
   const getModuleTitle = (view: string): { title: string; category: string } => {
     switch (view) {
+      case 'borc-takibi': return { title: 'Alacak / Borç Takibi', category: 'Cari Hesaplar' };
       case 'dashboard': return { title: 'Yönetim Paneli & KPI', category: 'Dashboard' };
       case 'companies':
       case 'tenants':
@@ -530,7 +557,7 @@ export const Header: React.FC = () => {
                   sabit '3' gösteriyordu — kullanıcıya var olmayan 3 bildirim
                   vaat ediyordu. Sayı YALNIZ gerçek bildirim varsa gösterilir;
                   yoksa rozet hiç render edilmez. */}
-              {notifications.length > 0 && (
+              {notificationCount > 0 && (
                 <span
                   style={{
                     position: 'absolute',
@@ -550,7 +577,7 @@ export const Header: React.FC = () => {
                     border: '2px solid var(--bg-surface, #ffffff)',
                   }}
                 >
-                  {notifications.length}
+                  {notificationCount}
                 </span>
               )}
             </button>
@@ -574,12 +601,17 @@ export const Header: React.FC = () => {
                 }}
               >
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-light, #edf1f7)', fontWeight: 600, fontSize: 'var(--fs-sm, 12px)', color: 'var(--text-main, #1a1f2e)' }}>
-                  Bildirimler {notifications.length > 0 && `(${notifications.length})`}
+                  Bildirimler {notificationCount > 0 && `(${notificationCount})`}
                 </div>
+                {canSeeDebtTracking && <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', lineHeight: 1.5 }}>
+                  <strong>Alacak ve borç takibi</strong>
+                  <p style={{ margin: '5px 0', fontSize: '12px' }}>{currentDebtAlerts?.error || (currentDebtAlerts?.counts ? `${currentDebtAlerts.counts.actionable} takip ilgilenilmesini bekliyor · ${currentDebtAlerts.counts.upcoming} takip 7 gün içinde.` : 'Takip uyarıları yükleniyor…')}</p>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setActiveView('borc-takibi'); setActiveRibbonTab('CARI'); setShowNotifMenu(false); }}>Alacak ve Borç Takibini Aç</button>
+                </div>}
                 {notifications.length === 0 ? (
                   <div style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-muted, #5f6779)', fontSize: '0.8rem' }}>
                     <Bell size={22} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.5 }} />
-                    Yeni bildiriminiz yok. Her şey yolunda görünüyor.
+                    Diğer bildiriminiz yok.
                   </div>
                 ) : (
                   notifications.map((n, idx) => (

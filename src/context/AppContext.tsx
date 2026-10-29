@@ -6,6 +6,7 @@ export type AppView =
   | 'hizmetler'
   | 'dashboard'
   | 'cari'
+  | 'borc-takibi'
   | 'stok'
   | 'faturalar'
   | 'finans'

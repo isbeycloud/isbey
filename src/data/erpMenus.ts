@@ -1,6 +1,6 @@
 // Shared by the API and UI. Selections restrict existing roles; they never grant new roles.
 export const ERP_MENUS = [
-  { id: 'cari', label: 'Cari hesaplar', views: ['cari'], paths: ['customers'] },
+  { id: 'cari', label: 'Cari hesaplar', views: ['cari', 'borc-takibi'], paths: ['customers', 'debt-tracking'] },
   { id: 'stok', label: 'Stok ve ürünler', views: ['stok'], paths: ['products'] },
   { id: 'faturalar', label: 'Alış ve satış faturaları', views: ['faturalar', 'alis', 'satis'], paths: ['invoices'] },
   { id: 'kasa', label: 'Kasa ve tahsilatlar', views: ['kasa', 'finans'], paths: ['cash', 'collections', 'financial-transactions', 'payment-links', 'field-collections'] },
