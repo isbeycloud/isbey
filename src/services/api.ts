@@ -1,5 +1,6 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
 import type { ManagementReportsResponse, ManagementReportFilters } from '../types/managementReports';
+import type { ExpenseReportsResponse, ExpenseReportFilters } from '../types/expenseReports';
 import type { UserAccountsResponse, UserAccountMeResponse, UserAccountProfile, UserAccountProfileInput, UserAccountPasswordInput, UserAccountPasswordEmailInput, UserAccountMail } from '../types/userAccounts';
 import type { DebtTrackingResponse, DebtTrackingInput, DebtTrackingRow, DebtFollowup } from '../types/debtTracking';
 import type { CompanyCard, CompanyCardEntry, CompanyCardInput, CompanyCardEntryInput } from '../types/companyCards';
@@ -503,6 +504,8 @@ export const api = {
   payEmployee: (id: string, data: any) => request<{ success: boolean; transaction: any; message: string }>(`/employees/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Reports
+  getExpenseTransactionReport: (params: Partial<ExpenseReportFilters> & Pick<ExpenseReportFilters, 'currency'>) =>
+    request<ExpenseReportsResponse>(`/reports/expense-transactions${buildQuery(params)}`),
   getManagementReports: (params: Partial<ManagementReportFilters> & Pick<ManagementReportFilters, 'currency'>) =>
     request<ManagementReportsResponse>(`/reports/management${buildQuery(params)}`),
   getProfitLossReport: (params?: any) => {

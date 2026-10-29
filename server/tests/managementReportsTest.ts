@@ -235,6 +235,15 @@ try {
         id: 'no-currency', tenantId: 'a', date: '2026-10-12', amount: 500, vatAmount: 0, totalAmount: 500, paymentMethod: 'OTHER'
     });
     assert.equal(buildManagementReports(unknownExpense, 'a', filters, { now }).expenses.totalNet, 10, 'Unknown expense currency was guessed');
+    const fractionalExpense = structuredClone(raw);
+    fractionalExpense.expenses = [{ ...fractionalExpense.expenses.find((e: { tenantId: string }) => e.tenantId === 'a'), id: 'native-fractional', amount: 10.01, vatAmount: 10.01 * .2, totalAmount: 10.01 + 10.01 * .2 }];
+    const fractionalBefore = JSON.stringify(fractionalExpense);
+    const fractionalReport = buildManagementReports(fractionalExpense, 'a', filters, { now });
+    assert.equal(fractionalReport.expenses.totalNet, 10.01);
+    assert.equal(fractionalReport.expenses.totalVat, 2);
+    assert.equal(fractionalReport.expenses.totalGross, 12.01);
+    assert(fractionalReport.warnings.some(w => w.code === 'EXPENSE_PRECISION_ROUNDED'));
+    assert.equal(JSON.stringify(fractionalExpense), fractionalBefore);
     const futureStock = structuredClone(raw);
     futureStock.stockMovements.push({
         id: 'future-stock', tenantId: 'a', productId: 'p2', date: '2099-01-01'
