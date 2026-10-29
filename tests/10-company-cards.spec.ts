@@ -63,6 +63,10 @@ test('company cards persist expenses, refunds and repayment tracking without pos
   await page.getByRole('button', { name: 'Kartı Düzenle', exact: true }).click();
   dialog = page.getByRole('dialog', { name: 'Kredi Kartını Düzenle', exact: true });
   await expect(dialog.getByLabel('Başlangıç borcu (TL)', { exact: true })).toBeDisabled();
+  expect(await dialog.getByRole('button', { name: 'Kartı Kaydet', exact: true }).evaluate(el => {
+    const b = el.getBoundingClientRect();
+    return [b.left + 5, b.left + b.width / 2, b.right - 5].every(x => el.contains(document.elementFromPoint(x, b.top + b.height / 2)));
+  })).toBe(true);
   await dialog.getByRole('combobox', { name: 'Kart durumu', exact: true }).selectOption('ARCHIVED');
   await dialog.getByRole('button', { name: 'Kartı Kaydet', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Hareket Ekle', exact: true })).toBeDisabled();
