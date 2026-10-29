@@ -1,4 +1,5 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
+import type { CompanyCard, CompanyCardEntry, CompanyCardInput, CompanyCardEntryInput } from '../types/companyCards';
 import type { FiscalDeviceProfile, FiscalDeviceInput, FiscalAdapterManifest, FiscalDeviceReadiness } from '../types/fiscalDevices';
 import type {
   User,
@@ -281,6 +282,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  getCompanyCards: () => request<{ success: boolean; cards: CompanyCard[]; entries: CompanyCardEntry[] }>('/company-cards'),
+  createCompanyCard: (data: CompanyCardInput) => request<{ success: boolean; card: CompanyCard }>('/company-cards', { method: 'POST', body: JSON.stringify(data) }),
+  updateCompanyCard: (id: string, data: CompanyCardInput & { expectedRevision: string }) => request<{ success: boolean; card: CompanyCard }>(`/company-cards/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createCompanyCardEntry: (id: string, data: CompanyCardEntryInput) => request<{ success: boolean; entry: CompanyCardEntry }>(`/company-cards/${encodeURIComponent(id)}/entries`, { method: 'POST', body: JSON.stringify(data) }),
+  voidCompanyCardEntry: (cardId: string, id: string, expectedRevision: string, reason: string) => request<{ success: boolean; entry: CompanyCardEntry }>(`/company-cards/${encodeURIComponent(cardId)}/entries/${encodeURIComponent(id)}/void`, { method: 'POST', body: JSON.stringify({ expectedRevision, reason }) }),
   getCompanyPackage: (id: string) => request<{ success: boolean; tenant: Tenant; plans: SubscriptionPlan[]; subscription: Subscription | null; history: AuditLog[] }>(`/companies/${encodeURIComponent(id)}/package`),
   updateCompanyPackage: (id: string, data: {
     planIds: string[]; billingMode: 'FREE' | 'PAID' | 'TRIAL'; billingCycle: 'monthly' | 'yearly'; amount: number;

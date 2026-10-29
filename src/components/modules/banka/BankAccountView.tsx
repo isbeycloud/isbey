@@ -6,10 +6,25 @@ import type { BankAccount, BankTransaction } from '../../../types';
 import { api } from '../../../services/api';
 
 import { useApp } from '../../../context/AppContext';
+import { useAuth } from '../../../context/AuthContext';
+import { CompanyCardsView } from './CompanyCardsView';
 import { BankTransferModal } from './BankTransferModal';
 import { Landmark, ArrowUpRight, ArrowDownRight, Wallet, Plus } from 'lucide-react';
 
 export const BankAccountView: React.FC = () => {
+  const { activeTenant } = useApp();
+  const { canAccessModule } = useAuth();
+  const [tab, setTab] = useState<'bank' | 'cards'>('bank');
+  return <div className="company-cards-workspace" key={activeTenant?.id}>
+    <div className="company-cards-tabs" aria-label="Banka ve kart ekranları">
+      <button className={`btn ${tab === 'bank' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={tab === 'bank'} onClick={() => setTab('bank')}>Banka Hesapları</button>
+      {canAccessModule('company-cards') && <button className={`btn ${tab === 'cards' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={tab === 'cards'} onClick={() => setTab('cards')}>Şirket Kredi Kartları</button>}
+    </div>
+    {tab === 'cards' && canAccessModule('company-cards') ? <CompanyCardsView key={activeTenant?.id} /> : <BankAccountsLedger />}
+  </div>;
+};
+
+const BankAccountsLedger: React.FC = () => {
   const { refreshKey, setIsFastCollectionOpen, setIsFastPaymentOpen } = useApp();
 
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);

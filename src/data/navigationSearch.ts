@@ -21,7 +21,7 @@ export const navigationCommands: NavigationCommand[] = [
   { id: 'waybills', title: 'İrsaliyeler', description: 'Sevk ve alış irsaliyeleri', view: 'irsaliye', tab: 'IRSALIYE', keywords: 'irsaliye sevkiyat e-irsaliye' },
   { id: 'expenses', title: 'Giderler', description: 'Masrafları ve şirket harcamalarını takip edin', view: 'gider', tab: 'GIDER', keywords: 'gider masraf harcama' },
   { id: 'cash', title: 'Kasa ve Nakit', description: 'Kasa hareketleri ve bakiyeler', view: 'kasa', tab: 'KASA_BANKA', keywords: 'kasa nakit tahsilat odeme' },
-  { id: 'banks', title: 'Banka Hesapları', description: 'Banka hesapları ve hareketler', view: 'banka', tab: 'KASA_BANKA', keywords: 'banka hesap hareket havale eft' },
+  { id: 'banks', title: 'Banka ve Kredi Kartları', description: 'Banka hesapları, şirket kredi kartları ve harcama takibi', view: 'banka', tab: 'KASA_BANKA', keywords: 'banka hesap hareket havale eft kredi kart karttan harcama ekstre' },
   { id: 'reports', title: 'Raporlar', description: 'Mevcut raporları açın', view: 'raporlar', tab: 'RAPORLAR', keywords: 'rapor ozet analiz' },
   { id: 'companies', title: 'Müşteri & Firmalar', description: 'Firma bilgileri, kullanıcılar ve paket yönetimi', view: 'companies', tab: 'AYARLAR', keywords: 'musteri firma sirket paket ucret ucretsiz kullanici' },
   { id: 'portfolio', title: 'Müşteri Havuzu', description: 'Müşteri aktarımı ve hizmet başvuruları', view: 'hizlibilisim', tab: 'AYARLAR', keywords: 'musteri portfoy hizli bilisim aktarim basvuru' },

@@ -98,3 +98,6 @@ tools/ANTIGRAVITY-GOREV.md
 # `.verify-tmp/` zaten ignore'lu; bu satır dosya başka bir yere konursa da korur.
 *deploy.env
 packages/fiscal-device-kit/dist/
+*.company-cards.json
+*.company-cards.json.lock/
+*.company-cards.json.*.tmp

@@ -4,7 +4,7 @@ export const ERP_MENUS = [
   { id: 'stok', label: 'Stok ve ürünler', views: ['stok'], paths: ['products'] },
   { id: 'faturalar', label: 'Alış ve satış faturaları', views: ['faturalar', 'alis', 'satis'], paths: ['invoices'] },
   { id: 'kasa', label: 'Kasa ve tahsilatlar', views: ['kasa', 'finans'], paths: ['cash', 'collections', 'financial-transactions', 'payment-links', 'field-collections'] },
-  { id: 'banka', label: 'Banka hesapları', views: ['banka'], paths: ['banks', 'bank-matching'] },
+  { id: 'banka', label: 'Banka hesapları', views: ['banka'], paths: ['banks', 'bank-matching', 'company-cards'] },
   { id: 'teklif', label: 'Teklif ve siparişler', views: ['teklif'], paths: ['quotes', 'orders'] },
   { id: 'irsaliye', label: 'İrsaliyeler', views: ['irsaliye'], paths: ['waybills'] },
   { id: 'gider', label: 'Giderler', views: ['gider'], paths: ['expenses'] },
