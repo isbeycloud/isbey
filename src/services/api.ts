@@ -1,4 +1,5 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
+import type { DebtTrackingResponse, DebtTrackingInput, DebtTrackingRow, DebtFollowup } from '../types/debtTracking';
 import type { CompanyCard, CompanyCardEntry, CompanyCardInput, CompanyCardEntryInput } from '../types/companyCards';
 import type { FiscalDeviceProfile, FiscalDeviceInput, FiscalAdapterManifest, FiscalDeviceReadiness } from '../types/fiscalDevices';
 import type {
@@ -282,6 +283,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  getDebtTracking: () => request<DebtTrackingResponse>('/debt-tracking'),
+  getDebtTrackingSummary: () => request<Pick<DebtTrackingResponse, 'success' | 'today' | 'counts'>>('/debt-tracking/summary'),
+  updateDebtTracking: (customerId: string, data: DebtTrackingInput) => request<{ success: boolean; row: DebtTrackingRow; followup: DebtFollowup }>(`/debt-tracking/${encodeURIComponent(customerId)}`, { method: 'PUT', body: JSON.stringify(data) }),
   getCompanyCards: () => request<{ success: boolean; cards: CompanyCard[]; entries: CompanyCardEntry[] }>('/company-cards'),
   createCompanyCard: (data: CompanyCardInput) => request<{ success: boolean; card: CompanyCard }>('/company-cards', { method: 'POST', body: JSON.stringify(data) }),
   updateCompanyCard: (id: string, data: CompanyCardInput & { expectedRevision: string }) => request<{ success: boolean; card: CompanyCard }>(`/company-cards/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),

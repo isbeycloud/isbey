@@ -85,6 +85,7 @@ export function getUserWorkspace(role: string): UserWorkspace {
  * Dizi → sadece belirtilen roller erişebilir
  */
 const MODULE_ACCESS_MATRIX: Record<string, 'ALL' | string[]> = {
+  'borc-takibi': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   'company-cards': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   // ── Herkesin görebildiği modüller
   dashboard: 'ALL',
@@ -194,7 +195,7 @@ export function getSidebarModulesForRole(role: string): SidebarGroup[] {
       },
       {
         groupLabel: 'İŞBEY ERP',
-        moduleIds: ['dashboard', 'cari', 'stok', 'alis', 'satis', 'kasa', 'banka', 'muhasebe', 'edonusum', 'raporlar', 'vergi', 'ayarlar'] as AppView[],
+        moduleIds: ['dashboard', 'cari', 'borc-takibi', 'stok', 'alis', 'satis', 'kasa', 'banka', 'muhasebe', 'edonusum', 'raporlar', 'vergi', 'ayarlar'] as AppView[],
       },
       {
         groupLabel: 'PORTALLAR',
@@ -224,7 +225,7 @@ export function getSidebarModulesForRole(role: string): SidebarGroup[] {
     return [
       {
         groupLabel: 'İŞBEY ERP',
-        moduleIds: ['dashboard', 'cari', 'stok', 'alis', 'satis', 'kasa', 'banka', 'muhasebe', 'edonusum', 'raporlar', 'vergi'] as AppView[],
+        moduleIds: ['dashboard', 'cari', 'borc-takibi', 'stok', 'alis', 'satis', 'kasa', 'banka', 'muhasebe', 'edonusum', 'raporlar', 'vergi'] as AppView[],
       },
       {
         groupLabel: 'FİRMA YÖNETİMİ',

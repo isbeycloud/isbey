@@ -7,6 +7,7 @@ import type { Customer } from '../../../types';
 import { api } from '../../../services/api';
 
 import { useApp } from '../../../context/AppContext';
+import { useAuth } from '../../../context/AuthContext';
 import { CustomerModal } from './CustomerModal';
 import { CustomerStatementModal } from './CustomerStatementModal';
 import { CollectionPaymentModal } from './CollectionPaymentModal';
@@ -23,7 +24,8 @@ import {
 } from 'lucide-react';
 
 export const CustomerListView: React.FC = () => {
-  const { isNewCustomerModalOpen, setIsNewCustomerModalOpen, refreshKey } = useApp();
+  const { isNewCustomerModalOpen, setIsNewCustomerModalOpen, refreshKey, setActiveView, setActiveRibbonTab } = useApp();
+  const { canAccessModule } = useAuth();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,7 +161,7 @@ export const CustomerListView: React.FC = () => {
   return (
     <div className="view-content-container">
       {/* Top filter tabs */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className={`btn ${selectedType === 'ALL' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
@@ -181,6 +183,7 @@ export const CustomerListView: React.FC = () => {
           </button>
         </div>
 
+        {canAccessModule('borc-takibi') && <button className="btn btn-secondary" onClick={() => { setActiveView('borc-takibi'); setActiveRibbonTab('CARI'); }}>Alacak / Borç Takibi</button>}
         <button className="btn btn-primary" onClick={() => setIsNewCustomerModalOpen(true)}>
           <Plus size={16} />
           <span>Yeni Cari Kart Ekle</span>

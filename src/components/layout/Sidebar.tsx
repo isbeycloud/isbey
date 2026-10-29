@@ -92,6 +92,7 @@ function scopeAllowsModule(
 
 // ─── Tüm Modüllerin Meta Verisi (SÖZLEŞME: değişmedi — M3 reskin yalnız görsel) ──
 const MODULE_META: Record<string, ModuleMeta> = {
+  'borc-takibi': { id: 'borc-takibi', ribbonTab: 'CARI', orderNumber: '2', label: 'Alacak / Borç Takibi', icon: <Receipt size={18} /> },
   hizmetler: { id: 'hizmetler', ribbonTab: 'AYARLAR', orderNumber: '0', label: 'Hizmetler ve Paketler', icon: <CreditCard size={18} /> },
   dashboard:          { id: 'dashboard',          ribbonTab: 'ANASAYFA',    orderNumber: '1',  label: 'Ana Sayfa',            icon: <Home size={18} /> },
   cari:               { id: 'cari',               ribbonTab: 'CARI',        orderNumber: '2',  label: 'Cari',                 icon: <Users size={18} /> },
