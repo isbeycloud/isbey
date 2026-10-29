@@ -1,8 +1,10 @@
 /** Nötr görünüm: yalnız UBL'deki alanlar; firma logosu, IBAN veya hesaplanan tutar eklenmez. */
+import { unitDisplayXslt } from './unitDisplayXslt';
 export const standardDocumentXslt = `<?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 <xsl:output method="html" encoding="UTF-8"/>
 <xsl:decimal-format name="tr" decimal-separator="," grouping-separator="."/>
+${unitDisplayXslt}
 <xsl:template match="/">
 <html><head><meta charset="UTF-8"/><style>
 @page{size:A4;margin:12mm}body{font:13px Arial,sans-serif;color:#202938;background:white;margin:0;padding:24px}
@@ -26,7 +28,7 @@ th{background:#f2f4f7}.totals{margin-left:auto;width:320px}.totals td:last-child
 <table><thead><tr><th>Sıra</th><th>Ürün / Hizmet</th><th>Miktar</th><th>Birim</th><xsl:if test="local-name(/*)='Invoice'"><th>Birim Fiyat</th><th>KDV</th><th>Tutar</th></xsl:if></tr></thead><tbody>
 <xsl:for-each select="/*/*[local-name()='InvoiceLine' or local-name()='DespatchLine']"><tr>
 <td><xsl:value-of select="*[local-name()='ID']"/></td><td><xsl:value-of select="*[local-name()='Item']/*[local-name()='Name']"/></td>
-<td><xsl:value-of select="*[local-name()='InvoicedQuantity' or local-name()='DeliveredQuantity']"/></td><td><xsl:value-of select="*[local-name()='InvoicedQuantity' or local-name()='DeliveredQuantity']/@unitCode"/></td>
+<td><xsl:value-of select="*[local-name()='InvoicedQuantity' or local-name()='DeliveredQuantity']"/></td><td><xsl:call-template name="unit-display"><xsl:with-param name="raw" select="*[local-name()='InvoicedQuantity' or local-name()='DeliveredQuantity']/@unitCode"/></xsl:call-template></td>
 <xsl:if test="local-name(/*)='Invoice'"><td><xsl:value-of select="*[local-name()='Price']/*[local-name()='PriceAmount']"/></td><td><xsl:value-of select="*[local-name()='TaxTotal']/*[local-name()='TaxAmount']"/></td><td><xsl:value-of select="*[local-name()='LineExtensionAmount']"/></td></xsl:if>
 </tr></xsl:for-each></tbody></table>
 <xsl:if test="/*/*[local-name()='LegalMonetaryTotal']"><table class="totals"><tbody>

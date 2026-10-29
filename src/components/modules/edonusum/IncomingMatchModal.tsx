@@ -1,3 +1,4 @@
+import { formatUnitLabel } from '../../../utils/unitDisplay';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import type { IngestionPlan, Product } from '../../../types';
 import { Modal } from '../../common/Modal';
@@ -534,7 +535,7 @@ export const IncomingMatchModal: React.FC<Props> = ({
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>{l.line.quantity}</td>
-                          <td>{l.line.unitName}</td>
+                          <td>{formatUnitLabel(l.line.unitCode || l.line.unitName, "—")}</td>
                           {!irsaliyeMi && <td style={{ textAlign: 'right' }}>{tutar(l.line.unitPrice)}</td>}
                           {!irsaliyeMi && <td style={{ textAlign: 'right' }}>%{l.line.vatRate}</td>}
                           <td>

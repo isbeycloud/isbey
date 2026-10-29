@@ -1,5 +1,6 @@
 import type { DocumentType, DocumentDesignConfig } from '../db/schema';
 import { normalizeXsltForBrowser, parseXmlish, findUnsupportedFeatureLocation } from './xsltCompatibility';
+import { unitDisplayXslt } from './ubl/unitDisplayXslt';
 
 /**
  * Metindeki bir ofseti 1 tabanlı satır/kolon konumuna çevirir.
@@ -123,6 +124,7 @@ export class XsltEngineService {
   exclude-result-prefixes="cac cbc ext ubltr">
 
   <xsl:output method="html" doctype-system="about:legacy-compat" encoding="UTF-8" indent="yes" />
+  ${unitDisplayXslt}
 
   <xsl:template match="/">
     <html>
@@ -452,7 +454,7 @@ export class XsltEngineService {
                     </xsl:if>
                   </td>
                   ${config.columns.showQuantity ? '<td style="text-align:right;"><xsl:value-of select="*[local-name()=\'InvoicedQuantity\'] | *[local-name()=\'DeliveredQuantity\']"/></td>' : ''}
-                  ${config.columns.showUnit ? '<td style="text-align:center;"><xsl:value-of select="*[local-name()=\'InvoicedQuantity\']/@unitCode | *[local-name()=\'DeliveredQuantity\']/@unitCode"/></td>' : ''}
+                  ${config.columns.showUnit ? '<td style="text-align:center;"><xsl:call-template name="unit-display"><xsl:with-param name="raw" select="*[local-name()=\'InvoicedQuantity\']/@unitCode | *[local-name()=\'DeliveredQuantity\']/@unitCode"/></xsl:call-template></td>' : ''}
                   ${config.columns.showUnitPrice ? '<td style="text-align:right;"><xsl:value-of select="*[local-name()=\'Price\']/*[local-name()=\'PriceAmount\']"/></td>' : ''}
                   ${config.columns.showDiscount ? '<td style="text-align:right;"><xsl:value-of select="*[local-name()=\'AllowanceCharge\']/*[local-name()=\'Amount\']"/></td>' : ''}
                   ${config.columns.showVatRate ? '<td style="text-align:center;">%<xsl:value-of select="*[local-name()=\'TaxTotal\']/*[local-name()=\'TaxSubtotal\']/*[local-name()=\'Percent\']"/></td>' : ''}

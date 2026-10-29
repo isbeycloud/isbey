@@ -3,6 +3,7 @@ import { UblInvoiceBuilder } from '../services/ubl/ublInvoiceBuilder';
 import { UblDespatchBuilder } from '../services/ubl/ublDespatchBuilder';
 import { parseUblDocument, canIngest, unitNameFromUbl } from '../services/ubl/ublParser';
 import { parseUblTree, decodeXmlText } from '../services/ubl/ublTree';
+import { renderIncomingDocumentHtml } from '../services/ubl/incomingDocumentRenderer';
 import type { Invoice, Waybill, Tenant, Customer } from '../db/schema';
 
 /**
@@ -430,6 +431,35 @@ test('birim: UBL kodu okunabilir ada çevrilir', () => {
   // Bilinmeyen kod olduğu gibi kalır (uydurma ad üretilmez).
   assert.equal(unitNameFromUbl('XYZ'), 'XYZ');
   assert.equal(unitNameFromUbl(undefined), 'Adet');
+  assert.equal(unitNameFromUbl('NIU'), 'Adet');
+  assert.equal(unitNameFromUbl(' niu '), 'Adet');
+  assert.equal(unitNameFromUbl('MTR'), 'Metre');
+});
+
+test('birim etiketi ham UBL kodunu ve tüm belge tutarlarını korur', () => {
+  const xml = UblInvoiceBuilder.buildXml({ invoice, tenant, customer, uuid: 'aa58f0cc-4128-46d9-aa2d-e81bd9f38b7e' });
+  const baseline = parseUblDocument(xml);
+  const withoutUnit = (doc: ReturnType<typeof parseUblDocument>) => ({...doc, lines:doc.lines.map(({unitCode:_code,unitName:_name,...line})=>line)});
+  for (const [code,label] of [['NIU','Adet'],['KGM','Kg'],['MTR','Metre'],['UNKNOWN','UNKNOWN']]) {
+    const source = xml.replace(/unitCode="C62"/g, `unitCode="${code}"`);
+    const doc = parseUblDocument(source);
+    assert.equal(doc.lines[0].unitCode, code);
+    assert.equal(doc.lines[0].unitName, label);
+    assert.deepEqual(withoutUnit(doc), withoutUnit(baseline), 'Birim gösterimi miktar, fiyat veya vergi alanlarını değiştirdi');
+    const before = JSON.stringify(doc);
+    const html = renderIncomingDocumentHtml(doc);
+    assert(html.includes(`<td class="orta">${label}</td>`));
+    assert.equal(JSON.stringify(doc), before, 'Görsel üretimi belgeyi değiştirdi');
+  }
+});
+
+test('gelen belge birim görünümü eski ham etiketleri çözer ve bilinmeyen metni HTML olarak çalıştırmaz', () => {
+  const doc = parseUblDocument(UblInvoiceBuilder.buildXml({invoice,tenant,customer,uuid:'aa58f0cc-4128-46d9-aa2d-e81bd9f38b7e'}));
+  doc.lines[0].unitCode = 'NIU'; doc.lines[0].unitName = 'NIU';
+  assert(renderIncomingDocumentHtml(doc).includes('<td class="orta">Adet</td>'));
+  doc.lines[0].unitCode = '<em>özel</em>'; doc.lines[0].unitName = '<em>özel</em>';
+  assert(renderIncomingDocumentHtml(doc).includes('&lt;em&gt;özel&lt;/em&gt;'));
+  assert(!renderIncomingDocumentHtml(doc).includes('<em>özel</em>'));
 });
 
 // ── 7. Özet ─────────────────────────────────────────────────────────────────

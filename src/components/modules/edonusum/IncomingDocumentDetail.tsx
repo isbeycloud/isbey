@@ -1,3 +1,4 @@
+import { formatUnitLabel } from '../../../utils/unitDisplay';
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
   IncomingInvoice, IncomingDespatch, ParsedUblDocument, ParsedUblLine, ParsedUblParty,
@@ -430,7 +431,7 @@ export const IncomingDocumentDetail: React.FC<Props> = ({ isOpen, onClose, tur, 
                             )}
                           </td>
                           <td style={{ textAlign: 'right' }}>{miktar(l.quantity)}</td>
-                          <td>{l.unitName || YOK}</td>
+                          <td>{formatUnitLabel(l.unitCode || l.unitName, '') || YOK}</td>
                           {!irsaliyeMi && <td style={{ textAlign: 'right' }}>{para(l.unitPrice, currency)}</td>}
                           {!irsaliyeMi && (
                             <td style={{ textAlign: 'right' }}>

@@ -1,3 +1,4 @@
+import { formatUnitLabel } from '../../utils/unitDisplay';
 import React from 'react';
 import type { Company, DocumentTemplateSettings } from '../../types';
 
@@ -82,7 +83,7 @@ export const ClassicInvoiceTemplate: React.FC<TemplateProps> = ({ payload, compa
               <td style={{ padding: '6px', textAlign: 'center' }}>{idx + 1}</td>
               <td style={{ padding: '6px' }}>{it.productName} ({it.productCode})</td>
               <td style={{ padding: '6px', textAlign: 'center' }}>{it.quantity}</td>
-              <td style={{ padding: '6px', textAlign: 'center' }}>{it.unit}</td>
+              <td style={{ padding: '6px', textAlign: 'center' }}>{formatUnitLabel(it.unit, '')}</td>
               <td style={{ padding: '6px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
               <td style={{ padding: '6px', textAlign: 'center' }}>%{it.vatRate}</td>
               <td style={{ padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{it.lineGrandTotal?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
@@ -187,7 +188,7 @@ export const ModernInvoiceTemplate: React.FC<TemplateProps> = ({ payload, compan
                 <div style={{ fontWeight: 600, color: '#0f172a' }}>{it.productName}</div>
                 <div style={{ fontSize: '10px', color: '#94a3b8' }}>{it.productCode}</div>
               </td>
-              <td style={{ padding: '10px 8px', textAlign: 'center' }}>{it.quantity} {it.unit}</td>
+              <td style={{ padding: '10px 8px', textAlign: 'center' }}>{it.quantity} {formatUnitLabel(it.unit, '')}</td>
               <td style={{ padding: '10px 8px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
               <td style={{ padding: '10px 8px', textAlign: 'center' }}>%{it.vatRate}</td>
               <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
@@ -284,7 +285,7 @@ export const CorporateInvoiceTemplate: React.FC<TemplateProps> = ({ payload, com
               <td style={{ padding: '8px', textAlign: 'center' }}>{idx + 1}</td>
               <td style={{ padding: '8px', fontWeight: 600 }}>{it.productName} ({it.productCode})</td>
               <td style={{ padding: '8px', textAlign: 'center' }}>{it.quantity}</td>
-              <td style={{ padding: '8px', textAlign: 'center' }}>{it.unit}</td>
+              <td style={{ padding: '8px', textAlign: 'center' }}>{formatUnitLabel(it.unit, '')}</td>
               <td style={{ padding: '8px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
               <td style={{ padding: '8px', textAlign: 'center' }}>%{it.vatRate}</td>
               <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700 }}>{it.lineGrandTotal?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
@@ -373,7 +374,7 @@ export const CompactInvoiceTemplate: React.FC<TemplateProps> = ({ payload, compa
               <td style={{ padding: '4px 6px' }}>{idx + 1}</td>
               <td style={{ padding: '4px 6px' }}>{it.productName} ({it.productCode})</td>
               <td style={{ padding: '4px 6px', textAlign: 'center' }}>{it.quantity}</td>
-              <td style={{ padding: '4px 6px', textAlign: 'center' }}>{it.unit}</td>
+              <td style={{ padding: '4px 6px', textAlign: 'center' }}>{formatUnitLabel(it.unit, '')}</td>
               <td style={{ padding: '4px 6px', textAlign: 'right' }}>{it.unitPrice?.toFixed(2)} ₺</td>
               <td style={{ padding: '4px 6px', textAlign: 'center' }}>%{it.vatRate}</td>
               <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700 }}>{it.lineGrandTotal?.toFixed(2)} ₺</td>
@@ -475,7 +476,7 @@ export const ProfessionalInvoiceTemplate: React.FC<TemplateProps> = ({ payload, 
                 <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '6px' }}>({it.productCode})</span>
               </td>
               <td style={{ padding: '8px', textAlign: 'center' }}>{it.quantity}</td>
-              <td style={{ padding: '8px', textAlign: 'center' }}>{it.unit}</td>
+              <td style={{ padding: '8px', textAlign: 'center' }}>{formatUnitLabel(it.unit, '')}</td>
               <td style={{ padding: '8px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
               <td style={{ padding: '8px', textAlign: 'center' }}>%{it.vatRate}</td>
               <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>

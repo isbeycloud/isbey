@@ -1,3 +1,4 @@
+import { formatUnitLabel } from '../../../utils/unitDisplay';
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from '../../common/Modal';
 import type { Customer, Product, InvoiceItem, InvoiceProfile, InvoiceCategory, InvoiceSeries, Warehouse } from '../../../types';
@@ -277,7 +278,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         lineGrandTotal: discounted + vAmount,
       };
       setItems(updated);
-      showToast(`"${label}" miktarı artırıldı: ${newQty} ${product.unit}`, 'info');
+      showToast(`"${label}" miktarı artırıldı: ${newQty} ${formatUnitLabel(product.unit, '')}`, 'info');
       return;
     }
 
@@ -1036,7 +1037,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
                           onChange={e => updateItem(idx, 'quantity', e.target.value)}
                         />
                       </td>
-                      <td style={{ textAlign: 'center' }}>{item.unit}</td>
+                      <td style={{ textAlign: 'center' }}>{formatUnitLabel(item.unit, '')}</td>
                       <td>
                         <input
                           type="number"
