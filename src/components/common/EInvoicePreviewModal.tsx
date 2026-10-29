@@ -1,3 +1,4 @@
+import { formatUnitLabelHtml } from '../../utils/unitDisplay';
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from './Modal';
 import { api } from '../../services/api';
@@ -443,7 +444,7 @@ export const EInvoicePreviewModal: React.FC<EInvoicePreviewModalProps> = ({
                 <td class="mono">${it.productCode || `PRD-${idx + 1}`}</td>
                 <td><strong>${it.productName || 'Mal / Hizmet'}</strong></td>
                 <td style="text-align: right;" class="mono">${(it.quantity || 1).toFixed(2)}</td>
-                <td>${it.unit || 'Adet'}</td>
+                <td>${formatUnitLabelHtml(it.unit)}</td>
                 <td style="text-align: right;" class="mono">${(it.unitPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</td>
                 <td style="text-align: right;" class="mono">${(it.lineTotal || (it.unitPrice * it.quantity) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</td>
               </tr>

@@ -1,3 +1,4 @@
+import { formatUnitLabel } from '../../utils/unitDisplay';
 import React from 'react';
 import type { Company, DocumentTemplateSettings, InvoiceTemplateType } from '../../types';
 import {
@@ -172,7 +173,7 @@ export const DocumentTemplateEngine: React.FC<DocumentTemplateEngineProps> = ({
               <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb', fontSize: '12px' }}>
                 <td style={{ padding: '8px 10px' }}>{idx + 1}</td>
                 <td style={{ padding: '8px 10px', fontWeight: 600 }}>{it.productName} ({it.productCode})</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center' }}>{it.quantity} {it.unit}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center' }}>{it.quantity} {formatUnitLabel(it.unit, '')}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
                 <td style={{ padding: '8px 10px', textAlign: 'center' }}>%{it.discount1 || 0}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'center' }}>%{it.vatRate}</td>
@@ -275,7 +276,7 @@ export const DocumentTemplateEngine: React.FC<DocumentTemplateEngineProps> = ({
                 <td style={{ padding: '8px 10px' }}>{idx + 1}</td>
                 <td style={{ padding: '8px 10px', fontWeight: 600 }}>{it.productName} ({it.productCode})</td>
                 <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{it.quantity}</td>
-                <td style={{ padding: '8px 10px', textAlign: 'center' }}>{it.unit}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center' }}>{formatUnitLabel(it.unit, '')}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>{it.unitPrice?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>{it.lineTotal?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
               </tr>

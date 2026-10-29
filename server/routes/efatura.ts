@@ -8,6 +8,7 @@ import { DocumentConversionService } from '../services/documentConversionService
 import { PERMISSIONS, requireAuth, requireRole, requirePermission, resolveTenant } from '../middleware/authGuards';
 import { isOwnedBy, assertOwnedWarehouse, stockMovementOwnedFields } from '../security/tenantOwnership';
 import { getDataDirectory } from '../config/environment';
+import { formatUnitLabelHtml } from '../../src/utils/unitDisplay';
 
 const router = Router();
 
@@ -691,7 +692,7 @@ router.get('/:invoiceId/html', (req: Request, res: Response) => {
             <div style="font-size: 9.5px; color: #64748b;">Kod: ${item.productCode || '-'} ${item.barcode ? `| Barkod: ${item.barcode}` : ''}</div>
           </td>
           <td class="num">${item.quantity}</td>
-          <td>${item.unit || 'Adet'}</td>
+          <td>${formatUnitLabelHtml(item.unit)}</td>
           <td class="num">${(item.unitPrice || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
           <td class="num">${(item.discountAmount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
           <td class="num">%${item.vatRate || 20}</td>

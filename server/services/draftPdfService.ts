@@ -24,6 +24,7 @@
 
 import { storage } from '../db/storage';
 import type { IncomingInvoice, Invoice } from '../db/schema';
+import { formatUnitLabelHtml } from '../../src/utils/unitDisplay';
 
 export type DraftKind = 'OUTGOING' | 'INCOMING';
 
@@ -167,7 +168,7 @@ export function renderOutgoingDraftHtml(
       <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${i + 1}</td>
       <td style="padding:6px 8px;border:1px solid #ddd;">${esc(it.productName)}${it.variantName ? ` (${esc(it.variantName)})` : ''}<br><small style="color:#666;">${esc(it.productCode)}</small></td>
       <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${Number(it.quantity || 0).toLocaleString('tr-TR')}</td>
-      <td style="padding:6px 8px;border:1px solid #ddd;">${esc(it.unit)}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;">${formatUnitLabelHtml(it.unit, '')}</td>
       <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${fmt(it.unitPrice)}</td>
       <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">%${Number(it.discount1 || 0) + Number(it.discount2 || 0)}</td>
       <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">%${it.vatRate}</td>

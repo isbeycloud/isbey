@@ -24,6 +24,7 @@ import {
   attrOf, childOf, childrenOf, decodeXmlText, findFirst, formatAmount,
   parseUblTree, textOf, type XmlNode,
 } from './ublTree';
+import { formatUnitLabel } from '../../../src/utils/unitDisplay';
 
 export type UblDocumentKind = 'INVOICE' | 'DESPATCH';
 
@@ -219,17 +220,9 @@ export interface ParsedUblDocument {
   warnings: string[];
 }
 
-/** UBL birim kodu → Türkçe birim adı. `mapUnitToUbl`'in tersidir. */
-const UBL_UNIT_TO_NAME: Record<string, string> = {
-  C62: 'Adet', NAR: 'Adet', KGM: 'Kg', GRM: 'Gram', LTR: 'Litre', MTR: 'Metre',
-  BX: 'Kutu', PK: 'Paket', TNE: 'Ton', DAY: 'Gün', HUR: 'Saat', MON: 'Ay',
-  SET: 'Set', KWH: 'kWh', MTK: 'm²', MTQ: 'm³', CMT: 'Santimetre', MLT: 'Mililitre',
-};
-
 /** UBL birim kodunu okunabilir ada çevirir; bilinmeyen kod olduğu gibi kalır. */
 export function unitNameFromUbl(code?: string): string {
-  if (!code) return 'Adet';
-  return UBL_UNIT_TO_NAME[code.toUpperCase()] || code;
+  return formatUnitLabel(code);
 }
 
 /**

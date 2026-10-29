@@ -26,6 +26,7 @@
  * istemcide `sandbox`lı bir iframe içinde gösterilir.
  */
 import type { ParsedUblDocument, ParsedUblLine } from './ublParser';
+import { formatUnitLabel } from '../../../src/utils/unitDisplay';
 
 /** HTML kaçışı — belge metni ASLA işaretleme olarak yorumlanmaz. */
 function esc(value: unknown): string {
@@ -123,7 +124,7 @@ function kalemSatiri(l: ParsedUblLine, irsaliyeMi: boolean, currency: string): s
         ${kodlar ? `<div class="kalem-kod">${kodlar}</div>` : ''}
       </td>
       <td class="sag">${miktar(l.quantity)}</td>
-      <td class="orta">${l.unitName ? esc(l.unitName) : YOK}</td>
+      <td class="orta">${l.unitCode || l.unitName ? esc(formatUnitLabel(l.unitCode || l.unitName, '')) : YOK}</td>
       ${
         irsaliyeMi
           ? ''

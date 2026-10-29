@@ -142,6 +142,29 @@ test('GİDEN HTML: gönderilmiş fatura 409 (e-belge portalından alınır)', as
   assert.equal(res.status, 409);
 });
 
+test('GİDEN HTML: UBL birim kodları okunur, ham kayıt ve tutarlar korunur, bilinmeyen etiket kaçışlanır', async () => {
+  const source = storage.getState().invoices.find(i => i.id === 'inv-taslak')!;
+  const originalUnit = source.items[0].unit;
+  const financial = ({ unit: _unit, ...item }: typeof source.items[0]) => item;
+  const before = JSON.stringify(financial(source.items[0]));
+  try {
+    for (const [unit, label] of [['NIU', 'Adet'], ['KGM', 'Kg'], ['MTR', 'Metre'], ['UNKNOWN', 'UNKNOWN'], ['<em>unit</em>', '&lt;em&gt;unit&lt;/em&gt;'], ['', '']]) {
+      storage.update(db => { db.invoices.find(i => i.id === 'inv-taslak')!.items[0].unit = unit; });
+      const res = await fetch(`${base}/api/v1/draft-pdfs/outgoing/inv-taslak/html`, { headers: headers('A') });
+      assert.equal(res.status, 200);
+      const html = await res.text();
+      assert(html.includes(`border:1px solid #ddd;">${label}</td>`), `Birim etiketi yanlış: ${unit}`);
+      assert(!html.includes('<em>unit</em>'), 'Birim HTML olarak yorumlandı');
+      const stored = storage.getState().invoices.find(i => i.id === 'inv-taslak')!.items[0];
+      assert.equal(stored.unit, unit, 'Ham birim kaydı değişti');
+      assert.equal(JSON.stringify(financial(stored)), before, 'Miktar, fiyat, vergi veya tutarlar değişti');
+      assert.match(html, /120,00/, 'Genel toplam değişti');
+    }
+  } finally {
+    storage.update(db => { db.invoices.find(i => i.id === 'inv-taslak')!.items[0].unit = originalUnit; });
+  }
+});
+
 test('GİDEN HTML: yabancı firmanın taslağı 404 (IDOR)', async () => {
   const res = await fetch(`${base}/api/v1/draft-pdfs/outgoing/inv-b/html`, { headers: headers('A') });
   assert.equal(res.status, 404);
