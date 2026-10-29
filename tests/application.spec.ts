@@ -29,7 +29,7 @@ test('API authentication, role boundaries and tenant isolation', async ({ reques
     expect(user.passwordHash).toBeUndefined();
   }
   const escalation = await request.post('/api/auth/users', {
-    headers, data: { username: 'forbidden-escalation', fullName: 'Forbidden', role: 'SUPER_ADMIN', password: 'NotUsed123!', companyId: 'tnt-ankara' },
+    headers, data: { username: 'forbidden-escalation', fullName: 'Forbidden', role: 'SUPER_ADMIN', password: 'NotUsed123!Strong', companyId: 'tnt-ankara' },
   });
   expect(escalation.status()).toBe(403);
   const unknown = await request.get('/api/no-such-endpoint', { headers });
