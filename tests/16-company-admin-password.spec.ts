@@ -7,7 +7,7 @@ test('new company requires a private valid Unicode administrator password before
   await page.route('**/api/**', route => {
     const request = route.request();
     if (!['GET', 'HEAD'].includes(request.method())) {
-      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/companies') {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/admin/companies') {
         attemptedCompanies.push(request.postDataJSON());
         return route.fulfill({ status: 503, json: { success: false, message: 'Test kaydı sunucuya iletilmedi.' } });
       }
