@@ -9,6 +9,7 @@ import { isPlatformUser, membershipFor, companyIdentity } from '../security/memb
 import { Router, Request, Response } from 'express';
 import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
+import bcrypt from 'bcryptjs';
 import type {
   Tenant,
   TenantPlan,
@@ -213,12 +214,22 @@ companiesRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
       authorizedPerson,
       createAdminUser = true,
       adminUsername,
-      adminPassword = '123',
+      adminPassword,
     } = req.body;
 
     if (!name?.trim() || !taxNumber?.trim()) {
       return res.status(400).json({ success: false, message: 'Firma adı ve Vergi Numarası zorunludur.' });
     }
+
+    if (typeof createAdminUser !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'Yönetici hesabı oluşturma seçimi geçersiz.' });
+    }
+    if (createAdminUser && (typeof adminPassword !== 'string' || !adminPassword.trim() || Array.from(adminPassword).length < 12
+        || Buffer.byteLength(adminPassword, 'utf8') > 72)) {
+      return res.status(400).json({ success: false, message: 'Yönetici şifresi zorunludur; en az 12 karakter ve en fazla 72 UTF-8 baytı olmalıdır.' });
+    }
+    // Hash only an explicitly supplied password; never trim it or invent a default.
+    const adminPasswordHash = createAdminUser ? bcrypt.hashSync(adminPassword, 10) : undefined;
 
     const result = await storage.runTransaction(async draft => {
       // 1. Check uniqueness of code and tax number
@@ -389,7 +400,7 @@ companiesRouter.post('/', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
           email: authorizedPerson?.email || email || `${uName}@isbey.com.tr`,
           phone: authorizedPerson?.phone || phone || '',
           role: 'COMPANY_ADMIN' as any,
-          passwordHash: adminPassword || '123',
+          passwordHash: adminPasswordHash!,
           active: true,
           companyId: companyId,
           allowedCompanyIds: [companyId],

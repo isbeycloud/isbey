@@ -81,7 +81,7 @@ export const NewCompanyModal: React.FC<NewCompanyModalProps> = ({
     // Otomatik Kurulum
     createAdminUser: true,
     adminUsername: '',
-    adminPassword: '123',
+    adminPassword: '',
     createDefaultCash: true,
     createDefaultBank: true,
     createDefaultWarehouse: true,
@@ -134,6 +134,12 @@ export const NewCompanyModal: React.FC<NewCompanyModalProps> = ({
     if (!form.name.trim() || !form.taxNumber.trim()) {
       showToast('Firma adı ve Vergi Numarası zorunludur.', 'warning');
       setActiveStep('INFO');
+      return;
+    }
+
+    if (form.createAdminUser && (!form.adminPassword.trim() || Array.from(form.adminPassword).length < 12 || new TextEncoder().encode(form.adminPassword).length > 72)) {
+      showToast('Yönetici şifresi en az 12 karakter, en fazla 72 bayt olmalıdır.', 'warning');
+      setActiveStep('SETUP');
       return;
     }
 
@@ -710,13 +716,18 @@ export const NewCompanyModal: React.FC<NewCompanyModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Şifre:</label>
+                  <label htmlFor="company-admin-password" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Yönetici şifresi:</label>
                   <input
-                    type="text"
+                    id="company-admin-password"
+                    type="password"
+                    autoComplete="new-password"
                     className="form-input"
+                    placeholder="En az 12 karakter"
+                    aria-describedby="company-admin-password-help"
                     value={form.adminPassword}
                     onChange={e => setForm({ ...form, adminPassword: e.target.value })}
                   />
+                  <div id="company-admin-password-help" style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '4px' }}>En az 12 karakter, en fazla 72 bayt. Her kullanıcı için farklı bir şifre belirleyin.</div>
                 </div>
               </div>
             </div>
