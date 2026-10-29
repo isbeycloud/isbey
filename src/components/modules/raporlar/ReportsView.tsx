@@ -4,9 +4,25 @@ import type { Column } from '../../common/DataGrid';
 
 import { api } from '../../../services/api';
 import { useApp } from '../../../context/AppContext';
+import { useAuth } from '../../../context/AuthContext';
 import { BarChart3, TrendingUp, DollarSign, Package, Clock, Sliders, Download } from 'lucide-react';
+import { ManagementReportsPanel } from './ManagementReportsPanel';
 
 export const ReportsView: React.FC = () => {
+  const [section, setSection] = useState<'management' | 'existing'>('management');
+  const { setActiveView } = useApp();
+  const { canAccessModule } = useAuth();
+  return <div className="view-content-container">
+    <nav aria-label="Rapor bölümleri" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+      <button type="button" className={`btn ${section === 'management' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={section === 'management'} onClick={() => setSection('management')}>Yönetici Raporları</button>
+      <button type="button" className={`btn ${section === 'existing' ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={section === 'existing'} onClick={() => setSection('existing')}>Mevcut Raporlar</button>
+      {canAccessModule('rapor-detay') && <button type="button" className="btn btn-secondary" onClick={() => setActiveView('rapor-detay')}>Cari / Stok / Kasa Detayları</button>}
+    </nav>
+    {section === 'management' ? <ManagementReportsPanel /> : <LegacyReportsView />}
+  </div>;
+};
+
+const LegacyReportsView: React.FC = () => {
   // 2026-10-15: firma değişiminde raporun eski firmanın verisinde takılı
   // kalmaması için refreshKey + activeTenantId dinlenir (diğer ekranlardaki desen).
   const { openPrintModal, refreshKey, activeTenantId } = useApp();
@@ -181,6 +197,7 @@ export const ReportsView: React.FC = () => {
 
   return (
     <div className="view-content-container">
+      {activeTab === 'PROFIT_LOSS' && <p role="note" style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', margin: 0 }}>Bu rapor, maliyeti bulunmayan kalemlerde varsayımsal maliyet kullanabilir. Doğrulanabilen maliyet kapsamını Yönetici Raporları → Tahmini Brüt Kâr bölümünden inceleyebilirsiniz.</p>}
       {/* Rapor Türü Sekmeleri */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
