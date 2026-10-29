@@ -85,6 +85,7 @@ export function getUserWorkspace(role: string): UserWorkspace {
  * Dizi → sadece belirtilen roller erişebilir
  */
 const MODULE_ACCESS_MATRIX: Record<string, 'ALL' | string[]> = {
+  'company-cards': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   // ── Herkesin görebildiği modüller
   dashboard: 'ALL',
   raporlar: 'ALL',
