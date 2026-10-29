@@ -85,6 +85,7 @@ export function getUserWorkspace(role: string): UserWorkspace {
  * Dizi → sadece belirtilen roller erişebilir
  */
 const MODULE_ACCESS_MATRIX: Record<string, 'ALL' | string[]> = {
+  'kullanici-hesaplari': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   'borc-takibi': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   'company-cards': ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'],
   // ── Herkesin görebildiği modüller
@@ -191,7 +192,7 @@ export function getSidebarModulesForRole(role: string): SidebarGroup[] {
     return [
       {
         groupLabel: 'PLATFORM YÖNETİM',
-        moduleIds: ['platform-admin', 'hizlibilisim', 'companies', 'dealers', 'subscription', 'customer-billing', 'whitelabel-settings', 'developer-portal', 'marketplace-store', 'activity-logs'] as AppView[],
+        moduleIds: ['platform-admin', 'hizlibilisim', 'companies', 'kullanici-hesaplari', 'dealers', 'subscription', 'customer-billing', 'whitelabel-settings', 'developer-portal', 'marketplace-store', 'activity-logs'] as AppView[],
       },
       {
         groupLabel: 'İŞBEY ERP',
@@ -229,7 +230,7 @@ export function getSidebarModulesForRole(role: string): SidebarGroup[] {
       },
       {
         groupLabel: 'FİRMA YÖNETİMİ',
-        moduleIds: ['companies', 'admin', 'roles-permissions', 'ayarlar', 'activity-logs'] as AppView[],
+        moduleIds: ['companies', 'kullanici-hesaplari', 'admin', 'roles-permissions', 'ayarlar', 'activity-logs'] as AppView[],
       },
       {
         groupLabel: 'EK MODÜLLER',

@@ -26,6 +26,7 @@ interface PublicRoute {
 }
 
 const PUBLIC_ROUTES: PublicRoute[] = [
+  { method: 'POST', pattern: '/api/account-password-reset' },
   // P1-P2: Kimlik doğrulama giriş noktaları
   { method: 'POST', pattern: '/api/auth/login' },
   { method: 'POST', pattern: '/api/auth/register' },

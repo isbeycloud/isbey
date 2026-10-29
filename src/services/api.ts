@@ -1,4 +1,5 @@
 import type { GarantiReadiness, PackageCheckoutPreview } from '../types/packageCheckout';
+import type { UserAccountsResponse, UserAccountMeResponse, UserAccountProfile, UserAccountProfileInput, UserAccountPasswordInput, UserAccountPasswordEmailInput, UserAccountMail } from '../types/userAccounts';
 import type { DebtTrackingResponse, DebtTrackingInput, DebtTrackingRow, DebtFollowup } from '../types/debtTracking';
 import type { CompanyCard, CompanyCardEntry, CompanyCardInput, CompanyCardEntryInput } from '../types/companyCards';
 import type { FiscalDeviceProfile, FiscalDeviceInput, FiscalAdapterManifest, FiscalDeviceReadiness } from '../types/fiscalDevices';
@@ -283,6 +284,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
+  getUserAccounts: () => request<UserAccountsResponse>('/user-accounts'),
+  getMyUserAccount: () => request<UserAccountMeResponse>('/user-accounts/me'),
+  updateUserAccountProfile: (id: string, input: UserAccountProfileInput) => request<{ success: boolean; user: UserAccountProfile; requiresLogin?: boolean }>(`/user-accounts/${encodeURIComponent(id)}/profile`, { method: 'PUT', body: JSON.stringify(input) }),
+  setUserAccountPassword: (id: string, input: UserAccountPasswordInput) => request<{ success: boolean; user: UserAccountProfile; requiresLogin: boolean }>(`/user-accounts/${encodeURIComponent(id)}/password`, { method: 'POST', body: JSON.stringify(input) }),
+  sendUserAccountPasswordEmail: (id: string, input: UserAccountPasswordEmailInput) => request<{ success: boolean; user: UserAccountProfile; mail?: UserAccountMail }>(`/user-accounts/${encodeURIComponent(id)}/password-email`, { method: 'POST', body: JSON.stringify(input) }),
+  completePasswordSetup: (input: { token: string; newPassword: string; confirmPassword: string }) => request<{ success: boolean; message: string }>('/account-password-reset', { method: 'POST', body: JSON.stringify(input) }),
   getDebtTracking: () => request<DebtTrackingResponse>('/debt-tracking'),
   getDebtTrackingSummary: () => request<Pick<DebtTrackingResponse, 'success' | 'today' | 'counts'>>('/debt-tracking/summary'),
   updateDebtTracking: (customerId: string, data: DebtTrackingInput) => request<{ success: boolean; row: DebtTrackingRow; followup: DebtFollowup }>(`/debt-tracking/${encodeURIComponent(customerId)}`, { method: 'PUT', body: JSON.stringify(data) }),

@@ -16,6 +16,7 @@ import { registerByVkn, TRIAL_DAYS } from '../services/registrationService';
 import { evaluateTrialGate } from '../services/trialGateService';
 // FAZ 28: Monitoring & Observability auth izleme
 import { MonitoringService } from '../services/monitoringService';
+import { userAccounts } from '../services/userAccounts';
 
 export const authRouter = Router();
 
@@ -33,6 +34,10 @@ const JWT_EXPIRES_IN = '7d';
  * Helper: JWT Token üretir
  */
 export function generateToken(user: User, tenantId: string): string {
+  // A legacy caller cannot upgrade an old password proof to the newest version.
+  // Authenticated flows pass their captured version explicitly; unversioned
+  // callers remain valid only while the account has no credential override.
+  const credentialVersion = 'credentialVersion' in user ? (user as User & { credentialVersion: string }).credentialVersion : '';
   const payload = {
     userId: user.id,
     username: user.username,
@@ -41,6 +46,7 @@ export function generateToken(user: User, tenantId: string): string {
     tenantId: tenantId,
     companyId: user.companyId || tenantId,
     allowedCompanyIds: user.allowedCompanyIds || [tenantId],
+    credentialVersion,
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
@@ -49,7 +55,7 @@ export function generateToken(user: User, tenantId: string): string {
  * Helper: Şifre doğrulama (hem bcrypt hash hem plain-text geriye uyumlu)
  */
 function verifyPassword(providedPass: string, storedHash: string): boolean {
-  if (!providedPass || !storedHash) return false;
+  if (!providedPass || !storedHash || Buffer.byteLength(providedPass, 'utf8') > 72) return false;
   // Never accept a stored bcrypt hash as the password itself.
   if (!storedHash.startsWith('$2') && process.env.NODE_ENV !== 'production' && storedHash === providedPass) return true;
   try {
@@ -76,9 +82,13 @@ authRouter.post('/login', loginRateLimit, (req: Request, res: Response) => {
   }
 
   const db = storage.getState();
-  const user = db.users.find(
+  let accounts: ReturnType<typeof userAccounts.effectiveUsers>;
+  try { accounts = userAccounts.effectiveUsers(); }
+  catch { return res.status(503).json({ success: false, message: 'Güncel hesap bilgileri doğrulanamadı. Lütfen tekrar deneyin.' }); }
+  const matches = accounts.filter(
     u => u.username.toLowerCase() === loginIdentifier || u.email.toLowerCase() === loginIdentifier
   );
+  const user = matches.length === 1 ? matches[0] : undefined;
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
     MonitoringService.recordAuthEvent('FAILED', loginIdentifier, req.ip || '127.0.0.1', {
@@ -110,13 +120,10 @@ authRouter.post('/login', loginRateLimit, (req: Request, res: Response) => {
   const trialGate = evaluateTrialGate(tenant || {});
 
   // Güncelle: Son giriş zamanı
-  user.lastLoginAt = new Date().toISOString();
-  user.lastLoginIp = req.ip || '127.0.0.1';
+  // Identity overrides remain in the private account store; login audit is unchanged.
 
   // Otomatik Bcrypt yükseltmesi (eğer henüz bcrypt ile hashlenmemişse)
-  if (!user.passwordHash.startsWith('$2a$') && !user.passwordHash.startsWith('$2b$')) {
-    user.passwordHash = bcrypt.hashSync(password, 10);
-  }
+  // Do not copy an overlaid password hash back into the accounting database.
 
   MonitoringService.recordAuthEvent('SUCCESS', user.username, req.ip || '127.0.0.1', {
     tenantId: activeTenantId,
@@ -382,7 +389,7 @@ export const switchCompany = (req: Request, res: Response) => {
     return res.status(403).json({ success: false, message: 'Bu firmaya geçiş yetkiniz bulunmuyor.' });
   }
   const tenant = db.tenants.find(t => t.id === targetTenantId)!;
-  return res.json({ success: true, message: 'Aktif firma değiştirildi.', token: generateToken(account, targetTenantId),
+  return res.json({ success: true, message: 'Aktif firma değiştirildi.', token: generateToken({ ...account, credentialVersion: req.authCredentialVersion || '' } as User, targetTenantId),
     user: companyIdentity(db, account, targetTenantId), activeTenant: redactSecretsDeep(tenant), company: redactSecretsDeep(tenant), activeCompanyId: targetTenantId });
 };
 authRouter.post('/switch-company', requireAuth, switchCompany);

@@ -21,6 +21,10 @@ import { storage } from '../db/storage';
 import { evaluateTrialGate } from '../services/trialGateService';
 
 const ALLOWED_WHILE_LOCKED: { method: string; pattern: string | RegExp }[] = [
+  // Kimlik güvenliği mali veri değiştirmez; üyelik/yetki ve mevcut şifre yine doğrulanır.
+  { method: 'GET', pattern: /^\/api\/user-accounts(?:\/me)?$/ },
+  { method: 'PUT', pattern: /^\/api\/user-accounts\/[^/]+\/profile$/ },
+  { method: 'POST', pattern: /^\/api\/user-accounts\/[^/]+\/(?:password|password-email)$/ },
   { method: 'GET', pattern: '/api/auth/me' },
   // Firma DEĞİŞTİRME (kullanıcı kilitli firmadan diğer firmasına geçebilir —
   // `switchCompany` kendi içinde membership denetler).

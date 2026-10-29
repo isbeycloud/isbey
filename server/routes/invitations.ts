@@ -6,6 +6,7 @@ import { storage } from '../db/storage';
 import { requireAuth, requireRole } from '../middleware/authGuards';
 import { generateToken } from './auth';
 import { Invitation, User, TenantUser } from '../db/schema';
+import { userAccounts, UserAccountsError } from '../services/userAccounts';
 
 export const invitationsRouter = Router();
 
@@ -132,7 +133,7 @@ invitationsRouter.get('/verify/:token', (req: Request, res: Response) => {
 // POST /api/invitations/accept - Accept invitation (Public)
 invitationsRouter.post('/accept', async (req: Request, res: Response) => {
   const { token, fullName, password } = req.body;
-  if (!token || !password) {
+  if (typeof token !== 'string' || !token || typeof password !== 'string' || !password || Buffer.byteLength(password, 'utf8') > 72) {
     return res.status(400).json({ success: false, message: 'Token ve şifre zorunludur.' });
   }
 
@@ -150,25 +151,40 @@ invitationsRouter.post('/accept', async (req: Request, res: Response) => {
 
   try {
     let targetUser: User;
+    let proofVersion = '';
     const now = new Date().toISOString();
 
-    await storage.runTransaction(draft => {
-      let existing = (draft.users || []).find(u => u.email.toLowerCase() === inv.email.toLowerCase());
+    // Existing-account proof must use the same current identity overlay as normal login.
+    const matches = userAccounts.effectiveUsers().filter(u => u.email.trim().toLowerCase() === inv.email.trim().toLowerCase());
+    if (matches.length > 1) return res.status(400).json({ success: false, message: 'Hesap bilgileri doğrulanamadı.' });
+    const existingProof = matches[0];
+    if (existingProof && (!existingProof.active || !bcrypt.compareSync(password, existingProof.passwordHash))) {
+      return res.status(400).json({ success: false, message: 'Mevcut hesabın şifresi doğrulanamadı.' });
+    }
+    if (existingProof) proofVersion = existingProof.credentialVersion;
+    else if (Array.from(password).length < 12) return res.status(400).json({ success: false, message: 'Şifre en az 12 karakter olmalıdır.' });
 
-      if (existing) {
-        if (!existing.active || !bcrypt.compareSync(password, existing.passwordHash)) throw new Error('Mevcut hesabın şifresi doğrulanamadı.');
+    await storage.runTransaction(draft => {
+      const currentInv = draft.invitations?.find(i => i.id === inv.id);
+      if (!currentInv || currentInv.acceptedAt || Date.parse(currentInv.expiresAt) <= Date.now()) throw new UserAccountsError('Geçersiz veya süresi dolmuş davet.');
+      const latestMatches = userAccounts.effectiveUsers().filter(u => u.email.trim().toLowerCase() === inv.email.trim().toLowerCase());
+      if (latestMatches.length > 1 || (latestMatches[0]?.id || '') !== (existingProof?.id || '') || existingProof && userAccounts.credentialVersion(existingProof.id) !== proofVersion) throw new UserAccountsError('Hesap bilgileri değişti. Lütfen tekrar deneyin.');
+      const existing = existingProof ? (draft.users || []).find(u => u.id === existingProof.id) : undefined;
+
+      if (existingProof) {
+        if (!existing?.active) throw new UserAccountsError('Mevcut hesap kullanılamıyor.');
         // Mevcut kullanıcıyı bu tenant'a bağla
         if (!existing.allowedCompanyIds) existing.allowedCompanyIds = [];
         if (!existing.allowedCompanyIds.includes(inv.tenantId)) {
           existing.allowedCompanyIds.push(inv.tenantId);
         }
-        targetUser = existing;
+        targetUser = { ...existing, ...existingProof, allowedCompanyIds: existing.allowedCompanyIds };
       } else {
         // Yeni kullanıcı oluştur
         const baseUsername = inv.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
         let username = baseUsername;
         let c = 1;
-        while ((draft.users || []).some(u => u.username.toLowerCase() === username.toLowerCase())) {
+        while (userAccounts.effectiveUsers().some(u => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === username.toLowerCase())) {
           username = `${baseUsername}${c++}`;
         }
 
@@ -212,13 +228,13 @@ invitationsRouter.post('/accept', async (req: Request, res: Response) => {
       }
 
       // Davetiyeyi kabul edildi olarak işaretle
-      const currentInv = draft.invitations?.find(i => i.id === inv.id);
       if (currentInv) {
         currentInv.acceptedAt = now;
       }
     });
 
-    const jwtToken = generateToken(targetUser!, inv.tenantId);
+    if (userAccounts.credentialVersion(targetUser!.id) !== proofVersion) return res.status(400).json({ success: false, message: 'Hesap güvenlik bilgileri değişti. Yeni şifrenizle tekrar giriş yapın.' });
+    const jwtToken = generateToken({ ...targetUser!, credentialVersion: proofVersion } as User, inv.tenantId);
     const safeUser = companyIdentity(storage.getState(), targetUser!, inv.tenantId);
 
     res.json({
@@ -228,7 +244,7 @@ invitationsRouter.post('/accept', async (req: Request, res: Response) => {
       user: safeUser,
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err instanceof UserAccountsError ? err.status : 500).json({ success: false, message: err instanceof UserAccountsError ? err.message : 'Davet kabul edilemedi.' });
   }
 });
 

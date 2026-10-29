@@ -4,6 +4,7 @@ export type NavigationCommand = { id: string; title: string; description: string
   action?: 'customer' | 'product' | 'salesInvoice' | 'purchaseInvoice' | 'collection' | 'payment'; permissionModule?: string };
 
 export const navigationCommands: NavigationCommand[] = [
+  { id: 'user-accounts', title: 'Kullanıcı Hesapları', description: 'İletişim bilgileri, şifre belirleme ve e-posta gönderimi', view: 'kullanici-hesaplari', tab: 'AYARLAR', keywords: 'kullanici hesap sifre parola eposta e-posta email mail telefon profil' },
   { id: 'debt-tracking', title: 'Alacak / Borç Takibi', description: 'Cari net bakiyeler, takip tarihleri, ödeme sözleri ve uyarılar', view: 'borc-takibi', tab: 'CARI', keywords: 'alacak borc vade takip hatirlatma uyari geciken odeme sozu tahsilat' },
   { id: 'new-sales', title: 'Yeni Satış Faturası', description: 'Müşteriye satış faturası hazırlayın', view: 'satis', tab: 'SATIS', keywords: 'fatura kes satıs yeni belge', action: 'salesInvoice', permissionModule: 'SALES' },
   { id: 'new-customer', title: 'Yeni Cari', description: 'Müşteri veya tedarikçi kartı açın', view: 'cari', tab: 'CARI', keywords: 'musteri ekle tedarikci kart cari hesap', action: 'customer', permissionModule: 'CUSTOMERS' },

@@ -104,3 +104,6 @@ packages/fiscal-device-kit/dist/
 *.debt-tracking.json
 *.debt-tracking.json.lock/
 *.debt-tracking.json.*.tmp
+*.user-accounts.json
+*.user-accounts.json.lock/
+*.user-accounts.json.*.tmp
