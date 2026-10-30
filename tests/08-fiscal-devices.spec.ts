@@ -7,7 +7,7 @@ test('store device setup persists as draft and does not simulate a successful co
   const before = await Promise.all(financialRoutes.map(async path => (await request.get(path, { headers })).json()));
   await page.addInitScript(value => localStorage.setItem('isbey_token', value), token);
   await page.goto('/');
-  await page.getByRole('button', { name: 'POS Satış (F6)', exact: true }).click();
+  await page.locator('aside').getByText('Hızlı Satış (POS)', { exact: true }).click();
   await page.getByRole('button', { name: 'Yazar Kasa / POS Bağlantıları', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Mağaza Cihaz Bağlantıları' });
   await expect(dialog.getByRole('heading', { name: 'Yazar Kasa / POS Bağlantıları' })).toBeVisible();
@@ -32,7 +32,7 @@ test('store device setup persists as draft and does not simulate a successful co
   await expect(dialog.getByRole('article', { name: 'E2E Beko ikinci kasa' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Kapat', exact: true }).click();
   await page.reload();
-  await page.getByRole('button', { name: 'POS Satış (F6)', exact: true }).click();
+  await page.locator('aside').getByText('Hızlı Satış (POS)', { exact: true }).click();
   await page.getByRole('button', { name: 'Yazar Kasa / POS Bağlantıları', exact: true }).click();
   const saved = dialog.getByRole('article', { name: 'E2E Beko ikinci kasa' });
   await expect(saved).toBeVisible();

@@ -288,6 +288,7 @@ export const Header: React.FC = () => {
 
         {/* ─── + Hızlı İşlem (M3 tonal filled button) ─── */}
         <div className="workspace-header-quick" style={{ position: 'relative', marginRight: '14px' }} ref={quickActionRef}>
+          {['satis', 'alis', 'cari', 'stok', 'gider', 'kasa'].some(canAccessModule) && (
           <button
             onClick={() => setShowQuickActionMenu(!showQuickActionMenu)}
             style={{
@@ -313,8 +314,9 @@ export const Header: React.FC = () => {
             <span>Hızlı İşlem</span>
             <ChevronDown size={14} style={{ transform: showQuickActionMenu ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
           </button>
+          )}
 
-          {showQuickActionMenu && (
+          {showQuickActionMenu && ['satis', 'alis', 'cari', 'stok', 'gider', 'kasa'].some(canAccessModule) && (
             <div
               style={{
                 position: 'absolute',

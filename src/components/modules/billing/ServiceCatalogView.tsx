@@ -12,13 +12,10 @@ export function ServiceCatalogView({ onboarding = false }: { onboarding?: boolea
   // seçim state'i yalnız ilk değerle kurulurdu ve sonradan gelen tenant
   // planları kutulara YANSIMAZDI (yeni üye ekranında "bu kalıyor" hissi).
   const [selection, setSelection] = useState<string[]>([]);
-  const [selectionSynced, setSelectionSynced] = useState(false);
+  const activePlanKey = JSON.stringify(activeTenant?.selectedServicePlanIds || []);
   useEffect(() => {
-    if (!selectionSynced && activeTenant) {
-      setSelection(activeTenant.selectedServicePlanIds || []);
-      setSelectionSynced(true);
-    }
-  }, [activeTenant, selectionSynced]);
+    setSelection(JSON.parse(activePlanKey));
+  }, [activeTenant?.id, activePlanKey]);
   const canSelect = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'].includes(r || ''));
   const canOrder = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN', 'MUHASEBE'].includes(r || ''));
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -47,6 +44,7 @@ export function ServiceCatalogView({ onboarding = false }: { onboarding?: boolea
     {!onboarding && <TrialDecisionPanel />}
     <section className="e-service-panel">
       <h2>{onboarding ? 'Paketinizi seçin' : 'Hizmetler ve Paketler'}</h2>
+      {!onboarding && !!activeTenant?.selectedServicePlanIds?.length && <p role="status">Aktif paketler: {plans.filter(p => activeTenant.selectedServicePlanIds?.includes(p.id)).map(p => p.name).join(', ') || 'Yükleniyor…'}</p>}
       <p>{activeTenant?.name} için {onboarding ? 'kullanacağınız hizmetleri seçin.' : 'ERP paketlerini ve e-dönüşüm hizmetlerini inceleyin.'}</p>
       <p>{onboarding ? 'Başlamak için kullanacağınız paketi seçin. 14 günlük denemeniz kayıt tarihinde başladı. Bu seçimle ödeme alınmaz; deneme bitiminde otomatik tahsilat yapılmaz.' : 'Paketlerinizi seçerek hizmetleri hemen açabilirsiniz. Birden fazla paketin hizmetleri birlikte kullanılabilir. Seçim, mevcut üyelik sürenizi değiştirmez.'}</p>
       {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
@@ -56,6 +54,7 @@ export function ServiceCatalogView({ onboarding = false }: { onboarding?: boolea
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16, margin: '20px 0 28px' }}>
         {plans.map(p => <article key={p.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, background: 'var(--bg-surface)' }}>
           <h3 style={{ marginTop: 0 }}>{p.name}</h3><p>{p.description}</p>
+          {activeTenant?.selectedServicePlanIds?.includes(p.id) && <p><strong>Aktif paket</strong></p>}
           {canSelect && <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}><input type="checkbox" disabled={busy} checked={selection.includes(p.id)} onChange={e => setSelection(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} /> <span>{p.name} paketini seç</span></label>}
           <strong style={{ fontSize: 24 }}>{(period === 'MONTHLY' ? p.monthlyPrice : p.yearlyPrice).toLocaleString('tr-TR', { style: 'currency', currency: p.currency })}</strong><span> / {period === 'MONTHLY' ? 'ay' : 'yıl'}</span>
           <p>{p.maxUsers} kullanıcı · {p.maxCompanies} firma<br />Aylık {p.maxInvoicesPerMonth} fatura · {p.includedCredits} kontör</p>

@@ -39,6 +39,7 @@ import type { AppView, RibbonTab } from '../../context/AppContext';
 import { getMembershipSidebar } from '../../utils/modulePermissions';
 import { menuAllowsView } from '../../data/erpMenus';
 import { serviceAllowsView } from '../../data/serviceAccess';
+import { packageSidebar } from '../../utils/packageNavigation';
 
 interface ModuleMeta {
   id: AppView;
@@ -157,7 +158,7 @@ export const Sidebar: React.FC = () => {
     setIsMobileSidebarOpen,
     activeTenant,
   } = useApp();
-  const { user, logout } = useAuth();
+  const { user, logout, canAccessModule } = useAuth();
 
   const userRole = user?.role || 'employee';
 
@@ -176,12 +177,13 @@ export const Sidebar: React.FC = () => {
   }, []);
 
   // FAZ 17: Role-based sidebar modüllerini al (SÖZLEŞME: aynen korunur)
-  const sidebarGroups = getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes).map(g => ({ ...g, moduleIds: g.moduleIds.filter(id => menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id) && scopeAllowsModule(scopeMenus, id)) }));
+  const sidebarGroups = packageSidebar(
+    getMembershipSidebar(user?.effectiveRoles || [userRole], user?.permissionCodes),
+    id => canAccessModule(id) && menuAllowsView(user?.allowedMenuIds, id) && serviceAllowsView(user?.serviceMenuIds, id) && scopeAllowsModule(scopeMenus, id),
+  );
   sidebarGroups.push({ groupLabel: 'HİZMETLER', moduleIds: ['hizmetler'] });
-  // Yalnız zaten görünür/yetkili girişleri birleştir; rol ve menü izinlerini genişletme.
   const managementViews: AppView[] = ['companies', 'tenants', 'platform-admin', 'saas-admin', 'hizlibilisim'];
   const managementEntry = managementViews.find(id => sidebarGroups.some(group => group.moduleIds.includes(id)));
-  for (const group of sidebarGroups) group.moduleIds = group.moduleIds.filter(id => !managementViews.includes(id) || id === managementEntry);
 
   const handleNav = (id: AppView, ribbonTab: RibbonTab) => {
     setActiveView(id);
@@ -298,7 +300,8 @@ export const Sidebar: React.FC = () => {
               )}
 
               {moduleItems.map((item, idx) => {
-                const isActive = activeView === item.id || (item.id === managementEntry && managementViews.includes(activeView));
+                const isActive = activeView === item.id || (item.id === managementEntry && managementViews.includes(activeView))
+                  || (item.id === 'faturalar' && ['alis', 'satis', 'edonusum', 'irsaliye'].includes(activeView));
                 return (
                   <button
                     key={`${item.id}-${idx}`}

@@ -367,6 +367,9 @@ if (isProduction() || process.env.SERVE_STATIC === 'true') {
   app.get('/{*path}', (req, res, next) => {
     if (path.extname(req.path)) return next();
     res.setHeader('Cache-Control', 'no-store');
+    // Only the public home page is indexable; account/payment/share routes
+    // retain their SPA behavior without entering search results.
+    if (req.path !== '/') res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }

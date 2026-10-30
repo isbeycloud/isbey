@@ -7,7 +7,7 @@ import { usePriceListPricing } from '../../../hooks/usePriceListPricing';
 import { api } from '../../../services/api';
 import { useToast } from '../../../context/ToastContext';
 import { useApp } from '../../../context/AppContext';
-import { ProductSelectorModal } from '../../common/ProductSelectorModal';
+import { ProductSelectorModal, type ProductSelection } from '../../common/ProductSelectorModal';
 import { CustomerSelectorModal } from '../../common/CustomerSelectorModal';
 import { QuickProductCreateModal } from '../../common/QuickProductCreateModal';
 import { QuickCustomerCreateModal } from '../../common/QuickCustomerCreateModal';
@@ -250,66 +250,53 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
     setMaturityDate(mat);
   };
 
-  const handleAddProductToItems = (product: Product, variant?: import('../../../types').ProductVariant) => {
-    // 2026-10-12: Fiyat artık carinin fiyat listesine + VARYANTA göre çözülür.
-    // Cari seçili değilse veya listede fiyat yoksa ürünün taban fiyatına düşer;
-    // varyant fiyatı varsa o geçerlidir (bkz. utils/priceResolver).
-    const resolved = resolvePrice(product, variant);
-    const unitPrice = resolved.unitPrice;
-    const vatRate = product.vatRate || 20;
-    const label = variant ? `${product.name} (${variant.name})` : product.name;
-
-    // Aynı ürün + AYNI varyant tekrar eklenirse miktar artar. Farklı varyant
-    // AYRI satır olur (stok ve fiyat varyanta aittir).
-    const existingIndex = items.findIndex(
-      it => it.productId === product.id && (it.variantId || undefined) === (variant?.id || undefined)
-    );
-    if (existingIndex >= 0) {
-      const updated = [...items];
-      const existing = updated[existingIndex];
-      const newQty = (existing.quantity || 1) + 1;
-      const discounted = newQty * existing.unitPrice * (1 - (existing.discount1 || 0) / 100);
-      const vAmount = discounted * (existing.vatRate / 100);
-      updated[existingIndex] = {
-        ...existing,
-        quantity: newQty,
-        lineTotal: discounted,
-        vatAmount: vAmount,
-        lineGrandTotal: discounted + vAmount,
+  const handleAddProductsToItems = (selection: ProductSelection[]) => {
+    const additions = selection.map(({ product, variant }) => {
+      const resolved = resolvePrice(product, variant);
+      const unitPrice = resolved.unitPrice;
+      const vatRate = product.vatRate || 20;
+      const label = variant ? `${product.name} (${variant.name})` : product.name;
+      const newItem: InvoiceItem = {
+        productId: product.id,
+        variantId: variant?.id,
+        variantName: variant?.name,
+        productCode: product.code,
+        productName: label,
+        barcode: variant?.barcode || product.barcode,
+        quantity: 1,
+        unit: product.unit,
+        unitPrice,
+        discount1: 0,
+        discount2: 0,
+        discountAmount: 0,
+        vatRate,
+        vatAmount: unitPrice * (vatRate / 100),
+        vatIncluded: false,
+        priceListId: resolved.priceListId,
+        lineTotal: unitPrice,
+        lineGrandTotal: unitPrice * (1 + vatRate / 100),
       };
-      setItems(updated);
-      showToast(`"${label}" miktarı artırıldı: ${newQty} ${formatUnitLabel(product.unit, '')}`, 'info');
-      return;
-    }
+      if (!items.some(item => item.productId === product.id && (item.variantId || undefined) === (variant?.id || undefined))) trackProduct(product, unitPrice, variant);
+      return newItem;
+    });
+    // Apply the complete batch against current rows so existing-row increments
+    // cannot overwrite another product added during the same React update.
+    setItems(previous => additions.reduce((rows, item) => {
+      const index = rows.findIndex(row => row.productId === item.productId && (row.variantId || undefined) === (item.variantId || undefined));
+      if (index < 0) return [...rows, item];
+      const next = [...rows];
+      const existing = rows[index];
+      const quantity = (existing.quantity || 1) + 1;
+      const lineTotal = quantity * existing.unitPrice * (1 - (existing.discount1 || 0) / 100);
+      const vatAmount = lineTotal * (existing.vatRate / 100);
+      next[index] = { ...existing, quantity, lineTotal, vatAmount, lineGrandTotal: lineTotal + vatAmount };
+      return next;
+    }, previous));
+    if (additions.length) showToast(additions.length === 1 ? `"${additions[0].productName}" faturaya eklendi.` : `${additions.length} ürün / varyant faturaya eklendi.`, 'success');
+  };
 
-    const newItem: InvoiceItem = {
-      productId: product.id,
-      // 2026-10-12: Varyant izi (sunucu stok düşüşünü buradan yapar).
-      variantId: variant?.id,
-      variantName: variant?.name,
-      productCode: product.code,
-      productName: label,
-      barcode: variant?.barcode || product.barcode,
-      quantity: 1,
-      unit: product.unit,
-      unitPrice,
-      discount1: 0,
-      discount2: 0,
-      discountAmount: 0,
-      vatRate,
-      vatAmount: unitPrice * (vatRate / 100),
-      vatIncluded: false,
-      // 2026-10-12: Fiyatın hangi listeden geldiğinin izi (taban fiyatsa undefined).
-      priceListId: resolved.priceListId,
-      lineTotal: unitPrice,
-      lineGrandTotal: unitPrice * (1 + vatRate / 100),
-    };
-
-    setItems(prev => [...prev, newItem]);
-    // Fiyat listesi değişiminde yeniden fiyatlayabilmek için ürünü ve
-    // "el değmemiş" fiyatı hatırla (bkz. cari değişim effect'i).
-    trackProduct(product, unitPrice, variant);
-    showToast(`"${label}" faturaya eklendi.`, 'success');
+  const handleAddProductToItems = (product: Product, variant?: import('../../../types').ProductVariant) => {
+    handleAddProductsToItems([{ product, variant }]);
   };
 
   /**
@@ -1203,6 +1190,7 @@ export const NewInvoiceModal: React.FC<NewInvoiceModalProps> = ({ isOpen, onClos
         isOpen={isProductSelectorOpen}
         onClose={() => setIsProductSelectorOpen(false)}
         onSelect={handleAddProductToItems}
+        onSelectMany={handleAddProductsToItems}
         priceType={invoiceType === 'PURCHASE' ? 'PURCHASE' : 'SALE'}
       />
 
