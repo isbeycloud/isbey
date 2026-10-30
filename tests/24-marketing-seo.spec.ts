@@ -1,6 +1,38 @@
 import { test, expect } from '@playwright/test';
 import { marketing, marketingFaqs } from '../src/data/marketingContent';
 
+test('promotion slides rotate, pause on interaction and keep working on mobile', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  const slider = page.getByRole('region', { name: 'Tanıtım slaytları' });
+  await expect(slider.getByRole('button', { name: 'Otomatik geçişi duraklat' })).toBeVisible();
+  await page.clock.runFor(7100);
+  await expect(slider.getByRole('link', { name: '0537 512 78 10' })).toHaveAttribute('href', 'tel:+905375127810');
+  await slider.getByRole('button', { name: 'Önceki slayt', exact: true }).click();
+  await page.clock.runFor(8000);
+  await expect(slider.getByRole('button', { name: 'Ücretsiz deneyin', exact: true })).toBeVisible();
+  await slider.getByRole('button', { name: 'Önceki slayt', exact: true }).press('ArrowRight');
+  await expect(slider.getByRole('link', { name: '0537 512 78 10' })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const image = slider.getByRole('img');
+  await expect(image).toBeVisible();
+  expect(await image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  await slider.getByRole('button', { name: 'İŞBEY CLOUD slaydını göster' }).click();
+  await slider.getByRole('button', { name: 'Ücretsiz deneyin', exact: true }).click();
+  await expect(page.getByRole('button', { name: '14 Günlük Ücretsiz Denemeyi Başlat', exact: true })).toBeVisible();
+});
+
+test('promotion autoplay respects reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.install();
+  await page.goto('/');
+  const slider = page.getByRole('region', { name: 'Tanıtım slaytları' });
+  await expect(slider.getByRole('button', { name: 'Otomatik geçişi başlat' })).toBeVisible();
+  await page.clock.runFor(15000);
+  await expect(slider.getByRole('button', { name: 'Ücretsiz deneyin', exact: true })).toBeVisible();
+});
+
 test('search crawlers receive real page content and matching structured data before JavaScript', async ({ request, browser, baseURL }) => {
   const response = await request.get('/');
   expect(response.status()).toBe(200);

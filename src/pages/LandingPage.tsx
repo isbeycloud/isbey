@@ -3,6 +3,7 @@ import { ArrowRight, Check, ChevronDown, FileText, Landmark, Menu, Package, Shie
 import { BrandLogo } from '../components/common/BrandLogo';
 import { marketing, marketingFaqs, marketingFeatures } from '../data/marketingContent';
 import { LandingWorkspacePreview } from './LandingWorkspacePreview';
+import { LandingPromoSlider } from './LandingPromoSlider';
 import './LandingPage.css';
 
 interface LandingPageProps { onLoginClick: () => void; onRegisterClick: () => void }
@@ -35,6 +36,7 @@ export const LandingPage = ({ onLoginClick, onRegisterClick }: LandingPageProps)
       </div>
     </header>
     <main id="icerik">
+      <LandingPromoSlider onRegisterClick={onRegisterClick} />
       <section className="lp-container lp-hero" aria-labelledby="lp-title">
         <div className="lp-hero-copy"><p className="lp-eyebrow"><span /> İŞİNİZE ODAKLANIN</p>
           <h1 id="lp-title">Ön muhasebe ve <em>e-Fatura.</em><br />Aynı çalışma alanında.</h1>
