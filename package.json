@@ -19,7 +19,7 @@
     "server": "tsx watch server/index.ts",
     "client": "vite",
     "typecheck": "tsc -b",
-    "build": "npm run devices:kit:build && tsc -b && vite build",
+    "build": "npm run devices:kit:build && tsc -b && vite build && node tools/prerender-landing.mjs",
     "lint": "oxlint src server",
     "security-audit": "npm audit --audit-level=high",
     "ci": "npm run release:check",

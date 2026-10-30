@@ -1,3 +1,5 @@
+import { useAuth } from '../../../context/AuthContext';
+import { packageAllowsSetting } from '../../../utils/packageNavigation';
 import React, { useState, useEffect } from 'react';
 import { DataGrid } from '../../common/DataGrid';
 import type { Column } from '../../common/DataGrid';
@@ -22,6 +24,8 @@ import { Building, Sliders, Database, ShieldCheck, Printer, Save, Download, Refr
 
 export const SettingsView: React.FC = () => {
   const { showToast } = useToast();
+  const { canAccessModule } = useAuth();
+  const visibleSetting = (tab: string) => packageAllowsSetting(tab, canAccessModule);
   const { triggerRefresh, openFormDesigner } = useApp();
 
   const [activeTab, setActiveTab] = useState<'COMPANY' | 'USERS' | 'SCOPES' | 'HIZLI_CONNECT' | 'HIZLI_BILISIM' | 'TEMPLATES' | 'INVOICE_DESIGN' | 'SEQUENCES' | 'PRICE_LISTS' | 'BACKUP' | 'AUDIT_LOGS' | 'SYSTEM'>('COMPANY');
@@ -269,52 +273,52 @@ export const SettingsView: React.FC = () => {
           <ShieldCheck size={14} />
           <span>Yetkilendirme</span>
         </button>
-        <button
+        {visibleSetting('HIZLI_CONNECT') && (<button
           className={`btn ${activeTab === 'HIZLI_CONNECT' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('HIZLI_CONNECT')}
           style={{ fontWeight: activeTab === 'HIZLI_CONNECT' ? 700 : 500 }}
         >
           <Zap size={14} color="#38bdf8" />
           <span>e-Dönüşüm (GİB)</span>
-        </button>
-        <button
+        </button>)}
+        {visibleSetting('HIZLI_BILISIM') && (<button
           className={`btn ${activeTab === 'HIZLI_BILISIM' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('HIZLI_BILISIM')}
           style={{ fontWeight: activeTab === 'HIZLI_BILISIM' ? 700 : 500 }}
         >
           <Zap size={14} color="#a855f7" />
           <span>Hızlı Bilişim Entegrasyonu</span>
-        </button>
-        <button
+        </button>)}
+        {visibleSetting('TEMPLATES') && (<button
           className={`btn ${activeTab === 'TEMPLATES' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('TEMPLATES')}
         >
           <LayoutTemplate size={14} />
           <span>Belge & Fatura Tasarımları</span>
-        </button>
+        </button>)}
         {/* FAZ 25.3-A: Fatura Tasarım Modülü */}
-        <button
+        {visibleSetting('INVOICE_DESIGN') && (<button
           className={`btn ${activeTab === 'INVOICE_DESIGN' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('INVOICE_DESIGN')}
         >
           <Palette size={14} />
           <span>Fatura Tasarımı</span>
-        </button>
-        <button
+        </button>)}
+        {visibleSetting('SEQUENCES') && (<button
           className={`btn ${activeTab === 'SEQUENCES' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('SEQUENCES')}
         >
           <Sliders size={14} />
           <span>Belge Numaraları & Seriler</span>
-        </button>
+        </button>)}
         {/* 2026-10-12: İsimli satış fiyat listeleri (Perakende, Toptan, Bayi…) */}
-        <button
+        {visibleSetting('PRICE_LISTS') && (<button
           className={`btn ${activeTab === 'PRICE_LISTS' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('PRICE_LISTS')}
         >
           <Star size={14} />
           <span>Fiyat Listeleri</span>
-        </button>
+        </button>)}
         <button
           className={`btn ${activeTab === 'SYSTEM' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={() => setActiveTab('SYSTEM')}
@@ -345,19 +349,19 @@ export const SettingsView: React.FC = () => {
       {activeTab === 'SCOPES' && <UserScopeTab />}
 
       {/* 0.1 HIZLI TEKNOLOJİ e-CONNECT ENTEGRASYONU */}
-      {activeTab === 'HIZLI_CONNECT' && <HizliConnectSettingsTab />}
+      {visibleSetting('HIZLI_CONNECT') && activeTab === 'HIZLI_CONNECT' && <HizliConnectSettingsTab />}
 
       {/* 0.2 HIZLI BİLİŞİM MÜŞTERİ ENTEGRASYON AYARLARI */}
-      {activeTab === 'HIZLI_BILISIM' && <HizliBilisimIntegrationTab />}
+      {visibleSetting('HIZLI_BILISIM') && activeTab === 'HIZLI_BILISIM' && <HizliBilisimIntegrationTab />}
 
       {/* 0.3 FATURA TASARIM MODÜLÜ (FAZ 25.3-A) */}
-      {activeTab === 'INVOICE_DESIGN' && <InvoiceDesignTab />}
+      {visibleSetting('INVOICE_DESIGN') && activeTab === 'INVOICE_DESIGN' && <InvoiceDesignTab />}
 
       {/* 0.4 SATIŞ FİYAT LİSTELERİ (2026-10-12) */}
-      {activeTab === 'PRICE_LISTS' && <PriceListManagementTab />}
+      {visibleSetting('PRICE_LISTS') && activeTab === 'PRICE_LISTS' && <PriceListManagementTab />}
 
       {/* 3. PROFESYONEL XSLT BELGE & FATURA TASARIMLARI */}
-      {activeTab === 'TEMPLATES' && (
+      {visibleSetting('TEMPLATES') && activeTab === 'TEMPLATES' && (
         isXsltDesigning ? (
           <DocumentTemplateDesigner
             templateId={selectedXsltTemplateId}
@@ -565,7 +569,7 @@ export const SettingsView: React.FC = () => {
       )}
 
       {/* 2. NUMARATÖRLER */}
-      {activeTab === 'SEQUENCES' && sequences && (
+      {visibleSetting('SEQUENCES') && activeTab === 'SEQUENCES' && sequences && (
         <form onSubmit={handleSaveSequences} className="card-panel" style={{ padding: '20px' }}>
           <div style={{ marginBottom: '16px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -790,6 +794,8 @@ interface FormDesignsListTableProps {
 
 const FormDesignsListTable: React.FC<FormDesignsListTableProps> = ({ onEdit }) => {
   const { showToast } = useToast();
+  const { canAccessModule } = useAuth();
+  const visibleSetting = (tab: string) => packageAllowsSetting(tab, canAccessModule);
   const [designs, setDesigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 

@@ -85,7 +85,6 @@ import { CollaborationMessengerView } from './components/modules/messaging/Colla
 import { SupportKnowledgeCenterView } from './components/modules/support/SupportKnowledgeCenterView';
 import { DeviceSecurityView } from './components/modules/devices/DeviceSecurityView';
 import { ActivityAuditStreamView } from './components/modules/audit/ActivityAuditStreamView';
-import { QuickActionFab } from './components/common/QuickActionFab';
 import { PublicDocumentSharePage } from './pages/PublicDocumentSharePage';
 
 // FAZ 9: SaaS Platform + Bayi + Marketplace + API Platformu + White-Label (Consolidated Master Views)
@@ -119,7 +118,12 @@ const MainLayout: React.FC = () => {
     setActiveRibbonTab,
   } = useApp();
 
-  const { showOnboardingWizard, setShowOnboardingWizard, canAccessModule } = useAuth();
+  const { showOnboardingWizard, setShowOnboardingWizard, canAccessModule, getInitialView, user } = useAuth();
+
+  // A package change can revoke the currently open screen without changing the tenant.
+  useEffect(() => {
+    if (!canAccessModule(activeView)) setActiveView(getInitialView());
+  }, [user, activeView, canAccessModule, getInitialView, setActiveView]);
 
   // FAZ 17: Guard helper — erişim yoksa AccessDenied döndür
   const guard = (moduleId: string, component: React.ReactNode): React.ReactNode => {
@@ -269,8 +273,6 @@ const MainLayout: React.FC = () => {
       />
 
 
-      {/* FAZ 25.3-E: Sağ alt "+Yeni" Hızlı İşlem FAB */}
-      <QuickActionFab />
 
       {/* Yeni Kayıt İlk Kurulum Sihirbazı (Onboarding Wizard) */}
       {showOnboardingWizard && (
@@ -280,9 +282,9 @@ const MainLayout: React.FC = () => {
   );
 };
 
-const AppContent: React.FC = () => {
+const AppContent: React.FC<{ initialAuthScreen?: 'LANDING' | 'LOGIN' | 'REGISTER' }> = ({ initialAuthScreen = 'LANDING' }) => {
   const { isAuthenticated, isLoading, getInitialView, activeTenant, trial } = useAuth();
-  const [authScreen, setAuthScreen] = useState<'LANDING' | 'LOGIN' | 'REGISTER'>('LANDING');
+  const [authScreen, setAuthScreen] = useState<'LANDING' | 'LOGIN' | 'REGISTER'>(initialAuthScreen);
 
   // Check if landing on public payment link (/pay/:token)
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/pay/')) {
@@ -362,11 +364,11 @@ const AppContent: React.FC = () => {
   );
 };
 
-export function App() {
+export function App({ initialAuthScreen = 'LANDING' }: { initialAuthScreen?: 'LANDING' | 'LOGIN' | 'REGISTER' }) {
   return (
     <ToastProvider>
       <AuthProvider>
-        <AppContent />
+        <AppContent initialAuthScreen={initialAuthScreen} />
       </AuthProvider>
     </ToastProvider>
   );

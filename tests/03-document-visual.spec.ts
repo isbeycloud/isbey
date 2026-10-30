@@ -27,7 +27,10 @@ test.beforeAll(async ({ request }) => {
 async function openApp(page: Page, menu: string) {
   await page.addInitScript(value => localStorage.setItem('isbey_token', value), token);
   await page.goto('/');
-  await page.locator('aside').getByText(menu, { exact: true }).click();
+  if (['Satış Faturaları', 'Alış Faturaları'].includes(menu)) {
+    await page.locator('aside').getByText('Faturalar', { exact: true }).click();
+    await page.getByRole('button', { name: menu, exact: true }).click();
+  } else await page.locator('aside').getByText(menu, { exact: true }).click();
 }
 
 test('satış faturası oturumla alınır, XSLT ile görünür ve XML indirilebilir', async ({ page }) => {
@@ -54,7 +57,8 @@ test('alış faturası ve irsaliye A4 düğmeleri XSLT görünümünü açar', a
   await expect(page.getByRole('button', { name: "GİB'e Gönder", exact: true })).toHaveCount(0);
   await expect(page.frameLocator('#einvoice-preview-iframe').locator('[data-invoice-draft-stamp]')).toHaveCount(0);
   await page.goto('/');
-  await page.locator('aside').getByText('İrsaliyeler', { exact: true }).click();
+  await page.locator('aside').getByText('Faturalar', { exact: true }).click();
+  await page.getByRole('button', { name: 'e-İrsaliyeler & Sevk', exact: true }).click();
   await page.getByTitle('XSLT Görüntüle / Yazdır').first().click();
   await expect(page.frameLocator('iframe[title="İrsaliye XSLT Önizleme"]').locator('body')).toContainText('IRS-2026');
   await page.screenshot({ path: '.verify-tmp/xslt-waybill-viewer.png', fullPage: true });

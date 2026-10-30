@@ -38,7 +38,7 @@ import { useAuth } from '../../context/AuthContext';
 export const RibbonBar: React.FC = () => {
   const { canAccessModule } = useAuth();
   const {
-    activeRibbonTab,
+    activeView,
     setActiveRibbonTab,
     setActiveView,
     setIsFastCollectionOpen,
@@ -77,29 +77,11 @@ export const RibbonBar: React.FC = () => {
   ];
 
 
-  const handleTabClick = (tab: RibbonTab, view: AppView) => {
-    setActiveRibbonTab(tab);
-    setActiveView(view);
-  };
+  const activeRibbonTab = tabs.find(tab => tab.view === activeView)?.id;
+  if (!activeRibbonTab) return null;
 
   return (
     <div className="ribbon-container">
-      {/* Ribbon Tabs Row */}
-      <div className="ribbon-tabs-row">
-        {tabs.filter(tab => canAccessModule(tab.view)).map(tab => (
-          <button
-            key={tab.id}
-            className={`ribbon-tab ${activeRibbonTab === tab.id ? 'active' : ''}`}
-            onClick={() => handleTabClick(tab.id, tab.view)}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              {tab.icon}
-              {tab.label}
-            </span>
-          </button>
-        ))}
-      </div>
-
       {/* Ribbon Content Row with Functional Groups */}
       <div className="ribbon-content-row" style={{ display: tabs.some(t => t.id === activeRibbonTab && canAccessModule(t.view)) ? undefined : 'none' }}>
         {/* TAB: ANASAYFA */}
