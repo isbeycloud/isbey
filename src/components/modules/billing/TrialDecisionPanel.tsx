@@ -31,7 +31,10 @@ interface ChoiceState {
  * COMPANY_ADMIN ile sınırlıdır (sunucu `requireRole` denetler).
  */
 export function TrialDecisionPanel() {
-  const { activeTenant, refreshProfile, user } = useAuth();
+  const { activeTenant, refreshProfile, user, trial: profileTrial } = useAuth();
+  // Aktif denemede kalan gün ve paket hatırlatması açılmaz. Süre dolunca
+  // mevcut karar kapısı ve gerçek işlem hataları görünür kalır.
+  const quiet = profileTrial?.state === 'ACTIVE' && profileTrial.daysRemaining > 0;
   const canDecide = (user?.effectiveRoles || [user?.role]).some(r => ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'].includes(r || ''));
   const [state, setState] = useState<ChoiceState | null>(null);
   const [applications, setApplications] = useState<ServiceApplication[]>([]);
@@ -56,12 +59,13 @@ export function TrialDecisionPanel() {
   };
 
   useEffect(() => {
+    if (quiet) { setLoading(false); return; }
     let current = true;
     load()
       .catch(e => { if (current) setError((e as Error).message); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, []);
+  }, [quiet]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError(''); setMessage('');
@@ -79,6 +83,7 @@ export function TrialDecisionPanel() {
     }
   };
 
+  if (quiet) return null;
   if (loading) return <section aria-label="Deneme durumu"><p>Deneme durumu yükleniyor…</p></section>;
   if (!state) return <section aria-label="Deneme durumu">{error && <p role="alert">{error}</p>}</section>;
 

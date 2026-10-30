@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {randomBytes} from 'node:crypto';
+import express from 'express';
+process.env.NODE_ENV='test';
+process.env.JWT_SECRET=randomBytes(48).toString('hex');
+process.env.DATABASE_PATH=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'member-package-')),'database.json');
+for(const key of ['SMTP_HOST','SMTP_PORT','SMTP_SECURE','SMTP_USER','SMTP_PASS','MAIL_FROM'])delete process.env[key];
+const {storage}=await import('../db/storage');
+const {authRouter,generateToken}=await import('../routes/auth');
+const {createEServicesRouter}=await import('../routes/e-services');
+const {HizliBilisimClient}=await import('../services/hizliBilisim/hizliBilisimClient');
+const {isPackageSelectionRequired}=await import('../services/trialGateService');
+const app=express();app.use(express.json());app.use('/api/auth',authRouter);app.use('/api/e-services',createEServicesRouter());
+const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));
+const base=`http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;let checks=0;
+async function call(url:string,method='GET',body?:unknown,token?:string,status=200){const response=await fetch(base+url,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));checks++;return result;}
+try{
+ const now=new Date('2026-10-30T09:00:00Z');const future='2026-10-30T09:00:00.001Z';
+ assert.equal(typeof isPackageSelectionRequired,'function');
+ const trial={status:'TRIAL',expiresAt:future,selectedServicePlanIds:[]};
+ assert.equal(isPackageSelectionRequired(trial,now),true);
+ for(const tenant of [{...trial,expiresAt:now.toISOString()},{...trial,expiresAt:'invalid'},{...trial,expiresAt:undefined},{...trial,status:'ACTIVE'},{...trial,selectedServicePlanIds:undefined},{...trial,selectedServicePlanIds:['selected']}])assert.equal(isPackageSelectionRequired(tenant,now),false);
+ assert.equal(isPackageSelectionRequired({...trial,status:'ACTIVE',license:{isTrial:true,endDate:future}},now),true);
+ assert.equal(isPackageSelectionRequired({...trial,license:{isTrial:true,endDate:now.toISOString()}},now),false);
+ const plain=await call('/api/auth/register','POST',{fullName:'Paket Kullanıcısı',email:'plain@example.test',companyName:'Yeni Firma',password:'FixturePassword-123'},undefined,201);
+ assert.equal(plain.trial.packageSelectionRequired,true);assert.deepEqual(plain.tenant.selectedServicePlanIds,[]);assert.deepEqual(plain.tenant.activeModules,[]);
+ let me=await call('/api/auth/me','GET',undefined,plain.token);assert.equal(me.trial.packageSelectionRequired,true);
+ let login=await call('/api/auth/login','POST',{username:'plain@example.test',password:'FixturePassword-123'});assert.equal(login.trial.packageSelectionRequired,true);
+ const tenantBefore=structuredClone(storage.getState().tenants.find(t=>t.id===plain.tenant.id)!);const paymentBefore=JSON.stringify(storage.getState().eServiceApplications||[]);
+ const plan=storage.getState().subscriptionPlans.find(p=>p.status==='ACTIVE'&&p.activeModules?.length)!;assert(plan);
+ await call('/api/e-services/select-plans','POST',{planIds:[plan.id]},plain.token);
+ me=await call('/api/auth/me','GET',undefined,plain.token);assert.equal(me.trial.packageSelectionRequired,false);
+ login=await call('/api/auth/login','POST',{username:'plain@example.test',password:'FixturePassword-123'});assert.equal(login.trial.packageSelectionRequired,false);
+ const selected=storage.getState().tenants.find(t=>t.id===plain.tenant.id)!;assert.equal(selected.expiresAt,tenantBefore.expiresAt);assert.equal(selected.createdAt,tenantBefore.createdAt);assert.equal(selected.status,'TRIAL');assert.equal(JSON.stringify(storage.getState().eServiceApplications||[]),paymentBefore);
+ (HizliBilisimClient as any).sorgulaMukellef=async(vkn:string)=>({durum:'BULUNDU',musteri:{externalId:'fixture',companyName:'VKN Firma',title:'VKN Firma',taxNumber:vkn,taxOffice:'Fixture',city:'İstanbul',district:'Merkez'}});
+ const vkn=await call('/api/auth/register-by-vkn','POST',{vknTckn:'1234567890',fullName:'VKN Kullanıcısı',email:'vkn@example.test'},undefined,201);
+ assert.equal(vkn.trial.packageSelectionRequired,true);assert.deepEqual(vkn.tenant.selectedServicePlanIds,[]);assert.deepEqual(vkn.tenant.activeModules,[]);
+ me=await call('/api/auth/me','GET',undefined,vkn.token);assert.equal(me.trial.packageSelectionRequired,true);assert.equal((await call('/api/auth/me','GET',undefined,plain.token)).trial.packageSelectionRequired,false);
+ storage.update(db=>{const tenant=db.tenants.find(t=>t.id===vkn.tenant.id)!;delete tenant.selectedServicePlanIds;});assert.equal((await call('/api/auth/me','GET',undefined,vkn.token)).trial.packageSelectionRequired,false);
+ storage.update(db=>{const tenant=db.tenants.find(t=>t.id===vkn.tenant.id)!;tenant.selectedServicePlanIds=[];tenant.status='ACTIVE';});assert.equal((await call('/api/auth/me','GET',undefined,vkn.token)).trial.packageSelectionRequired,false);
+ storage.update(db=>{const tenant=db.tenants.find(t=>t.id===vkn.tenant.id)!;tenant.status='TRIAL';tenant.expiresAt=new Date(Date.now()-1000).toISOString();});assert.equal((await call('/api/auth/me','GET',undefined,vkn.token)).trial.packageSelectionRequired,false);
+ storage.update(db=>{db.users.find(u=>u.id===vkn.user.id)!.role='SUPER_ADMIN';const tenant=db.tenants.find(t=>t.id===vkn.tenant.id)!;tenant.expiresAt=new Date(Date.now()+86400000).toISOString();});const platformToken=generateToken(storage.getState().users.find(u=>u.id===vkn.user.id)!,vkn.tenant.id);assert.equal((await call('/api/auth/me','GET',undefined,platformToken)).trial.packageSelectionRequired,false);
+ console.log(`Member package opening: ${checks} HTTP checks; both registrations, login/me before/after selection, tenant isolation, legacy/paid/platform and exact expiry PASS.`);
+}finally{server.close();}

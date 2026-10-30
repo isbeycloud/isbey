@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { canAccessMembershipModule, getUserWorkspace, getInitialViewForRole, hasPermission as _hasPermission } from '../utils/modulePermissions';
 import type { UserWorkspace } from '../utils/modulePermissions';
 import type { AppView } from './AppContext';
-import { menuAllowsView } from '../data/erpMenus';
+import { ERP_MENUS, menuAllowsView } from '../data/erpMenus';
 import { serviceAllowsView } from '../data/serviceAccess';
 
 interface AuthContextType {
@@ -37,7 +37,7 @@ interface AuthContextType {
   }) => Promise<{ success: boolean; message?: string; username?: string; mailStatus?: string; trialDays?: number }>;
   // 2026-10-16: aktif firmanın deneme durumu (AuthContext dışında karar ekranı
   // da okur; giriş sonrası `decisionRequired` ise kullanıcı hizmetlere yönlenir).
-  trial: { state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean } | null;
+  trial: { state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean; packageSelectionRequired?: boolean } | null;
   logout: () => void;
   switchCompany: (tenantId: string) => Promise<boolean>;
   refreshProfile: () => Promise<void>;
@@ -58,8 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [allowedTenants, setAllowedTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
-  const [registrationLanding, setRegistrationLanding] = useState(false);
-  const [trial, setTrial] = useState<{ state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean } | null>(null);
+  const [trial, setTrial] = useState<{ state: string; expiresAt: string | null; daysRemaining: number; decisionRequired: boolean; packageSelectionRequired?: boolean } | null>(null);
   const sessionGeneration = useRef(0);
 
   const refreshProfile = async () => {
@@ -147,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setUser(res.user);
         if (res.tenant) setActiveTenant(res.tenant);
-        setRegistrationLanding(true);
+        setTrial((res as any).trial || null);
         await refreshProfile();
         return { success: true, message: res.message, username: res.username, mailStatus: res.mailStatus, trialDays: res.trialDays };
       }
@@ -177,9 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setUser(res.user);
         if (res.tenant) setActiveTenant(res.tenant);
-        if (res.isFirstLogin) {
-          setRegistrationLanding(true);
-        }
+        setTrial((res as any).trial || null);
         await refreshProfile();
         return { success: true, message: res.message, isFirstLogin: res.isFirstLogin };
       }
@@ -191,7 +188,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     sessionGeneration.current++;
-    setRegistrationLanding(false);
+    setTrial(null);
     localStorage.removeItem('isbey_token');
     setUser(null);
     setActiveTenant(null);
@@ -208,6 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem('isbey_token', res.token);
         setUser(res.user);
         setActiveTenant(res.activeTenant);
+        setTrial((res as any).trial || null);
         await refreshProfile();
         return true;
       }
@@ -240,10 +238,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const getInitialView = (): AppView => {
     if (!user) return 'dashboard';
     if (trial?.decisionRequired) return 'hizmetler';
-    if (registrationLanding) return 'hizmetler';
-    if (user.serviceMenuIds != null) return 'hizmetler';
-    if (!menuAllowsView(user.allowedMenuIds, getInitialViewForRole(user.role))) return 'dashboard';
-    return getInitialViewForRole(user.role);
+    if (trial?.packageSelectionRequired) return 'hizmetler';
+    const home = getInitialViewForRole(user.role);
+    if (canAccessModule(home)) return home;
+    // Paket kapsamındaki ilk yetkili iş ekranından başla; kapalı bir özet
+    // ekranına veya her girişte yeniden paket seçimine yönlendirme.
+    const first = ERP_MENUS.flatMap(menu => menu.views).find(view => canAccessModule(view));
+    return (first || 'hizmetler') as AppView;
   };
 
   return (

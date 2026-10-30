@@ -1,6 +1,6 @@
 import usersRouter from './users';
 import { redactSecretsDeep } from '../security/credentialMask';
-import { canEnterCompany, companyIdentity } from '../security/memberships';
+import { canEnterCompany, companyIdentity, isPlatformUser } from '../security/memberships';
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -13,7 +13,7 @@ import { loginRateLimit, registerRateLimit } from '../middleware/productionSecur
 // 2026-10-15: VKN ile self-servis kayıt (Hızlı Bilişim'den firma çekme + şifre maili)
 import { registerByVkn, TRIAL_DAYS } from '../services/registrationService';
 // 2026-10-15: Deneme süresi dolduğunda e-Dönüşüm kararı zorunludur
-import { evaluateTrialGate } from '../services/trialGateService';
+import { evaluateTrialGate, isPackageSelectionRequired } from '../services/trialGateService';
 // FAZ 28: Monitoring & Observability auth izleme
 import { MonitoringService } from '../services/monitoringService';
 import { userAccounts } from '../services/userAccounts';
@@ -154,6 +154,7 @@ authRouter.post('/login', loginRateLimit, (req: Request, res: Response) => {
       expiresAt: trialGate.expiresAt,
       daysRemaining: trialGate.daysRemaining,
       decisionRequired: trialGate.state === 'DECISION_REQUIRED',
+      packageSelectionRequired: !isPlatformUser(user) && isPackageSelectionRequired(tenant || {}),
     },
     activeTenant: redactSecretsDeep(tenant) || {
       id: activeTenantId,
@@ -299,6 +300,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       token,
       user: safeUser,
       tenant: newTenant,
+      trial: { ...evaluateTrialGate(newTenant), decisionRequired: false, packageSelectionRequired: true },
       isFirstLogin: true,
     });
   } catch (err: any) {
@@ -350,6 +352,7 @@ authRouter.post('/register-by-vkn', registerRateLimit, async (req: Request, res:
       token,
       user: safeUser,
       tenant: result.tenant,
+      trial: { ...evaluateTrialGate(result.tenant), decisionRequired: false, packageSelectionRequired: true },
       username: result.username,
       mailStatus: result.mailStatus,
       mailMessage: result.mailMessage,
@@ -375,7 +378,7 @@ authRouter.get('/me', requireAuth, (req: Request, res: Response) => {
   const gate = evaluateTrialGate(tenant || {});
   res.json({ success: true, user: req.user, activeTenant: redactSecretsDeep(tenant),
     allowedTenants: db.tenants.filter(t => canEnterCompany(db, account, t.id)).map(t => ({ id: t.id, name: t.name, title: t.title, status: t.status })),
-    trial: { state: gate.state, expiresAt: gate.expiresAt, daysRemaining: gate.daysRemaining, decisionRequired: gate.state === 'DECISION_REQUIRED' } });
+    trial: { state: gate.state, expiresAt: gate.expiresAt, daysRemaining: gate.daysRemaining, decisionRequired: gate.state === 'DECISION_REQUIRED', packageSelectionRequired: !isPlatformUser(req.user) && isPackageSelectionRequired(tenant || {}) } });
 });
 
 // ──────────────────────────────────────────────────────────────────────────

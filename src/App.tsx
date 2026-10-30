@@ -281,7 +281,7 @@ const MainLayout: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading, getInitialView, activeTenant } = useAuth();
+  const { isAuthenticated, isLoading, getInitialView, activeTenant, trial } = useAuth();
   const [authScreen, setAuthScreen] = useState<'LANDING' | 'LOGIN' | 'REGISTER'>('LANDING');
 
   // Check if landing on public payment link (/pay/:token)
@@ -351,8 +351,12 @@ const AppContent: React.FC = () => {
     );
   }
 
+  if (trial?.packageSelectionRequired) {
+    return <ServiceCatalogView key={activeTenant?.id} onboarding />;
+  }
+
   return (
-    <AppProvider initialView={getInitialView()}>
+    <AppProvider key={activeTenant?.id} initialView={getInitialView()}>
       <MainLayout key={activeTenant?.id} />
     </AppProvider>
   );
