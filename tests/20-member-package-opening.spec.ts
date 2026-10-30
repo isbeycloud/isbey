@@ -21,6 +21,10 @@ test('new member chooses once, failures remain visible, reload opens the selecte
   const save = page.getByRole('button', { name: 'Seçtiğim paketleri etkinleştir', exact: true });
   await expect(save).toBeDisabled();
   await page.getByRole('checkbox', { name: 'Başlangıç Paketi paketini seç' }).check();
+  await page.setViewportSize({ width: 390, height: 600 });
+  await save.scrollIntoViewIfNeeded();
+  await expect(save).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   await save.click();
   await expect(page.getByRole('alert')).toHaveText('Paket kaydedilemedi; tekrar deneyin.');
   fail = false;

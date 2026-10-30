@@ -40,7 +40,7 @@ export function ServiceCatalogView({ onboarding = false }: { onboarding?: boolea
     if (canOrder && !onboarding) loadRequests().catch(e => { if (current) setError(e.message); });
     return () => { current = false; };
   }, []);
-  return <div className="view-content-container" style={{ overflowY: 'auto', padding: 24, ...(onboarding ? { minHeight: '100dvh', maxWidth: 1200, margin: '0 auto', boxSizing: 'border-box' as const } : {}) }}>
+  return <div className="view-content-container" style={{ overflowY: 'auto', padding: 24, ...(onboarding ? { height: '100dvh', maxWidth: 1200, margin: '0 auto', boxSizing: 'border-box' as const } : {}) }}>
     {onboarding && <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 28 }}><BrandLogo width={180} /><button className="btn btn-secondary" onClick={logout}>Çıkış yap</button></div>}
     {/* 2026-10-16 (kayıt akışı): deneme kararı bu görünümde verilir (kilitliyken
         açık kalan uçlar). Karar paneli en üsttedir — kullanıcı önce kararını görür. */}
