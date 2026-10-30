@@ -52,6 +52,7 @@ process.env.REGISTER_RATE_LIMIT_MAX ||= '1000';
 const { storage } = await import('../db/storage');
 const { generateToken, authRouter } = await import('../routes/auth');
 const { reportsRouter } = await import('../routes/reports');
+const { createEServicesRouter } = await import('../routes/e-services');
 const { eDonusumRouter } = await import('../routes/e-donusum');
 const { default: efaturaRouter } = await import('../routes/efatura');
 const { defaultDeny } = await import('../middleware/securityGate');
@@ -106,6 +107,7 @@ app.use('/api', defaultDeny);
 app.use('/api', trialDecisionGate);
 app.use('/api/auth', authRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/e-services', createEServicesRouter());
 app.use('/api/efatura', efaturaRouter);
 app.use('/api/v1/e-donusum', eDonusumRouter);
 const server = app.listen(0, '127.0.0.1');
@@ -231,7 +233,14 @@ test('kayıt: BULUNDU durumunda 201, deneme 14 gün, e-Dönüşüm kapalı', asy
   // (`serviceMenuIds`) deneme çekirdeğini taşır ama e-Dönüşüm kapatmaz — bu
   // yüzden kapı sözleşmesi menü kapsamını ölçer.
   const me = await call('/api/auth/me', 'GET', undefined, trialToken);
-  assert.equal(serviceAllowsView(me.user.serviceMenuIds, 'cari'), true, 'cari denemede açık olmalı');
+  assert.equal(me.trial.packageSelectionRequired, true);
+  assert.equal(serviceAllowsView(me.user.serviceMenuIds, 'cari'), false, 'ilk paket seçimi beklenmeli');
+  const plan = storage.getState().subscriptionPlans!.find(p => p.status === 'ACTIVE' && p.activeModules.includes('RAPORLAR') && p.activeModules.includes('CARI'))!;
+  assert.ok(plan, 'deneme çekirdeği paketi bulunmalı');
+  await call('/api/e-services/select-plans', 'POST', { planIds: [plan.id] }, trialToken);
+  const selected = await call('/api/auth/me', 'GET', undefined, trialToken);
+  assert.equal(selected.trial.packageSelectionRequired, false);
+  assert.equal(serviceAllowsView(selected.user.serviceMenuIds, 'cari'), true);
   assert.equal(menuAllowsView(me.user.allowedMenuIds, 'cari'), true, 'cari menü kapsamında açık olmalı');
   assert.equal(menuAllowsView(me.user.allowedMenuIds, 'edonusum'), false, 'e-Dönüşüm denemede menü kapsamıyla KAPALI olmalı');
   // HTTP probu: gerçek e-belge ucu denemede 403 döner (kontör TÜKENMEZ —

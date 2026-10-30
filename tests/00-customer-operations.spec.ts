@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('direct signup opens the service catalog and can request a plan', async ({ page, request }) => {
+test('direct signup selects a package once and can later request a plan', async ({ page, request }) => {
   // 2026-10-16 (VKN akışı): kayıt formunda şifre/firma ünvanı YOK; firma bilgisi
   // Hızlı Bilişim'den çekilir. E2E'de Hızlı Bilişim ağı yok, bu yüzden:
   //  - gerçek token + TAZE (paketsiz) tenant sunucudan (legacy /register) alınır,
@@ -42,6 +42,7 @@ test('direct signup opens the service catalog and can request a plan', async ({ 
         token: seeded.token,
         user: seeded.user,
         tenant: seeded.tenant,
+        trial: seeded.trial,
         username: seeded.user?.username || `catalog-${stamp}`,
         mailStatus: 'QUEUED',
         trialDays: 14,
@@ -69,17 +70,20 @@ test('direct signup opens the service catalog and can request a plan', async ({ 
   expect(sentBodies[0]).not.toHaveProperty('companyName');
   expect(sentBodies[0].vknTckn).toBe('1234567890');
   expect(sentBodies[0].email).toBe(`catalog-${stamp}@example.test`);
-  await expect(page.getByRole('heading', { name: 'Hizmetler ve Paketler', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Paketinizi seçin', exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('isbey_token'))).toBe(seeded.token);
-  await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toBeVisible();
-  await page.getByRole('button', { name: 'Paket talebi oluştur', exact: true }).first().click();
-  await expect(page.getByText('paket talebiniz kaydedildi. Henüz ödeme alınmadı.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toHaveCount(0);
   await expect(page.locator('aside').getByText('Cari', { exact: true })).toHaveCount(0);
   await page.getByRole('checkbox', { name: /paketini seç/ }).first().check();
   await page.getByRole('button', { name: 'Seçtiğim paketleri etkinleştir', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'hizmetleri etkinleştirildi' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Paketinizi seçin', exact: true })).toHaveCount(0);
   await expect(page.locator('aside').getByText('Cari', { exact: true })).toBeVisible();
   await expect(page.locator('aside').getByText('Banka', { exact: true })).toHaveCount(0);
+  await page.locator('aside').getByRole('button', { name: 'Hizmetler ve Paketler', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'e-Dönüşüm hizmetleri' })).toBeVisible();
+  await page.getByRole('button', { name: 'Paket talebi oluştur', exact: true }).first().click();
+  await expect(page.getByText('paket talebiniz kaydedildi. Henüz ödeme alınmadı.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Deneme ve e-Dönüşüm kararı' })).toHaveCount(0);
   await page.reload();
   await expect(page.locator('aside').getByText('Cari', { exact: true })).toBeVisible();
   await expect(page.locator('aside').getByText('Banka', { exact: true })).toHaveCount(0);

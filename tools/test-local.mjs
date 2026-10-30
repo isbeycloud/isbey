@@ -182,6 +182,7 @@ const suites = [
   // YEREL taklit edilir; dışarı tek istek (SMTP dahil) çıkmaz. SMTP
   // bilerek boştur: mail QUEUED kalır, SENT asla uydurulmaz. Ağa ÇIKMAZ.
   'registrationTrialGateTest.ts',
+  'memberPackageOpeningTest.ts',
   // 2026-10-20: SIFIR TUTAR KAPISI. Canlıda SAT-2026-000005 (RETAIL_POS, 3×0 TL)
   // stok çıkışı doğurdu, alacak doğurmadı, nedeni hiçbir yerde yazmıyordu.
   // Bu dosya kapının İKİ yazma yolunda da (legacy `/api/invoices` ve

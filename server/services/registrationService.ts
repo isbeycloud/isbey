@@ -18,11 +18,11 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import { storage } from '../db/storage';
-import type { Tenant, User, TenantPlan, TenantModule } from '../db/schema';
+import type { Tenant, User, TenantModule } from '../db/schema';
 import { HizliBilisimClient, type RemoteHizliCustomer } from './hizliBilisim/hizliBilisimClient';
 import { queueAndSendMail } from './emailOutboxService';
 import { registrationPasswordMail } from './mailService';
-import { PRE_ACCOUNTING_MENU_IDS, trialActiveModules, trialServicePlanSelection } from './trialGateService';
+import { PRE_ACCOUNTING_MENU_IDS } from './trialGateService';
 
 export const TRIAL_DAYS = 14;
 
@@ -165,8 +165,7 @@ export async function registerByVkn(input: RegisterByVknInput): Promise<Register
   const temporaryPassword = generateTemporaryPassword();
   const passwordHash = bcrypt.hashSync(temporaryPassword, 10);
 
-  // Hizmet paketi: ön muhasebe otomatik açılır (paket seçim ekranı atlanır).
-  const trialPlan = trialServicePlanSelection(storage.getState());
+  // Yeni üye ilk açılışta paketini kendisi seçer.
 
   const tenant: Tenant = {
     id: tenantId,
@@ -181,11 +180,8 @@ export async function registerByVkn(input: RegisterByVknInput): Promise<Register
     address: customer.address,
     city: customer.city,
     district: customer.district,
-    // Eski `plan` alanı seçilen deneme paketini yansıtır (bilinen slug
-    // yoksa STARTER varsayılır).
-    plan: (['FREE', 'STARTER', 'PRO', 'PROFESSIONAL', 'ENTERPRISE'] as const).includes(trialPlan?.slug as any)
-      ? (trialPlan!.slug as TenantPlan)
-      : 'STARTER',
+    // Hizmetler ilk paket seçimi tamamlanınca açılır.
+    plan: 'STARTER',
     status: 'TRIAL',
     maxUsers: 5,
     currentUsers: 1,
@@ -195,13 +191,9 @@ export async function registerByVkn(input: RegisterByVknInput): Promise<Register
     eInvoiceCredits: 100,
     storageLimitMb: 2048,
     storageUsedMb: 5,
-    // Ön muhasebe paketi OTOMATİK açılır (paket seçtirilmez). Paket yoksa
-    // boş kalır: eski davranış (paket seçim ekranı) bozulmaz.
-    // activeModules denemede e-belge İÇERMEZ (`trialActiveModules`); servis
-    // paketindeki e-belge modülleri menü kapsamı (`allowedMenuIds`,
-    // `menuAllowsPath`) ile kapatılır — kayıt dürüst, kapatma sunucudadır.
-    activeModules: trialPlan ? trialActiveModules(trialPlan.modules) : [],
-    selectedServicePlanIds: trialPlan ? [trialPlan.planId] : [],
+    // Boş seçim ilk açılışta zorunlu paket ekranını kalıcı olarak işaretler.
+    activeModules: [],
+    selectedServicePlanIds: [],
     ownerName: fullName,
     ownerEmail: email,
     ownerPhone: phone,

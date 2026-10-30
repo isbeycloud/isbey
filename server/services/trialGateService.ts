@@ -110,10 +110,19 @@ export function trialActiveModules(modules: unknown): TenantModule[] {
 }
 
 export interface GateTenantShape {
+  selectedServicePlanIds?: string[];
   status?: string;
   expiresAt?: string;
   license?: { isTrial?: boolean; trialDays?: number; endDate?: string };
   edonusumChoice?: 'ON_MUHASEBE' | 'E_DONUSUM';
+}
+
+/** Yeni üyede ilk paket seçimi; bitişi ve mevcut üyelerin seçimlerini değiştirmez. */
+export function isPackageSelectionRequired(tenant: GateTenantShape, now: Date = new Date()): boolean {
+  const end = Date.parse(trialEndsAt(tenant) || '');
+  return (tenant.status === 'TRIAL' || tenant.license?.isTrial === true)
+    && Number.isFinite(end) && now.getTime() < end
+    && Array.isArray(tenant.selectedServicePlanIds) && tenant.selectedServicePlanIds.length === 0;
 }
 
 /** Deneme bitiş anı: `license.endDate` öncelikli, yoksa `expiresAt`. */
